@@ -22,6 +22,9 @@ module mod_mhd_phys
   !> Whether Hall-MHD is used
   logical, public, protected              :: mhd_Hall = .false.
 
+  !> Whether Ambipolar term is used
+  logical, public, protected              :: mhd_ambipolar = .false.
+
   !> Whether particles module is added
   logical, public, protected              :: mhd_particles = .false.
 
@@ -186,7 +189,7 @@ contains
 
     namelist /mhd_list/ mhd_energy, mhd_n_tracer, mhd_gamma, mhd_adiab,&
       mhd_eta, mhd_eta_hyper, mhd_etah, mhd_glm_alpha, mhd_magnetofriction,&
-      mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_gravity,&
+      mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar,  mhd_gravity,&
       mhd_viscosity, mhd_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, compactres, divbwave, He_abundance, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr, mhd_particles,&
@@ -237,6 +240,7 @@ contains
     use mod_thermal_conduction
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
+    use mod_collisions, only: collisions_init
     use mod_gravity, only: gravity_init
     use mod_particles, only: particles_init
     use mod_magnetofriction, only: magnetofriction_init
@@ -442,6 +446,8 @@ contains
 
     ! Initialize viscosity module
     if (mhd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
+    ! Initialize collisions module
+    if (mhd_ambipolar) call collisions_init(SI_unit)
 
     ! Initialize gravity module
     if(mhd_gravity) then
