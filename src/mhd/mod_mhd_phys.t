@@ -23,7 +23,10 @@ module mod_mhd_phys
   logical, public, protected              :: mhd_Hall = .false.
 
   !> Whether Ambipolar term is used
-  logical, public, protected              :: mhd_ambipolar = .false.
+  integer, parameter                      :: mhd_ambipolar_none=0
+  integer, parameter                      :: mhd_ambipolar_plasma=1
+  integer, parameter                      :: mhd_ambipolar_file=2
+  integer, public, protected              :: mhd_ambipolar = mhd_ambipolar_none
 
   !> Whether particles module is added
   logical, public, protected              :: mhd_particles = .false.
@@ -452,7 +455,7 @@ contains
     ! Initialize viscosity module
     if (mhd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
     ! Initialize collisions module
-    if (mhd_ambipolar) call collisions_init(SI_unit)
+    if (mhd_ambipolar==mhd_ambipolar_plasma) call collisions_init(SI_unit)
 
     ! Initialize gravity module
     if(mhd_gravity) then
