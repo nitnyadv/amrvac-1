@@ -23,10 +23,7 @@ module mod_mhd_phys
   logical, public, protected              :: mhd_Hall = .false.
 
   !> Whether Ambipolar term is used
-  integer, parameter                      :: mhd_ambipolar_none=0
-  integer, parameter                      :: mhd_ambipolar_plasma=1
-  integer, parameter                      :: mhd_ambipolar_file=2
-  integer, public, protected              :: mhd_ambipolar = mhd_ambipolar_none
+  logical, public, protected              :: mhd_ambipolar = .false.
 
   !> Whether particles module is added
   logical, public, protected              :: mhd_particles = .false.
@@ -104,6 +101,9 @@ module mod_mhd_phys
 
   !> TODO: what is this?
   double precision, public                :: mhd_etah = 0.0d0
+
+  !> The MHD ambipolar coefficient
+  double precision, public                :: mhd_eta_ambi = 0.0d0
 
   !> The small_est allowed energy
   double precision, protected             :: small_e
@@ -194,7 +194,7 @@ contains
     integer                      :: n
 
     namelist /mhd_list/ mhd_energy, mhd_n_tracer, mhd_gamma, mhd_adiab,&
-      mhd_eta, mhd_eta_hyper, mhd_etah, mhd_glm_alpha, mhd_magnetofriction,&
+      mhd_eta, mhd_eta_hyper, mhd_etah, mhd_eta_ambi, mhd_glm_alpha, mhd_magnetofriction,&
       mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar,  mhd_gravity,&
       mhd_viscosity, mhd_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, compactres, divbwave, He_abundance, SI_unit, B0field,&
@@ -246,7 +246,6 @@ contains
     use mod_thermal_conduction
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
-    use mod_collisions, only: collisions_init
     use mod_gravity, only: gravity_init
     use mod_particles, only: particles_init
     use mod_magnetofriction, only: magnetofriction_init
@@ -454,8 +453,6 @@ contains
 
     ! Initialize viscosity module
     if (mhd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
-    ! Initialize collisions module
-    if (mhd_ambipolar==mhd_ambipolar_plasma) call collisions_init(SI_unit)
 
     ! Initialize gravity module
     if(mhd_gravity) then
@@ -477,7 +474,7 @@ contains
     ! For Hall, we need one more reconstructed layer since currents are computed
     ! in getflux: assuming one additional ghost layer (two for FOURTHORDER) was
     ! added in nghostcells.
-    if (mhd_hall) then
+    if (mhd_hall .or. mhd_ambipolar) then
        phys_req_diagonal = .true.
        if (mhd_4th_order) then
           phys_wider_stencil = 2
@@ -966,13 +963,18 @@ contains
 
   end subroutine mhd_get_cbounds
 
-  !> Calculate fast magnetosonic wave speed
-  subroutine mhd_get_csound(w,x,ixI^L,ixO^L,idim,csound)
+
+  !> This subroutine calculates the effective sound speed which is calculated from
+  !> the sound speed: csound and the aflven speed
+  !> As the magnetic field and the density which appear in this calculation are the same
+  !> as primitive and conserved variables this method is the same
+  !> when the sound speed is calculated from primitive (mhd_get_csound_prim) or conserved variables (mhd_get_csound).
+  subroutine mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
     use mod_global_parameters
 
     integer, intent(in)          :: ixI^L, ixO^L, idim
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
-    double precision, intent(out):: csound(ixI^S)
+    double precision, intent(inout):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma2(ixO^S)
 
@@ -983,8 +985,6 @@ contains
     else
       gamma2 = 1.0d0
     end if
-
-    call mhd_get_csound2(w,x,ixI^L,ixO^L,csound)
 
     ! store |B|^2 in v
     b2(ixO^S) = mhd_mag_en_all(w,ixI^L,ixO^L) * gamma2
@@ -1014,6 +1014,26 @@ contains
             mhd_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
     end if
 
+  end subroutine mhd_get_csound_eff
+
+
+
+
+  !> Calculate fast magnetosonic wave speed
+  subroutine mhd_get_csound(w,x,ixI^L,ixO^L,idim,csound)
+    use mod_global_parameters
+
+    integer, intent(in)          :: ixI^L, ixO^L, idim
+    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
+    double precision, intent(out):: csound(ixI^S)
+    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
+    double precision :: inv_rho(ixO^S), gamma2(ixO^S)
+
+
+    call mhd_get_csound2(w,x,ixI^L,ixO^L,csound)
+    call mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
+
+
   end subroutine mhd_get_csound
 
   !> Calculate fast magnetosonic wave speed
@@ -1023,48 +1043,10 @@ contains
     integer, intent(in)          :: ixI^L, ixO^L, idim
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(out):: csound(ixI^S)
-    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-    double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
 
-    inv_rho=1.d0/w(ixO^S,rho_)
 
-    if (mhd_boris_type == boris_reduced_force) then
-      call mhd_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
-    else
-      gamma_A2 = 1.0d0
-    end if
-
-    if(mhd_energy) then
-      csound(ixO^S)=mhd_gamma*w(ixO^S,p_)*inv_rho
-    else
-      csound(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
-    end if
-    ! store |B|^2 in v
-    b2(ixO^S)        = mhd_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
-    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
-    AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
-         * mhd_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho * gamma_A2
-
-    where(AvMinCs2(ixO^S)<zero)
-       AvMinCs2(ixO^S)=zero
-    end where
-
-    AvMinCs2(ixO^S)=sqrt(AvMinCs2(ixO^S))
-
-    if (.not. MHD_Hall) then
-       csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
-       if (mhd_boris_type == boris_simplification) then
-          csound(ixO^S) = mhd_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
-       end if
-    else
-       ! take the Hall velocity into account:
-       ! most simple estimate, high k limit:
-       ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
-       kmax = dpi/min({dxlevel(^D)},bigdouble)*half
-       csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
-            mhd_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
-    end if
+    call mhd_get_csound1(w,x,ixI^L,ixO^L,csound)
+    call mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
 
   end subroutine mhd_get_csound_prim
 
@@ -1103,6 +1085,26 @@ contains
     end if
   end subroutine mhd_get_csound2
 
+
+  !> Calculate the square of the thermal sound speed csound2 within ixO^L.
+  !> csound2=gamma*p/rho
+  subroutine mhd_get_csound1(w,x,ixI^L,ixO^L,csound1)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: csound1(ixI^S)
+
+
+    if(mhd_energy) then
+      csound1(ixO^S)=mhd_gamma*w(ixO^S,p_)/w(ixO^S,rho_)
+    else
+      csound1(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
+    end if
+  end subroutine mhd_get_csound1
+
+
+
   !> Calculate total pressure within ixO^L including magnetic pressure
   subroutine mhd_get_p_total(w,x,ixI^L,ixO^L,p)
     use mod_global_parameters
@@ -1134,6 +1136,7 @@ contains
     double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
     double precision, allocatable:: vHall(:^D&,:)
     integer                      :: idirmin, iw, idir, jdir, kdir
+    double precision, allocatable:: ele(:^D&,:)
 
     if (mhd_Hall) then
       allocate(vHall(ixI^S,1:ndir))
@@ -1256,6 +1259,52 @@ contains
       !f_i[psi]=Ch^2*b_{i} Eq. 24e and Eq. 38c Dedner et al 2002 JCP, 175, 645
       f(ixO^S,psi_)  = cmax_global**2*w(ixO^S,mag(idim))
     end if
+
+    if (mhd_Hall) then
+      deallocate(vHall)
+    end if
+
+    ! Contributions of ambipolar term
+    if(mhd_ambipolar .and. mhd_eta_ambi>0) then
+      !!reuse tmp and store ambipolar coefficent 
+      tmp(ixO^S) = mhd_eta_ambi/(w(ixO^S,rho_)**2) 
+      allocate(ele(ixI^S,1:3))
+      call mhd_get_jxbxb(w,x,ixI^L,ixO^L,ele)
+      do idir=1,3
+        ele(ixO^S,idir) = tmp(ixO^S) * ele(ixO^S,idir)
+      enddo
+      !!energy flux contribution in ExB term
+      if(mhd_energy) then
+        jdir = mod(idim,3) + 1
+        kdir = mod(idim,3) + 2
+        f(ixO^S,e_) = f(ixO^S,e_) + (ele(ixO^S,jdir) * mhd_mag_i_all(w, ixI^L, ixO^L, kdir) - & 
+                                    ele(ixO^S,kdir) * mhd_mag_i_all(w, ixI^L, ixO^L, jdir))
+
+      endif
+      !!!mag field flux
+      do idir=1,ndir
+        if(idir .ne. idim) then
+          kdir=get_index_curl_as_div(idir, idim)
+          f(ixO^S,mag(idir)) =  MERGE(1, -1, kdir>0) *  ele(ixO^S,abs(kdir))
+        endif 
+      enddo
+      deallocate(ele)
+    endif
+    ! Contributions of ambipolar term end
+  contains 
+  pure function get_index_curl_as_div(comp, dir) result(res)
+    integer, intent(in) :: comp,dir
+    integer :: res
+    if (comp .eq. dir) then
+      res=0
+    else
+      if(mod(comp,3)+1 .eq. dir) then
+        res= mod(dir,3)+1 
+      else
+        res= -(mod(comp,3)+1) 
+      endif
+    endif
+  end function get_index_curl_as_div
 
   end subroutine mhd_get_flux
 
@@ -2088,7 +2137,7 @@ contains
 
     integer                       :: idirmin,idim
     double precision              :: dxarr(ndim)
-    double precision              :: current(ixI^S,7-2*ndir:3),eta(ixI^S)
+    double precision              :: current(ixI^S,7-2*ndir:3),tmp(ixI^S)
 
     dtnew = bigdouble
 
@@ -2097,15 +2146,16 @@ contains
        dtnew=dtdiffpar*minval(dxarr(1:ndim))**2/mhd_eta
     else if (mhd_eta<zero)then
        call get_current(w,ixI^L,ixO^L,idirmin,current)
-       call usr_special_resistivity(w,ixI^L,ixO^L,idirmin,x,current,eta)
+        !tmp is eta here
+       call usr_special_resistivity(w,ixI^L,ixO^L,idirmin,x,current,tmp)
        dtnew=bigdouble
        do idim=1,ndim
          if(slab_uniform) then
            dtnew=min(dtnew,&
-                dtdiffpar/(smalldouble+maxval(eta(ixO^S)/dxarr(idim)**2)))
+                dtdiffpar/(smalldouble+maxval(tmp(ixO^S)/dxarr(idim)**2)))
          else
            dtnew=min(dtnew,&
-                dtdiffpar/(smalldouble+maxval(eta(ixO^S)/block%ds(ixO^S,idim)**2)))
+                dtdiffpar/(smalldouble+maxval(tmp(ixO^S)/block%ds(ixO^S,idim)**2)))
          end if
        end do
     end if
@@ -2130,6 +2180,20 @@ contains
       call gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
     end if
 
+    !tmp is bmag**2 here
+    if(mhd_ambipolar) then
+      if (.not. B0field) then
+         tmp(ixO^S)=sum(w(ixO^S,mag(:))**2, dim=ndim+1)
+      else
+         tmp(ixO^S)=sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2)
+      end if
+  
+      if(slab_uniform) then
+        dtnew=min(dtdiffpar*minval(dxarr(1:ndim))**2.0d0/(mhd_eta_ambi*maxval(tmp(ixO^S)/w(ixO^S,rho_)**2)), dtnew)
+      else
+        dtnew=min(dtdiffpar*minval(block%ds(ixO^S,1:ndim))**2.0d0/(mhd_eta_ambi*maxval(tmp(ixO^S)/w(ixO^S,rho_)**2)), dtnew)
+      end if
+    endif
   end subroutine mhd_get_dt
 
   ! Add geometrical source terms to w
@@ -2349,6 +2413,41 @@ contains
 
   end subroutine mhd_getv_Hall
 
+  subroutine mhd_get_jxbxb(w,x,ixI^L,ixO^L,res)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, allocatable, intent(inout) :: res(:^D&,:)
+
+    double precision  :: btot(ixI^S,1:3)
+
+    integer          :: idir, idirmin
+    double precision :: current(ixI^S,7-2*ndir:3)
+    double precision :: tmp(ixI^S),b2(ixI^S)
+
+    ! Calculate current density and idirmin
+    call get_current(w,ixI^L,ixO^L,idirmin,current)
+    !!!here we know that current has nonzero values only for components in the range idirmin, 3
+ 
+    if(B0field) then
+      do idir=1,3
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+      enddo
+    else
+      btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+    endif
+    tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
+    b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
+    do idir=1,idirmin-1
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S)
+    enddo
+    do idir=idirmin,3
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S) - current(ixO^S,idir) * b2(ixO^S)
+    enddo
+  end subroutine mhd_get_jxbxb
+
   subroutine mhd_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)
     use mod_global_parameters
 
@@ -2380,6 +2479,7 @@ contains
     end if
 
   end subroutine mhd_getdt_Hall
+ 
 
   subroutine mhd_modify_wLR(ixI^L,ixO^L,qt,wLC,wRC,wLp,wRp,s,idir)
     use mod_global_parameters
