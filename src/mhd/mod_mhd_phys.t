@@ -1337,6 +1337,7 @@ contains
       if(mhd_energy .and. mhd_solve_eaux) then
         active = .true.
         call internal_energy_add_source(qdt,ixI^L,ixO^L,wCT,w,x)
+        if(mhd_ambipolar .and. mhd_eta_ambi > 0d0) call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x)
       endif
 
       ! Source for B0 splitting
@@ -1564,6 +1565,60 @@ contains
     w(ixO^S,eaux_)=w(ixO^S,eaux_)-qdt*pth(ixO^S)*divv(ixO^S)
   end subroutine internal_energy_add_source
 
+
+  subroutine mhd_get_jxbxb(w,x,ixI^L,ixO^L,res)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, allocatable, intent(inout) :: res(:^D&,:)
+
+    double precision  :: btot(ixI^S,1:3)
+
+    integer          :: idir, idirmin
+    double precision :: current(ixI^S,7-2*ndir:3)
+    double precision :: tmp(ixI^S),b2(ixI^S)
+
+    ! Calculate current density and idirmin
+    call get_current(w,ixI^L,ixO^L,idirmin,current)
+    !!!here we know that current has nonzero values only for components in the range idirmin, 3
+ 
+    if(B0field) then
+      do idir=1,3
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+      enddo
+    else
+      btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+    endif
+    tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
+    b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
+    do idir=1,idirmin-1
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S)
+    enddo
+    do idir=idirmin,3
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S) - current(ixO^S,idir) * b2(ixO^S)
+    enddo
+  end subroutine mhd_get_jxbxb
+
+
+
+
+  !> Source terms J.E in internal energy. In this case E=ambiCoef * JxBxB=ambiCoef * B^2(-J_perpB) => the source term = ambiCoef * J_perpB^2 = ambiCoef * jxbxb^2/b^2
+  !> ambiCoef is calculated as mhd_ambi_coef/rho^2,  see also the subroutine mhd_get_Jambi
+  subroutine add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, allocatable, dimension(:^D&,:) :: jxbxb
+      allocate(jxbxb(ixI^S,1:3))
+      call mhd_get_jxbxb(wCT,x,ixI^L,ixO^L,jxbxb)
+      w(ixO^S,eaux_)=w(ixO^S,eaux_)+qdt * ((mhd_eta_ambi/wCT(ixO^S, rho_)**2) * (sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)) ) 
+      deallocate(jxbxb)
+    end subroutine add_source_ambipolar_internal_energy
+    
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
     use mod_global_parameters
