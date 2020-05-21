@@ -1136,10 +1136,11 @@ contains
     double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
     double precision, allocatable:: vHall(:^D&,:)
     integer                      :: idirmin, iw, idir, jdir, kdir
-    double precision, allocatable:: ele(:^D&,:)
+    double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
+    double precision, allocatable, dimension(:^D&) :: tmp2
 
     if (mhd_Hall) then
-      allocate(vHall(ixI^S,1:ndir))
+      allocate(vHall(ixI^S,1:3))
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
 
@@ -1266,45 +1267,54 @@ contains
 
     ! Contributions of ambipolar term
     if(mhd_ambipolar .and. mhd_eta_ambi>0) then
-      !!reuse tmp and store ambipolar coefficent 
-      tmp(ixO^S) = mhd_eta_ambi/(w(ixO^S,rho_)**2) 
-      allocate(ele(ixI^S,1:3))
-      call mhd_get_jxbxb(w,x,ixI^L,ixO^L,ele)
-      do idir=1,3
-        ele(ixO^S,idir) = tmp(ixO^S) * ele(ixO^S,idir)
-      enddo
-      !!energy flux contribution in ExB term
-      if(mhd_energy) then
-        jdir = mod(idim,3) + 1
-        kdir = mod(idim,3) + 2
-        f(ixO^S,e_) = f(ixO^S,e_) + (ele(ixO^S,jdir) * mhd_mag_i_all(w, ixI^L, ixO^L, kdir) - & 
-                                    ele(ixO^S,kdir) * mhd_mag_i_all(w, ixI^L, ixO^L, jdir))
-
+      !J_ambi = J * mhd_eta_ambi/rho**2
+      allocate(Jambi(ixI^S,1:3))
+      call mhd_get_Jambi(w,x,ixI^L,ixO^L,Jambi)
+      allocate(btot(ixI^S,1:3))
+      if(B0field) then
+        do idir=1,3
+          btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+        enddo
+      else
+        btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
       endif
-      !!!mag field flux
-      do idir=1,ndir
-        if(idir .ne. idim) then
-          kdir=get_index_curl_as_div(idir, idim)
-          f(ixO^S,mag(idir)) =  MERGE(1, -1, kdir>0) *  ele(ixO^S,abs(kdir))
-        endif 
-      enddo
-      deallocate(ele)
+      allocate(tmp2(ixI^S))
+      !!tmp2 = Btot^2
+      tmp2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1)
+
+      select case(idim)
+        case(1)
+          tmp(ixO^S)=(btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3))
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,3) - btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) + btot(ixO^S,3) * tmp(ixO^S) + btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
+        case(2)
+          tmp(ixO^S)=(btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1))
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,3) + btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) - btot(ixO^S,3) * tmp(ixO^S)  + btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
+        case(3)
+          tmp(ixO^S)=(btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2))
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
+
+
+      endselect
+      if(mhd_energy) then
+        f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
+      endif
+          
+
+!jxbxbxb
+!{(bx^2 + by^2 + bz^2)*(bz*vy - by*vz), (bx^2 + by^2 + bz^2)*(-(bz*vx) + bx*vz), -((bx^2 + by^2 + bz^2)*(-(by*vx) + bx*vy))}
+!mag1
+!{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy - bz*(bz*vy - by*vz)}
+!mag2
+!{bz*(bx*vx + by*vy) - (bx^2 + by^2)*vz, 0, by^2*vx - bx*by*vy + bz*(bz*vx - bx*vz)}
+!mag3
+!{-(bx*by*vx) + bx^2*vy + bz*(bz*vy - by*vz), -(by^2*vx) + bx*by*vy - bz*(bz*vx - bx*vz), 0}
+ 
+      deallocate(Jambi,btot, tmp2)
     endif
     ! Contributions of ambipolar term end
-  contains 
-  pure function get_index_curl_as_div(comp, dir) result(res)
-    integer, intent(in) :: comp,dir
-    integer :: res
-    if (comp .eq. dir) then
-      res=0
-    else
-      if(mod(comp,3)+1 .eq. dir) then
-        res= mod(dir,3)+1 
-      else
-        res= -(mod(comp,3)+1) 
-      endif
-    endif
-  end function get_index_curl_as_div
 
   end subroutine mhd_get_flux
 
@@ -2413,7 +2423,7 @@ contains
 
   end subroutine mhd_getv_Hall
 
-  subroutine mhd_get_jxbxb(w,x,ixI^L,ixO^L,res)
+  subroutine mhd_get_Jambi(w,x,ixI^L,ixO^L,res)
     use mod_global_parameters
 
     integer, intent(in)             :: ixI^L, ixO^L
@@ -2421,32 +2431,20 @@ contains
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     double precision, allocatable, intent(inout) :: res(:^D&,:)
 
-    double precision  :: btot(ixI^S,1:3)
 
     integer          :: idir, idirmin
     double precision :: current(ixI^S,7-2*ndir:3)
-    double precision :: tmp(ixI^S),b2(ixI^S)
+
+    res = 0d0
 
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
-    !!!here we know that current has nonzero values only for components in the range idirmin, 3
  
-    if(B0field) then
-      do idir=1,3
-        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
-      enddo
-    else
-      btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
-    endif
-    tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
-    b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
-    do idir=1,idirmin-1
-      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S)
+    res(ixO^S,idirmin:3)=mhd_eta_ambi * current(ixO^S,idirmin:3)
+    do idir = idirmin, 3
+      res(ixO^S,idir)=res(ixO^S,idir)/(w(ixO^S,rho_)**2)
     enddo
-    do idir=idirmin,3
-      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S) - current(ixO^S,idir) * b2(ixO^S)
-    enddo
-  end subroutine mhd_get_jxbxb
+  end subroutine mhd_get_Jambi
 
   subroutine mhd_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)
     use mod_global_parameters
