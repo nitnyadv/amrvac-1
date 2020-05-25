@@ -2253,6 +2253,13 @@ contains
       else
          tmp(ixO^S)=sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2)
       end if
+
+      !!!TODO REMOVE
+      where ((x(:,1))>1.65)
+        tmp=0d0
+      endwhere
+      !!!TODO REMOVE
+
   
       if(slab_uniform) then
         dtnew=min(dtdiffpar*minval(dxarr(1:ndim))**2.0d0/(mhd_eta_ambi*maxval(tmp(ixO^S)/w(ixO^S,rho_)**2)), dtnew)
@@ -2499,6 +2506,11 @@ contains
     res(ixO^S,idirmin:3)=mhd_eta_ambi * current(ixO^S,idirmin:3)
     do idir = idirmin, 3
       res(ixO^S,idir)=res(ixO^S,idir)/(w(ixO^S,rho_)**2)
+      !!!TODO REMOVE
+      where ((x(:,1))>1.65)
+        res(:,idir)=0d0
+      endwhere
+      !!!TODO REMOVE
     enddo
   end subroutine mhd_get_Jambi
 
