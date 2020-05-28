@@ -24,6 +24,8 @@ module mod_mhd_phys
 
   !> Whether Ambipolar term is used
   logical, public, protected              :: mhd_ambipolar = .false.
+  !> Whether Ambipolar term is implemented using supertimestepping
+  logical, public, protected              :: mhd_ambipolar_sts = .false.
 
   !> Whether particles module is added
   logical, public, protected              :: mhd_particles = .false.
@@ -195,7 +197,7 @@ contains
 
     namelist /mhd_list/ mhd_energy, mhd_n_tracer, mhd_gamma, mhd_adiab,&
       mhd_eta, mhd_eta_hyper, mhd_etah, mhd_eta_ambi, mhd_glm_alpha, mhd_magnetofriction,&
-      mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar,  mhd_gravity,&
+      mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar, mhd_ambipolar_sts, mhd_gravity,&
       mhd_viscosity, mhd_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, compactres, divbwave, He_abundance, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr, mhd_particles,&
@@ -250,6 +252,8 @@ contains
     use mod_particles, only: particles_init
     use mod_magnetofriction, only: magnetofriction_init
     use mod_physics
+    use mod_supertimestepping, only: sts_init, add_sts_method
+
     {^NOONED
     use mod_multigrid_coupling
     }
@@ -482,6 +486,16 @@ contains
           phys_wider_stencil = 1
        end if
     end if
+
+    if (mhd_ambipolar .and. mhd_ambipolar_sts) then
+      call sts_init()
+      if(mhd_solve_eaux) then 
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(3),(/mag(1),mag(2),mag(3),e_,eaux_/))
+      else
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(3),(/mag(1),mag(2),mag(3),e_/))
+      endif
+    end if
+    
 
   end subroutine mhd_phys_init
 
@@ -1267,7 +1281,7 @@ contains
     end if
 
     ! Contributions of ambipolar term
-    if(mhd_ambipolar .and. mhd_eta_ambi>0) then
+    if(mhd_ambipolar .and. (.not. mhd_ambipolar_sts) .and. mhd_eta_ambi>0) then
       !J_ambi = J * mhd_eta_ambi/rho**2
       allocate(Jambi(ixI^S,1:3))
       call mhd_get_Jambi(w,x,ixI^L,ixO^L,Jambi)
@@ -1303,8 +1317,7 @@ contains
         f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
       endif
           
-
-!jxbxbxb
+!(-jxbxb)xb
 !{(bx^2 + by^2 + bz^2)*(bz*vy - by*vz), (bx^2 + by^2 + bz^2)*(-(bz*vx) + bx*vz), -((bx^2 + by^2 + bz^2)*(-(by*vx) + bx*vy))}
 !mag1
 !{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy - bz*(bz*vy - by*vz)}
@@ -1338,7 +1351,7 @@ contains
       if(mhd_energy .and. mhd_solve_eaux) then
         active = .true.
         call internal_energy_add_source(qdt,ixI^L,ixO^L,wCT,w,x)
-        if(mhd_ambipolar .and. mhd_eta_ambi > 0d0) call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x)
+        if(mhd_ambipolar .and. (.not. mhd_ambipolar_sts) .and. mhd_eta_ambi > 0d0) call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x)
       endif
 
       ! Source for B0 splitting
@@ -1566,7 +1579,6 @@ contains
     w(ixO^S,eaux_)=w(ixO^S,eaux_)-qdt*pth(ixO^S)*divv(ixO^S)
   end subroutine internal_energy_add_source
 
-
   subroutine mhd_get_jxbxb(w,x,ixI^L,ixO^L,res)
     use mod_global_parameters
 
@@ -1619,6 +1631,84 @@ contains
       w(ixO^S,eaux_)=w(ixO^S,eaux_)+qdt * ((mhd_eta_ambi/wCT(ixO^S, rho_)**2) * (sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)) ) 
       deallocate(jxbxb)
     end subroutine add_source_ambipolar_internal_energy
+
+
+     subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres)
+        use mod_global_parameters
+        use mod_geometry, only: divvector
+
+      integer, intent(in) :: ixI^L, ixO^L
+      double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
+      double precision, intent(inout) ::  wres(ixI^S,1:nw)
+
+      double precision, allocatable, dimension(:^D&,:) :: tmp,ff
+      double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
+
+      integer :: i
+
+      allocate(tmp(ixI^S,1:3))
+      allocate(ff(ixI^S,1:3))
+      call mhd_get_jxbxb(w,x,ixI^L,ixO^L,tmp)
+      if(B0field) then
+        do i=1,3
+          btot(ixO^S, i) = w(ixO^S,mag(i)) + block%B0(ixO^S,i,i)
+        enddo
+      else
+        btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+      endif
+
+      !!tmp is now jxbxb = b^2 * j_perpB
+      if(mhd_solve_eaux) then
+        wres(ixO^S,eaux_)=(mhd_eta_ambi/w(ixO^S, rho_)**2) * (sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)) 
+       endif
+      !set electric field in tmp E=-nuA * jxbxb
+
+      do i =1,ndim
+        tmp(ixO^S,i) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * tmp(ixO^S,i)
+      enddo
+
+      call cross_product(ixI^L,ixI^L,tmp,btot,ff)
+      !flux divergence is a source now
+      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      call divvector(ff,ixI^L,ixO^L,tmp2)
+      wres(ixI^S,e_)=tmp2
+
+      !write the curl as the divergence
+      !m1={0,ele[[3]],-ele[[2]]}
+      !m2={-ele[[3]],0,ele[[1]]}
+      !m3={ele[[2]],-ele[[1]],0}
+      !!!Bx
+      ff(ixI^S,1) = 0
+      ff(ixI^S,2) = tmp(ixI^S,3)
+      ff(ixI^S,3) = -tmp(ixI^S,2)
+      !flux divergence is a source now
+      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      call divvector(ff,ixI^L,ixO^L,tmp2)
+      wres(ixI^S,mag(1))=tmp2
+      !!!By
+      ff(ixI^S,1) = -tmp(ixI^S,3)
+      ff(ixI^S,2) = 0
+      ff(ixI^S,3) = tmp(ixI^S,1)
+      !flux divergence is a source now
+      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      call divvector(ff,ixI^L,ixO^L,tmp2)
+      wres(ixI^S,mag(2))=tmp2
+
+      !!!Bz
+      ff(ixI^S,1) = tmp(ixI^S,2)
+      ff(ixI^S,2) = -tmp(ixI^S,1)
+      ff(ixI^S,3) = 0
+      !flux divergence is a source now
+      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      call divvector(ff,ixI^L,ixO^L,tmp2)
+      wres(ixI^S,mag(3))=tmp2
+
+      deallocate(tmp,ff)
+      end subroutine sts_set_source_ambipolar
+
+
+
+
     
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
@@ -2246,28 +2336,36 @@ contains
       call gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
     end if
 
-    !tmp is bmag**2 here
     if(mhd_ambipolar) then
-      if (.not. B0field) then
-         tmp(ixO^S)=sum(w(ixO^S,mag(:))**2, dim=ndim+1)
-      else
-         tmp(ixO^S)=sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2)
-      end if
-
-      !!!TODO REMOVE
-      where ((x(:,1))>1.65)
-        tmp=0d0
-      endwhere
-      !!!TODO REMOVE
-
-  
-      if(slab_uniform) then
-        dtnew=min(dtdiffpar*minval(dxarr(1:ndim))**2.0d0/(mhd_eta_ambi*maxval(tmp(ixO^S)/w(ixO^S,rho_)**2)), dtnew)
-      else
-        dtnew=min(dtdiffpar*minval(block%ds(ixO^S,1:ndim))**2.0d0/(mhd_eta_ambi*maxval(tmp(ixO^S)/w(ixO^S,rho_)**2)), dtnew)
-      end if
+      dtnew=min(dtdiffpar*get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x),dtnew)
     endif
   end subroutine mhd_get_dt
+
+
+   function get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
+      use mod_global_parameters
+
+      integer, intent(in) :: ixI^L, ixO^L
+      double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+      double precision, intent(in) :: w(ixI^S,1:nw)
+      double precision :: dtnew
+
+      double precision              :: coef
+      double precision              :: dxarr(ndim)
+      ^D&dxarr(^D)=dx^D;
+
+
+      coef =  mhd_eta_ambi* maxval(mhd_mag_en_all(w, ixI^L, ixO^L)/w(ixO^S,rho_)**2)
+      if(slab_uniform) then
+        dtnew=minval(dxarr(1:ndim))**2.0d0/coef
+      else
+        dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
+      end if
+
+    end function get_ambipolar_dt
+
+
+
 
   ! Add geometrical source terms to w
   subroutine mhd_add_source_geom(qdt,ixI^L,ixO^L,wCT,w,x)
@@ -2506,11 +2604,6 @@ contains
     res(ixO^S,idirmin:3)=mhd_eta_ambi * current(ixO^S,idirmin:3)
     do idir = idirmin, 3
       res(ixO^S,idir)=res(ixO^S,idir)/(w(ixO^S,rho_)**2)
-      !!!TODO REMOVE
-      where ((x(:,1))>1.65)
-        res(:,idir)=0d0
-      endwhere
-      !!!TODO REMOVE
     enddo
   end subroutine mhd_get_Jambi
 
