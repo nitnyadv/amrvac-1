@@ -44,6 +44,7 @@ module mod_supertimestepping
   logical :: fix_conserve_at_step = .true.
 
   logical :: sts_initialized = .false.
+  logical :: first = .true.
 
   abstract interface
 
@@ -141,22 +142,22 @@ contains
     end interface
 
     type(sts_term), pointer  :: temp
-
-
-    type_send_srl=>temp%type_send_srl_sts
-    type_recv_srl=>temp%type_recv_srl_sts
-    type_send_r=>temp%type_send_r_sts
-    type_recv_r=>temp%type_recv_r_sts
-    type_send_p=>temp%type_send_p_sts
-    type_recv_p=>temp%type_recv_p_sts
-    call create_bc_mpi_datatype(startVar,endVar-startVar+1)
-    ! point bc mpi data type back to full type for (M)HD
-    type_send_srl=>type_send_srl_f
-    type_recv_srl=>type_recv_srl_f
-    type_send_r=>type_send_r_f
-    type_recv_r=>type_recv_r_f
-    type_send_p=>type_send_p_f
-    type_recv_p=>type_recv_p_f
+    allocate(temp)
+    !!types cannot be initialized here TODO see when init in mhd_phys is called
+!    type_send_srl=>temp%type_send_srl_sts
+!    type_recv_srl=>temp%type_recv_srl_sts
+!    type_send_r=>temp%type_send_r_sts
+!    type_recv_r=>temp%type_recv_r_sts
+!    type_send_p=>temp%type_send_p_sts
+!    type_recv_p=>temp%type_recv_p_sts
+!    call create_bc_mpi_datatype(startVar,endVar-startVar+1)
+!    ! point bc mpi data type back to full type for (M)HD
+!    type_send_srl=>type_send_srl_f
+!    type_recv_srl=>type_recv_srl_f
+!    type_send_r=>type_send_r_f
+!    type_recv_r=>type_recv_r_f
+!    type_send_p=>type_send_p_f
+!    type_recv_p=>type_recv_p_f
 
     temp%sts_getdt => sts_getdt
     temp%sts_set_sources => sts_set_sources
@@ -255,7 +256,7 @@ contains
     bcphys=.false.
 
 
-    call init_comm_fix_conserve(1,ndim,1)
+    !call init_comm_fix_conserve(1,ndim,1)
 
     !!tod pass this to sts_set_sources
     fix_conserve_at_step = time_advance .and. levmax>levmin
@@ -303,7 +304,11 @@ contains
       type_recv_r=>temp%type_recv_r_sts
       type_send_p=>temp%type_send_p_sts
       type_recv_p=>temp%type_recv_p_sts
-
+        
+       if(first) then 
+        call create_bc_mpi_datatype(temp%startVar,temp%endVar-temp%startVar+1)
+        first = .false.
+       endif 
       !!first step
 
       !$OMP PARALLEL DO PRIVATE(igrid)

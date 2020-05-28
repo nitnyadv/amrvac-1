@@ -2377,7 +2377,7 @@ contains
       call gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
     end if
 
-    if(mhd_ambipolar) then
+    if(mhd_ambipolar .and. .not. mhd_ambipolar_sts) then
       dtnew=min(dtdiffpar*get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x),dtnew)
     endif
   end subroutine mhd_get_dt
