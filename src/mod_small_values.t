@@ -32,6 +32,7 @@ contains
     ix_bad = maxloc(w_flag(ixO^S)) + [ ixOmin^D-1 ]
 
     if (.not.crash) then
+      print*, "*********************************SMALL VALUES ERRR"
       write(*,*) "Error: small value of ", trim(prim_wnames(maxval(w_flag(ixO^S)))), &
            " encountered when call ", subname
       write(*,*) "Iteration: ", it, " Time: ", global_time

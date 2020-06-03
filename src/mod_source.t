@@ -25,7 +25,7 @@ contains
 
     ! add thermal conduction
     if(associated(phys_thermal_conduction)) call phys_thermal_conduction()
-    if(is_sts_initialized()) call sts_add_source()
+    if(is_sts_initialized() .and. .not. prior) call sts_add_source()
     src_active = .false.
 
     if ((.not.prior).and.&
@@ -42,6 +42,13 @@ contains
        qdt=dt_grid(igrid)
        block=>ps(igrid)
        call addsource1_grid(igrid,qdt,qt,ps(igrid)%w,src_active)
+!       if(igrid .eq. 1) then 
+!         print*, "AFTER ADD SOURCE1bx ", igrid, minval(ps(igrid)%w(:,8)) , maxval(ps(igrid)%w(:,8))
+!         print*, "AFTER ADD SOURCE1bx FIRST 10 ", igrid, ps(igrid)%w(1:10,8)
+!         print*, "AFTER ADD SOURCE1e ", igrid, minval(ps(igrid)%w(:,5)) , maxval(ps(igrid)%w(:,5))
+!         print*, "AFTER ADD SOURCE1e FIRST 10 ", igrid, ps(igrid)%w(1:10,5)
+!         print*, "AFTER ADD SOURCE1 ALL FIRST 10 ", igrid, ps(igrid)%w(1:10,1:nw)
+!       endif 
     end do
     !$OMP END PARALLEL DO
 

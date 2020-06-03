@@ -1195,6 +1195,9 @@ contains
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
     double precision, allocatable, dimension(:^D&) :: tmp2
 
+    !double precision, allocatable, dimension(:^D&,:) :: tmpDebug
+    !integer :: iDebug
+
     if (mhd_Hall) then
       allocate(vHall(ixI^S,1:3))
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
@@ -1343,6 +1346,19 @@ contains
           tmp(ixO^S)=(btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3))
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,3) - btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) + btot(ixO^S,3) * tmp(ixO^S) + btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
+          print*, "EXPLICIT Bx ", btot(1:10,3)
+          print*, "EXPLICIT FLUX ", f(1:10,mag(3))
+
+!          allocate(tmpDebug(ixI^S,1:3))
+!          call mhd_get_jxbxb(w,x,ixI^L,ixO^L,tmpDebug)
+!          do iDebug =1,3
+!            tmpDebug(ixO^S,iDebug) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * tmpDebug(ixO^S,iDebug)
+!          enddo
+!          print*, "CALCas IMPL FLUX ",tmpDebug(1:10,2)
+!          deallocate(tmpDebug)
+
+
+
         case(2)
           tmp(ixO^S)=(btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1))
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,3) + btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
@@ -1634,6 +1650,8 @@ contains
     double precision :: current(ixI^S,7-2*ndir:3)
     double precision :: tmp(ixI^S),b2(ixI^S)
 
+
+    !print*, "getcurrent ixO ", ixO^L
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
     !!!here we know that current has nonzero values only for components in the range idirmin, 3
@@ -1645,6 +1663,11 @@ contains
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
     endif
+    !print*, "Btot_x ", btot(1:10,1)
+    !print*, "Btot_y ", btot(1:10,2)
+    print*, "GETjxbxb Btot_x ", btot(1:10,3)
+
+    print*, "GETjxbxb J_y ", current(1:10,2)
     tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
     b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
     do idir=1,idirmin-1
@@ -1685,66 +1708,89 @@ contains
       double precision, allocatable, dimension(:^D&,:) :: tmp,ff
       double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
 
-      integer :: i
+      integer :: i, ixA^L
+
+      ixA^L=ixO^L^LADD2;
+
+      !print*, "ID_mhd ",w(4,:)
+      !print*, "minval_IN ", minval(w), " maxval ", maxval(w)
+      !print*, "minval_IN first10 ", w(1:10,1:nw)
+      !print*, "minloc_IN ", minloc(w), " maxloc ", maxloc(w)
 
       allocate(tmp(ixI^S,1:3))
       allocate(ff(ixI^S,1:3))
-      call mhd_get_jxbxb(w,x,ixI^L,ixO^L,tmp)
+      call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
       if(B0field) then
         do i=1,3
-          btot(ixO^S, i) = w(ixO^S,mag(i)) + block%B0(ixO^S,i,i)
+          btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,i)
         enddo
       else
-        btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+        btot(ixA^S,1:3) = w(ixA^S,mag(1:3))
       endif
 
       !!tmp is now jxbxb = b^2 * j_perpB
       if(mhd_solve_eaux) then
         wres(ixO^S,eaux_)=(mhd_eta_ambi/w(ixO^S, rho_)**2) * (sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)) 
        endif
-      !set electric field in tmp E=-nuA * jxbxb
 
+      !print*, "jxbxb_x ", tmp(1:10,1)
+      !print*, "jxbxb_y ", tmp(1:10,2)
+      !print*, "jxbxb_z ", tmp(1:10,3)
+      !set electric field in tmp E=-nuA * jxbxb, where nuA=etaA/rho^2
       do i =1,ndim
-        tmp(ixO^S,i) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * tmp(ixO^S,i)
+        tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
       enddo
 
-      call cross_product(ixI^L,ixI^L,tmp,btot,ff)
-      !flux divergence is a source now
-      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      print*, "NU_impl ",-(mhd_eta_ambi/w(1:10, rho_)**2) 
+
+      !print*, "Ele_x ", tmp(1:10,1)
+      !print*, "Ele_y ", tmp(1:10,2)
+      !print*, "Ele_z ", tmp(1:10,3)
+      call cross_product(ixI^L,ixA^L,tmp,btot,ff)
+      !print*, "Exb_x ", ff(1:10,1)
+      !print*, "Exb_y ", ff(1:10,2)
+      !print*, "Exb_z ", ff(1:10,3)
       call divvector(ff,ixI^L,ixO^L,tmp2)
-      wres(ixI^S,e_)=tmp2
+      !print*, "divf_en ", tmp2(1:10)
+      !- sign comes from the fact that the flux divergence is a source now
+      wres(ixO^S,e_)=-tmp2(ixO^S)
 
       !write the curl as the divergence
       !m1={0,ele[[3]],-ele[[2]]}
       !m2={-ele[[3]],0,ele[[1]]}
       !m3={ele[[2]],-ele[[1]],0}
+      
+      !print*, "ixA ", ixA^L
+      !print*, "e, mag ", e_, mag(1), mag(2), mag(3)
+
       !!!Bx
-      ff(ixI^S,1) = 0
-      ff(ixI^S,2) = tmp(ixI^S,3)
-      ff(ixI^S,3) = -tmp(ixI^S,2)
-      !flux divergence is a source now
-      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      ff(ixA^S,1) = 0
+      ff(ixA^S,2) = tmp(ixA^S,3)
+      ff(ixA^S,3) = -tmp(ixA^S,2)
       call divvector(ff,ixI^L,ixO^L,tmp2)
-      wres(ixI^S,mag(1))=tmp2
+      !flux divergence is a source now
+      wres(ixO^S,mag(1))=-tmp2(ixO^S)
       !!!By
-      ff(ixI^S,1) = -tmp(ixI^S,3)
-      ff(ixI^S,2) = 0
-      ff(ixI^S,3) = tmp(ixI^S,1)
-      !flux divergence is a source now
-      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      ff(ixA^S,1) = -tmp(ixA^S,3)
+      ff(ixA^S,2) = 0
+      ff(ixA^S,3) = tmp(ixA^S,1)
       call divvector(ff,ixI^L,ixO^L,tmp2)
-      wres(ixI^S,mag(2))=tmp2
+      wres(ixO^S,mag(2))=-tmp2(ixO^S)
 
       !!!Bz
-      ff(ixI^S,1) = tmp(ixI^S,2)
-      ff(ixI^S,2) = -tmp(ixI^S,1)
-      ff(ixI^S,3) = 0
-      !flux divergence is a source now
-      ff(ixI^S,1:3) = -ff(ixI^S,1:3)
+      ff(ixA^S,1) = tmp(ixA^S,2)
+      ff(ixA^S,2) = -tmp(ixA^S,1)
+      ff(ixA^S,3) = 0
       call divvector(ff,ixI^L,ixO^L,tmp2)
-      wres(ixI^S,mag(3))=tmp2
+      !print*, "divvMAG3 ", tmp2(1:10)
+      wres(ixO^S,mag(3))=-tmp2(ixO^S)
+      !print*, "minval_OUT first10 ", wres(1:10,1:nw)
+
+      print*, "IMPLICIT FLUX  ", ff(1:10,1)
 
       deallocate(tmp,ff)
+      !print*, "minval_OUT ", minval(wres), " maxval ", maxval(wres)
+      !print*, "minloc_OUT ", minloc(wres), " maxloc ", maxloc(wres)
       end subroutine sts_set_source_ambipolar
 
 
@@ -2641,11 +2687,17 @@ contains
 
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
+    print*, "GETJambi J_x ", current(1:10,1)
+    print*, "GETJambi J_y ", current(1:10,2)
+    print*, "GETJambi J_z ", current(1:10,3)
+    print*, "GETJambi idirmin ", idirmin
  
     res(ixO^S,idirmin:3)=mhd_eta_ambi * current(ixO^S,idirmin:3)
     do idir = idirmin, 3
       res(ixO^S,idir)=res(ixO^S,idir)/(w(ixO^S,rho_)**2)
     enddo
+    
+
   end subroutine mhd_get_Jambi
 
   subroutine mhd_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)

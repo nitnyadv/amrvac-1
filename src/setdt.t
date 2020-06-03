@@ -6,6 +6,7 @@ subroutine setdt()
   use mod_physics
   use mod_usr_methods, only: usr_get_dt
   use mod_thermal_conduction
+  use mod_supertimestepping, only: set_dt_sts_ncycles, is_sts_initialized
 
   integer :: iigrid, igrid, ncycle, ncycle2, ifile, idim
   double precision :: dtnew, qdtnew, dtmin_mype, factor, dx^D, dxmin^D
@@ -45,6 +46,7 @@ subroutine setdt()
         end if
 
         dtnew          = min(dtnew,qdtnew)
+        dtnew=dtnew*0.1
         dtmin_mype     = min(dtmin_mype,dtnew)
         dt_grid(igrid) = dtnew
      end do
@@ -54,6 +56,7 @@ subroutine setdt()
   end if
 
   if (dtmin_mype<dtmin) then
+     print*, "**********************************************************************************DT error " 
      write(unitterm,*)"Error: Time step too small!", dtmin_mype
      write(unitterm,*)"on processor:", mype, "at time:", global_time," step:", it
      write(unitterm,*)"Lower limit of time step:", dtmin
@@ -133,6 +136,8 @@ subroutine setdt()
      if(mype==0 .and. .false.) write(*,*) 'supertime steps:',s,' normal subcycles:',&
                                  ceiling(dt/dtnew/2.d0)
   endif
+
+  if(is_sts_initialized()) call set_dt_sts_ncycles()
 
   !$OMP PARALLEL DO PRIVATE(igrid)
   do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
