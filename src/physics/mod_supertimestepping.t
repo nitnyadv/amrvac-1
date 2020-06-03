@@ -234,7 +234,7 @@ contains
         
            ncycles=ceiling(dt/dtnew)
            if (ncycles>sts_ncycles) then
-             if(mype==0) then
+             if(mype==0 and .false.) then
               write(*,*) 'CLF time step is too many times larger than conduction time step',ncycles
               write(*,*) 'reducing dt to',sts_ncycles,'times of dt_impl!!'
              endif
