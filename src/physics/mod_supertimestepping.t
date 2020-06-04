@@ -316,7 +316,7 @@ contains
 !!!> IMPLEMENTATION2 end
 
 
-  subroutine sts_add_source()
+  subroutine sts_add_source2()
   ! Meyer 2012 MNRAS 422,2102
     use mod_global_parameters
     use mod_ghostcells_update
@@ -330,7 +330,7 @@ contains
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
     stagger_grid=.false.
-    bcphys=.false.
+    !bcphys=.false.
 
 
     !call init_comm_fix_conserve(1,ndim,1)
@@ -401,9 +401,9 @@ contains
 
     endif
 
-  end subroutine sts_add_source
+  end subroutine sts_add_source2
 
-  subroutine sts_add_source1()
+  subroutine sts_add_source()
   ! Meyer 2012 MNRAS 422,2102
     use mod_global_parameters
     use mod_ghostcells_update
@@ -419,7 +419,7 @@ contains
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
     stagger_grid=.false.
-    bcphys=.false.
+    !bcphys=.false.
 
 
     !call init_comm_fix_conserve(1,ndim,1)
@@ -627,7 +627,7 @@ contains
 
     endif
 
-  end subroutine sts_add_source1
+  end subroutine sts_add_source
 
 
 end module mod_supertimestepping
