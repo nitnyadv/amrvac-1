@@ -44,7 +44,7 @@ module mod_supertimestepping
   
   !!method 2 only
   double precision :: nu_sts = 0.5
-  integer, parameter :: method_sts = 2
+  integer, parameter :: method_sts = 1
 
   !> Whether to conserve fluxes at the current partial step
   logical :: fix_conserve_at_step = .true.
@@ -330,7 +330,7 @@ contains
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
     stagger_grid=.false.
-    !bcphys=.false.
+    bcphys=.false.
 
 
     !call init_comm_fix_conserve(1,ndim,1)
@@ -362,18 +362,19 @@ contains
       !call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
 
 
-      do j=1,s
+      do j=1,temp%s
 
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
-            print*, "ID_sts ",igrid
+            !print*, "ID_sts ",igrid
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w)
             do i = 1,size(temp%ixChange)
               ii=temp%ixChange(i)
               ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+bj(j)*dt*ps1(igrid)%w(ixM^T,ii)
             end do
-            if( igrid .eq. 1) print*, " ps1Bx " , ps1(igrid)%w(1:10,8)
-            if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
+            !if( igrid .eq. 1) print*, " ps1Bx " , ps1(igrid)%w(1:10,8)
+            !if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
+            ! if( igrid .eq. 16) print*," psBxEND " ,  ps(igrid)%w(size(ps(igrid)%w,1)-9:size(ps(igrid)%w,1),8)
 
         end do
       !$OMP END PARALLEL DO
@@ -418,7 +419,7 @@ contains
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
     stagger_grid=.false.
-    !bcphys=.false.
+    bcphys=.false.
 
 
     !call init_comm_fix_conserve(1,ndim,1)
@@ -533,7 +534,7 @@ contains
 !      print*, "ps2 ",loc(ps2)
       tmpPs2=>ps1
 
-      do j=2,s
+      do j=2,temp%s
         bj(j)=dble(j**2+j-2)/dble(2*j*(j+1))
         cmu=dble(2*j-1)/dble(j)*bj(j)/bj(j-1)
         cmut=omega1*cmu

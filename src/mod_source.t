@@ -25,7 +25,7 @@ contains
 
     ! add thermal conduction
     if(associated(phys_thermal_conduction)) call phys_thermal_conduction()
-    if(is_sts_initialized() .and. .not. prior) call sts_add_source()
+    if(is_sts_initialized()) call sts_add_source()
     src_active = .false.
 
     if ((.not.prior).and.&

@@ -1665,9 +1665,9 @@ contains
     endif
     !print*, "Btot_x ", btot(1:10,1)
     !print*, "Btot_y ", btot(1:10,2)
-    print*, "GETjxbxb Btot_x ", btot(1:10,3)
+    !print*, "GETjxbxb Btot_x ", btot(1:10,3)
 
-    print*, "GETjxbxb J_y ", current(1:10,2)
+    !print*, "GETjxbxb J_y ", current(1:10,2)
     tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
     b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
     do idir=1,idirmin-1
@@ -1689,10 +1689,13 @@ contains
     double precision, intent(in)    :: qdt
     double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision  :: tmp(ixI^S)
     double precision, allocatable, dimension(:^D&,:) :: jxbxb
       allocate(jxbxb(ixI^S,1:3))
       call mhd_get_jxbxb(wCT,x,ixI^L,ixO^L,jxbxb)
-      w(ixO^S,eaux_)=w(ixO^S,eaux_)+qdt * ((mhd_eta_ambi/wCT(ixO^S, rho_)**2) * (sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)) ) 
+      tmp = sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)
+      call multiplyAmbiCoef(ixI^L,ixO^L,tmp,wCT,x)   
+      w(ixO^S,eaux_)=w(ixO^S,eaux_)+qdt * tmp
       deallocate(jxbxb)
     end subroutine add_source_ambipolar_internal_energy
 
@@ -1737,11 +1740,13 @@ contains
       !print*, "jxbxb_y ", tmp(1:10,2)
       !print*, "jxbxb_z ", tmp(1:10,3)
       !set electric field in tmp E=-nuA * jxbxb, where nuA=etaA/rho^2
-      do i =1,ndim
-        tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
+      do i =1,3
+        !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
+        call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
+        !print*, "TMP ", tmp(1:10,1:3)
       enddo
 
-      print*, "NU_impl ",-(mhd_eta_ambi/w(1:10, rho_)**2) 
+      !print*, "NU_impl ",-(mhd_eta_ambi/w(1:10, rho_)**2) 
 
       !print*, "Ele_x ", tmp(1:10,1)
       !print*, "Ele_y ", tmp(1:10,2)
@@ -1786,14 +1791,57 @@ contains
       wres(ixO^S,mag(3))=-tmp2(ixO^S)
       !print*, "minval_OUT first10 ", wres(1:10,1:nw)
 
-      print*, "IMPLICIT FLUX  ", ff(1:10,1)
+      !print*, "IMPLICIT FLUX  ", ff(1:10,1)
 
       deallocate(tmp,ff)
       !print*, "minval_OUT ", minval(wres), " maxval ", maxval(wres)
       !print*, "minloc_OUT ", minloc(wres), " maxloc ", maxloc(wres)
-      end subroutine sts_set_source_ambipolar
+   end subroutine sts_set_source_ambipolar
 
 
+   subroutine multiplyAmbiCoef(ixI^L,ixO^L,res,w,x)   
+    use mod_global_parameters
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: res(ixI^S)
+    double precision, allocatable, dimension(:^D&) :: mask
+
+    double precision, DIMENSION(8), PARAMETER :: prof=(/  1.0000000D0, 0.98985000D0, 0.89172687D0, 0.65310198D0, &
+             0.34690427D0, 0.10828125D0, 0.010160819D0, 1.1351600D-05  /) 
+
+    integer, parameter :: bottomS=15  
+    integer, parameter :: topS=15
+    integer :: nn, ii
+  
+
+    res(ixO^S) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * res(ixO^S)
+    where(x(:,1) .ge. 1.7) 
+      res=0.0
+    endwhere
+    return
+
+    !!TODO
+    if((x(1,1) .le. xprobmin1) .or. x(size(x,1),1) .ge. xprobmax1) then
+      allocate(mask(ixI^S))
+      mask=1d0
+      nn = size(x,1)
+      if(x(1,1) .le. xprobmin1) then 
+        ii = min(nn-8-bottomS,0)
+        mask(1:ii) =0d0
+        mask(ii+1:ii+8) = prof(1:8)
+      endif
+      if(x(nn,1) .ge. xprobmax1) then
+        ii = min(nn-8-topS,1)
+        mask(nn-ii+1:nn)=0d0
+        mask(nn-ii-7:nn-ii) = prof(1:8)
+      endif
+      res(ixO^S) = res(ixO^S) * mask
+      print*, "MASK ", mask 
+      deallocate(mask)
+    endif
+
+
+   end subroutine multiplyAmbiCoef
 
 
     
@@ -2692,9 +2740,9 @@ contains
     print*, "GETJambi J_z ", current(1:10,3)
     print*, "GETJambi idirmin ", idirmin
  
-    res(ixO^S,idirmin:3)=mhd_eta_ambi * current(ixO^S,idirmin:3)
+    res(ixO^S,idirmin:3)=current(ixO^S,idirmin:3)
     do idir = idirmin, 3
-      res(ixO^S,idir)=res(ixO^S,idir)/(w(ixO^S,rho_)**2)
+      call multiplyAmbiCoef(ixI^L,ixO^L,res(ixI^S,idir),w,x)   
     enddo
     
 
