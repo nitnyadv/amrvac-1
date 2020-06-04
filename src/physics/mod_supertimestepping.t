@@ -40,11 +40,11 @@ module mod_supertimestepping
 
   !> input parameters
   double precision :: sts_dtpar=0.9d0 !the coefficient that multiplies the sts dt
-  integer :: sts_ncycles=5 !the maximum number of subcycles
+  integer :: sts_ncycles=10 !the maximum number of subcycles
   
   !!method 2 only
   double precision :: nu_sts = 0.5
-  integer, parameter :: method_sts = 1
+  integer, parameter :: method_sts = 2
 
   !> Whether to conserve fluxes at the current partial step
   logical :: fix_conserve_at_step = .true.
@@ -74,6 +74,11 @@ module mod_supertimestepping
       double precision, intent(in) :: w(ixG^S,1:nw) 
       double precision :: dtnew
     end function subr2
+
+  !!no params
+   subroutine subr3()
+   end subroutine subr3
+
   end interface
 
   type sts_term
@@ -98,6 +103,7 @@ module mod_supertimestepping
   end type sts_term
 
   type(sts_term), pointer :: head_sts_terms
+  procedure (subr3), pointer :: sts_add_source
 
 contains
   !> Read this module"s parameters from a file
@@ -191,6 +197,13 @@ contains
       sts_dtpar=sts_dtpar/dble(ndim)
       call sts_params_read(par_files)
       sts_initialized = .true.
+      if(method_sts .eq. 1) then
+        sts_add_source => sts_add_source1
+      else if(method_sts .eq. 2) then
+        sts_add_source => sts_add_source2
+      else
+        call mpistop("Unknown sts method")
+      endif
     endif
     
   end subroutine sts_init
@@ -261,16 +274,15 @@ contains
             temp%s = ncycles
             ss=sum_chev(nu_sts,ncycles)
             print*, "SUMCHEV ", ss
-            if(ss .ne. 1)then
-              dt = dt *ss 
-              dt_modified = .true.
-            endif
+            dt = dtnew *ss 
+            dt_modified = .true.
            endif 
  
            if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt
 
            temp=>temp%next
          enddo
+         !!todo recycle other methods 
          dt_modified = .false. 
        enddo 
 
@@ -323,6 +335,8 @@ contains
     use mod_fix_conserve
     
     double precision, allocatable :: bj(:)
+    double precision :: sumbj
+
     integer:: iigrid, igrid,j,i,ii,s
     logical :: stagger_flag
     type(sts_term), pointer  :: temp
@@ -361,16 +375,16 @@ contains
       !!first step
       !call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
 
-
+      sumbj=0d0
       do j=1,temp%s
-
+      sumbj = sumbj + bj(j)
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w)
             do i = 1,size(temp%ixChange)
               ii=temp%ixChange(i)
-              ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+bj(j)*dt*ps1(igrid)%w(ixM^T,ii)
+              ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+sumbj*dt*ps1(igrid)%w(ixM^T,ii)
             end do
             !if( igrid .eq. 1) print*, " ps1Bx " , ps1(igrid)%w(1:10,8)
             !if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
@@ -403,7 +417,7 @@ contains
 
   end subroutine sts_add_source2
 
-  subroutine sts_add_source()
+  subroutine sts_add_source1()
   ! Meyer 2012 MNRAS 422,2102
     use mod_global_parameters
     use mod_ghostcells_update
@@ -553,7 +567,7 @@ contains
 
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
-            print*, "ID_sts ",igrid
+            !print*, "ID_sts ",igrid
             call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w, ps(igrid)%x,ps4(igrid)%w)
             !print*, "** tmpPs2 ",igrid, loc(tmpPs2(igrid)), " tmpPs1 ", loc(tmpPs1(igrid))
             !print*, " STep ",j , " e ",evenstep, " tmpPs1 ", minval(tmpPs1(igrid)%w),maxval(tmpPs1(igrid)%w)
@@ -571,14 +585,14 @@ contains
             !tmpPs2(igrid)%w(ixM^T,1:nw)=cmu*tmpPs1(igrid)%w(ixM^T,1:nw)+cnu*tmpPs2(igrid)%w(ixM^T,1:nw)+(1.d0-cmu-cnu)*ps(igrid)%w(ixM^T,1:nw)&
             !            +cmut*dt*ps4(igrid)%w(ixM^T,1:nw)+cnut*ps3(igrid)%w(ixM^T,1:nw)
             !print*, " STep ",j , " after_set ", minval(tmpPs2(igrid)%w),maxval(tmpPs2(igrid)%w)
-            if( igrid .eq. 1) print*, " ps4dtBx " , dt*ps4(igrid)%w(1:10,8)
-            if( igrid .eq. 1) print*, " ps3Bx " , dt*ps3(igrid)%w(1:10,8)
-            if( igrid .eq. 1) print*, " cmn " , cmu,cnu,cmut,cnut,cmut*dt,cnut*dt
-            if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
-
-            if( igrid .eq. 1) print*, " tmpPs1Bx " , tmpPs1(igrid)%w(1:10,8)
-            if( igrid .eq. 1) print*, " tmpPs2Bx " , tmpPs2(igrid)%w(1:10,8)
-            if( igrid .eq. 1)   print*," tmpPs2e " , tmpPs2(igrid)%w(1:10,5)
+!            if( igrid .eq. 1) print*, " ps4dtBx " , dt*ps4(igrid)%w(1:10,8)
+!            if( igrid .eq. 1) print*, " ps3Bx " , dt*ps3(igrid)%w(1:10,8)
+!            if( igrid .eq. 1) print*, " cmn " , cmu,cnu,cmut,cnut,cmut*dt,cnut*dt
+!            if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
+!
+!            if( igrid .eq. 1) print*, " tmpPs1Bx " , tmpPs1(igrid)%w(1:10,8)
+!            if( igrid .eq. 1) print*, " tmpPs2Bx " , tmpPs2(igrid)%w(1:10,8)
+!            if( igrid .eq. 1)   print*," tmpPs2e " , tmpPs2(igrid)%w(1:10,5)
         end do
       !$OMP END PARALLEL DO
         call getbc(global_time,0.d0,tmpPs2,temp%startVar,temp%endVar-temp%startVar+1)
@@ -597,12 +611,12 @@ contains
           ps(igrid)%w(ixG^T,ii)=tmpPs2(igrid)%w(ixG^T,ii)
         end do 
         !ps(igrid)%w(ixG^T,1:nw)=tmpPs2(igrid)%w(ixG^T,1:nw)
-        if(igrid .eq. 1) then
-          print*, igrid, " MINMAX_EnsSTS Bx ", minval(ps(igrid)%w(ixG^T,8)), maxval(ps(igrid)%w(ixG^T,8))
-          print*, igrid,  " MINMAX_EnsSTS Bx firat 10 ", ps(igrid)%w(1:10,8)
-          print*, igrid,  " MINMAX_EnsSTS E ", minval(ps(igrid)%w(ixG^T,5)), maxval(ps(igrid)%w(ixG^T,5))
-          print*, igrid,  " MINMAX_EnsSTS E firat 10 ", ps(igrid)%w(1:10,5)
-        endif
+!        if(igrid .eq. 1) then
+!          print*, igrid, " MINMAX_EnsSTS Bx ", minval(ps(igrid)%w(ixG^T,8)), maxval(ps(igrid)%w(ixG^T,8))
+!          print*, igrid,  " MINMAX_EnsSTS Bx firat 10 ", ps(igrid)%w(1:10,8)
+!          print*, igrid,  " MINMAX_EnsSTS E ", minval(ps(igrid)%w(ixG^T,5)), maxval(ps(igrid)%w(ixG^T,5))
+!          print*, igrid,  " MINMAX_EnsSTS E firat 10 ", ps(igrid)%w(1:10,5)
+!        endif
         !print*, " MINMAXloc  ", minloc(ps(igrid)%w(ixG^T,1:nw)), maxloc(ps(igrid)%w(ixG^T,1:nw))
       end do 
       !$OMP END PARALLEL DO
@@ -627,7 +641,7 @@ contains
 
     endif
 
-  end subroutine sts_add_source
+  end subroutine sts_add_source1
 
 
 end module mod_supertimestepping
