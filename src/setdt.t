@@ -46,7 +46,6 @@ subroutine setdt()
         end if
 
         dtnew          = min(dtnew,qdtnew)
-        dtnew=dtnew*0.1
         dtmin_mype     = min(dtmin_mype,dtnew)
         dt_grid(igrid) = dtnew
      end do
@@ -56,7 +55,6 @@ subroutine setdt()
   end if
 
   if (dtmin_mype<dtmin) then
-     print*, "**********************************************************************************DT error " 
      write(unitterm,*)"Error: Time step too small!", dtmin_mype
      write(unitterm,*)"on processor:", mype, "at time:", global_time," step:", it
      write(unitterm,*)"Lower limit of time step:", dtmin

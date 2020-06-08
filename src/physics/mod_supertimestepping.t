@@ -40,11 +40,11 @@ module mod_supertimestepping
 
   !> input parameters
   double precision :: sts_dtpar=0.9d0 !the coefficient that multiplies the sts dt
-  integer :: sts_ncycles=10 !the maximum number of subcycles
+  integer :: sts_ncycles=1000 !the maximum number of subcycles
   
   !!method 2 only
   double precision :: nu_sts = 0.5
-  integer, parameter :: method_sts = 2
+  integer, parameter :: method_sts = 1
 
   !> Whether to conserve fluxes at the current partial step
   logical :: fix_conserve_at_step = .true.
@@ -271,9 +271,11 @@ contains
              temp%s=temp%s/2*2+1
            endif
            else
+            !print*, "NCYCLES BEFORE ",ncycles
+            ss=sum_chev(nu_sts,ncycles,dt/dtnew)
+            !print*, "NCYCLES AFTER ",ncycles
             temp%s = ncycles
-            ss=sum_chev(nu_sts,ncycles)
-            print*, "SUMCHEV ", ss
+            print*, "SUMCHEV ", ss, ", old dt ", dt
             dt = dtnew *ss 
             dt_modified = .true.
            endif 
@@ -301,19 +303,21 @@ contains
 
   END FUNCTION chev
 
-  PURE FUNCTION sum_chev(nu,N)
-    double precision, INTENT(IN) :: nu
-    INTEGER, INTENT(IN)       ::  N
+  FUNCTION sum_chev(nu,N,limMax)
+    double precision, intent(in) :: nu,limmax
+    integer, intent(inout)       ::  N
     double precision             :: sum_chev
 
     integer :: j
 
     sum_chev = 0d0
+    j=1
 
-    do j=1,N
+    do while (j .le. N .and. sum_chev .le. limMax)
       sum_chev = sum_chev + chev(j,nu,N)
+      j=j+1
     enddo
-
+    N=j-1
   END FUNCTION sum_chev
 
   PURE FUNCTION total_chev(nu,N)

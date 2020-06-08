@@ -999,18 +999,13 @@ contains
 
   end subroutine mhd_get_cbounds
 
-
-  !> This subroutine calculates the effective sound speed which is calculated from
-  !> the sound speed: csound and the aflven speed
-  !> As the magnetic field and the density which appear in this calculation are the same
-  !> as primitive and conserved variables this method is the same
-  !> when the sound speed is calculated from primitive (mhd_get_csound_prim) or conserved variables (mhd_get_csound).
-  subroutine mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
+  !> Calculate fast magnetosonic wave speed
+  subroutine mhd_get_csound(w,x,ixI^L,ixO^L,idim,csound)
     use mod_global_parameters
 
     integer, intent(in)          :: ixI^L, ixO^L, idim
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
-    double precision, intent(inout):: csound(ixI^S)
+    double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma2(ixO^S)
 
@@ -1021,6 +1016,8 @@ contains
     else
       gamma2 = 1.0d0
     end if
+
+    call mhd_get_csound2(w,x,ixI^L,ixO^L,csound)
 
     ! store |B|^2 in v
     b2(ixO^S) = mhd_mag_en_all(w,ixI^L,ixO^L) * gamma2
@@ -1050,26 +1047,6 @@ contains
             mhd_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
     end if
 
-  end subroutine mhd_get_csound_eff
-
-
-
-
-  !> Calculate fast magnetosonic wave speed
-  subroutine mhd_get_csound(w,x,ixI^L,ixO^L,idim,csound)
-    use mod_global_parameters
-
-    integer, intent(in)          :: ixI^L, ixO^L, idim
-    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
-    double precision, intent(out):: csound(ixI^S)
-    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-    double precision :: inv_rho(ixO^S), gamma2(ixO^S)
-
-
-    call mhd_get_csound2(w,x,ixI^L,ixO^L,csound)
-    call mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
-
-
   end subroutine mhd_get_csound
 
   !> Calculate fast magnetosonic wave speed
@@ -1079,10 +1056,48 @@ contains
     integer, intent(in)          :: ixI^L, ixO^L, idim
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(out):: csound(ixI^S)
+    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
+    double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
 
+    inv_rho=1.d0/w(ixO^S,rho_)
 
-    call mhd_get_csound1(w,x,ixI^L,ixO^L,csound)
-    call mhd_get_csound_eff(w,x,ixI^L,ixO^L,idim,csound)
+    if (mhd_boris_type == boris_reduced_force) then
+      call mhd_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
+    else
+      gamma_A2 = 1.0d0
+    end if
+
+    if(mhd_energy) then
+      csound(ixO^S)=mhd_gamma*w(ixO^S,p_)*inv_rho
+    else
+      csound(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
+    end if
+    ! store |B|^2 in v
+    b2(ixO^S)        = mhd_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
+         * mhd_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
+         * inv_rho * gamma_A2
+
+    where(AvMinCs2(ixO^S)<zero)
+       AvMinCs2(ixO^S)=zero
+    end where
+
+    AvMinCs2(ixO^S)=sqrt(AvMinCs2(ixO^S))
+
+    if (.not. MHD_Hall) then
+       csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
+       if (mhd_boris_type == boris_simplification) then
+          csound(ixO^S) = mhd_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
+       end if
+    else
+       ! take the Hall velocity into account:
+       ! most simple estimate, high k limit:
+       ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
+       kmax = dpi/min({dxlevel(^D)},bigdouble)*half
+       csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
+            mhd_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+    end if
 
   end subroutine mhd_get_csound_prim
 
@@ -1142,26 +1157,6 @@ contains
       csound2(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
     end if
   end subroutine mhd_get_csound2
-
-
-  !> Calculate the square of the thermal sound speed csound2 within ixO^L.
-  !> csound2=gamma*p/rho
-  subroutine mhd_get_csound1(w,x,ixI^L,ixO^L,csound1)
-    use mod_global_parameters
-    integer, intent(in)             :: ixI^L, ixO^L
-    double precision, intent(in)    :: w(ixI^S,nw)
-    double precision, intent(in)    :: x(ixI^S,1:ndim)
-    double precision, intent(out)   :: csound1(ixI^S)
-
-
-    if(mhd_energy) then
-      csound1(ixO^S)=mhd_gamma*w(ixO^S,p_)/w(ixO^S,rho_)
-    else
-      csound1(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
-    end if
-  end subroutine mhd_get_csound1
-
-
 
   !> Calculate total pressure within ixO^L including magnetic pressure
   subroutine mhd_get_p_total(w,x,ixI^L,ixO^L,p)
@@ -2737,10 +2732,10 @@ contains
 
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
-    print*, "GETJambi J_x ", current(1:10,1)
-    print*, "GETJambi J_y ", current(1:10,2)
-    print*, "GETJambi J_z ", current(1:10,3)
-    print*, "GETJambi idirmin ", idirmin
+!    print*, "GETJambi J_x ", current(1:10,1)
+!    print*, "GETJambi J_y ", current(1:10,2)
+!    print*, "GETJambi J_z ", current(1:10,3)
+!    print*, "GETJambi idirmin ", idirmin
  
     res(ixO^S,idirmin:3)=current(ixO^S,idirmin:3)
     do idir = idirmin, 3
@@ -2781,7 +2776,6 @@ contains
     end if
 
   end subroutine mhd_getdt_Hall
- 
 
   subroutine mhd_modify_wLR(ixI^L,ixO^L,qt,wLC,wRC,wLp,wRp,s,idir)
     use mod_global_parameters
