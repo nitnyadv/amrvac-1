@@ -187,6 +187,22 @@ module mod_mhd_phys
   public :: mhd_clean_divb_multigrid
   }
 
+  !define the subroutine interface for the ambipolar mask
+  abstract interface
+
+    subroutine mask_subroutine(ixI^L,ixO^L,w,x,res)
+       use mod_global_parameters
+      integer, intent(in) :: ixI^L, ixO^L
+      double precision, intent(in) :: x(ixI^S,1:ndim)
+      double precision, intent(in) :: w(ixI^S,1:nw)
+      double precision, intent(inout) :: res(ixI^S)
+    end subroutine mask_subroutine
+
+  end interface
+
+   procedure (mask_subroutine), pointer :: usr_mask_ambipolar => null()
+   public :: usr_mask_ambipolar 
+
 contains
 
   !> Read this module"s parameters from a file
@@ -1343,19 +1359,6 @@ contains
           tmp(ixO^S)=(btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3))
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,3) - btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) + btot(ixO^S,3) * tmp(ixO^S) + btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
-          print*, "EXPLICIT Bx ", btot(1:10,3)
-          print*, "EXPLICIT FLUX ", f(1:10,mag(3))
-
-!          allocate(tmpDebug(ixI^S,1:3))
-!          call mhd_get_jxbxb(w,x,ixI^L,ixO^L,tmpDebug)
-!          do iDebug =1,3
-!            tmpDebug(ixO^S,iDebug) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * tmpDebug(ixO^S,iDebug)
-!          enddo
-!          print*, "CALCas IMPL FLUX ",tmpDebug(1:10,2)
-!          deallocate(tmpDebug)
-
-
-
         case(2)
           tmp(ixO^S)=(btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1))
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,3) + btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
@@ -1364,13 +1367,12 @@ contains
           tmp(ixO^S)=(btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2))
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
-
-
       endselect
       if(mhd_energy) then
         f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
       endif
-          
+
+!!!mathematica output          
 !(-jxbxb)xb
 !{(bx^2 + by^2 + bz^2)*(bz*vy - by*vz), (bx^2 + by^2 + bz^2)*(-(bz*vx) + bx*vz), -((bx^2 + by^2 + bz^2)*(-(by*vx) + bx*vy))}
 !mag1
@@ -1801,42 +1803,11 @@ contains
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: res(ixI^S)
-    double precision, allocatable, dimension(:^D&) :: mask
-
-    double precision, DIMENSION(8), PARAMETER :: prof=(/  1.0000000D0, 0.98985000D0, 0.89172687D0, 0.65310198D0, &
-             0.34690427D0, 0.10828125D0, 0.010160819D0, 1.1351600D-05  /) 
-
-    integer, parameter :: bottomS=15  
-    integer, parameter :: topS=15
-    integer :: nn, ii
-  
 
     res(ixO^S) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * res(ixO^S)
-    where(x(:,1) .ge. 1.7) 
-      res=0.0
-    endwhere
-    return
-
-    !!TODO
-    if((x(1,1) .le. xprobmin1) .or. x(size(x,1),1) .ge. xprobmax1) then
-      allocate(mask(ixI^S))
-      mask=1d0
-      nn = size(x,1)
-      if(x(1,1) .le. xprobmin1) then 
-        ii = min(nn-8-bottomS,0)
-        mask(1:ii) =0d0
-        mask(ii+1:ii+8) = prof(1:8)
-      endif
-      if(x(nn,1) .ge. xprobmax1) then
-        ii = min(nn-8-topS,1)
-        mask(nn-ii+1:nn)=0d0
-        mask(nn-ii-7:nn-ii) = prof(1:8)
-      endif
-      res(ixO^S) = res(ixO^S) * mask
-      print*, "MASK ", mask 
-      deallocate(mask)
+    if (associated(usr_mask_ambipolar)) then
+      call usr_mask_ambipolar(ixI^L,ixO^L,w,x,res)
     endif
-
 
    end subroutine multiplyAmbiCoef
 
@@ -2484,10 +2455,12 @@ contains
 
       double precision              :: coef
       double precision              :: dxarr(ndim)
+      double precision              :: tmp(ixI^S)
       ^D&dxarr(^D)=dx^D;
 
-
-      coef =  mhd_eta_ambi* maxval(mhd_mag_en_all(w, ixI^L, ixO^L)/w(ixO^S,rho_)**2)
+      tmp = mhd_mag_en_all(w, ixI^L, ixO^L)
+      call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
+      coef = maxval(abs(tmp))
       if(slab_uniform) then
         dtnew=minval(dxarr(1:ndim))**2.0d0/coef
       else
