@@ -135,7 +135,14 @@ subroutine setdt()
                                  ceiling(dt/dtnew/2.d0)
   endif
 
-  if(is_sts_initialized()) call set_dt_sts_ncycles()
+  if(is_sts_initialized()) then
+    !!reuse qdtnew
+    !qdtnew = dt 
+    qdtnew = 0.5d0 * dt 
+    if (set_dt_sts_ncycles(qdtnew)) then
+      dt = 2d0*qdtnew
+    endif  
+  endif
 
   !$OMP PARALLEL DO PRIVATE(igrid)
   do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);

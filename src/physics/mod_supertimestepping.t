@@ -45,7 +45,7 @@ module mod_supertimestepping
   !!method 2 only, not input
   double precision,parameter :: nu_sts = 0.5
   
-  integer, parameter :: method_sts = 1
+  integer, parameter :: method_sts = 2
 
   !> Whether to conserve fluxes at the current partial step
   logical :: fix_conserve_at_step = .true.
@@ -95,7 +95,7 @@ module mod_supertimestepping
     procedure (subr2), pointer, nopass :: sts_getdt
     procedure (subr1), pointer, nopass :: sts_set_sources
     type(sts_term), pointer :: next
-    double precision :: dt_sts
+    double precision :: dt_expl
     integer, public :: s
 
     !!types used for send/recv ghosts, see mod_ghostcells_update
@@ -245,18 +245,17 @@ contains
     double precision    :: ss
     integer:: ncycles
 
-     ncycles=ceiling(dt/dtnew)
-     if (ncycles>sts_ncycles) then
-!       if(mype==0) then
-!        write(*,*) 'CLF time step is too many times larger than super time step',ncycles
-!        write(*,*) 'reducing dt to',sts_ncycles,'times of dt_impl!!'
-!       endif
-       dt=sts_ncycles*dtnew
+    !!ss is now limit of dt because of sts_ncycles
+    ss = dtnew * ((2d0 * sts_ncycles + 1)**2 -9.0)/16d0
+    if(dt>ss) then
        dt_modified = .true.
-     endif
-     ss = dt/dtnew
+       dt = ss
+       is = sts_ncycles 
+     else  
+
+      ss = dt/dtnew
   
-    ! get number of sub-steps of supertime stepping (Meyer 2012 MNRAS 422,2102)
+      ! get number of sub-steps of supertime stepping (Meyer 2012 MNRAS 422,2102)
 !     if(ss< 0.5d0) then
 !       is=1
 !     else if(ss< 2.d0) then
@@ -268,7 +267,7 @@ contains
 !     endif
        is=ceiling((dsqrt(9.d0+16.d0*ss)-1.d0)/2.d0)
        is=is/2*2+1
-
+    endif
   end  function sts_get_ncycles1
 
 
@@ -281,42 +280,37 @@ contains
     double precision    :: ss
     integer:: ncycles
 
-
-     ncycles=ceiling(dt/dtnew)
-     if (ncycles>sts_ncycles) then
-!       if(mype==0 .and. .false.) then
-!        write(*,*) 'CLF time step is too many times larger than super time step',ncycles
-!        write(*,*) 'reducing dt to',sts_ncycles,'times of dt_impl!!'
-!       endif
-       ncycles = sts_ncycles 
-     endif
-  
+      ncycles = sts_ncycles 
       !print*, "NCYCLES BEFORE ",ncycles
       ss=sum_chev(nu_sts,ncycles,dt/dtnew)
       !print*, "NCYCLES AFTER ",ncycles
       is = ncycles
-      print*, "SUMCHEV ", ss, " NCYCLES ", ncycles
-      dt = dtnew *ss 
-      dt_modified = .true.
+      !print*, "SUMCHEV ", ss, " NCYCLES ", ncycles
+      ss = dtnew *ss 
+      if(ss .ne. dt) then
+        dt_modified = .true.
+        dt = ss
+      endif
 
 
 
   end  function sts_get_ncycles2
 
 
-  subroutine set_dt_sts_ncycles() 
+  function set_dt_sts_ncycles(my_dt) result(dt_modified)
     use mod_global_parameters
 
+    double precision,intent(inout) :: my_dt
+    logical :: dt_modified
 
     integer:: iigrid, igrid, ncycles
     double precision :: dtnew,dtmin_mype
     double precision    :: dx^D, ss
     type(sts_term), pointer  :: temp,oldTemp
-    logical :: dt_modified
     nullify(oldTemp)
     temp => head_sts_terms
+    dt_modified = .false.
     do while(associated(temp))
-      dt_modified = .false.
       dtmin_mype=bigdouble
       !$OMP PARALLEL DO PRIVATE(igrid,dtnew,&
       !$OMP& dx^D) REDUCTION(min:dtmin_mype)
@@ -328,7 +322,8 @@ contains
       call MPI_ALLREDUCE(dtmin_mype,dtnew,1,MPI_DOUBLE_PRECISION,MPI_MIN, &
                                icomm,ierrmpi)
  
-      temp%s = sts_get_ncycles(dt,dtnew,dt_modified)  
+      temp%s = sts_get_ncycles(my_dt,dtnew,dt_modified)  
+      temp%dt_expl = dtnew
  
       !if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
       !   " MODI ",dt_modified
@@ -341,11 +336,12 @@ contains
        if(associated(oldTemp,temp)) then
         temp=>temp%next
        endif
+       dt_modified = .false.
 
     enddo
 
     !if(mype==0) write(*,*) 'EXIT'
-  end subroutine set_dt_sts_ncycles
+  end function set_dt_sts_ncycles
 
 
 !!!> IMPLEMENTATION2
@@ -399,7 +395,7 @@ contains
     
     double precision, intent(in) :: my_dt
     double precision, allocatable :: bj(:)
-    double precision :: sumbj
+    !double precision :: sumbj  !!NO need
 
     integer:: iigrid, igrid,j,i,ii,s
     logical :: stagger_flag
@@ -439,17 +435,17 @@ contains
       !!first step
       !call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
 
-      sumbj=0d0
+      !sumbj=0d0
       do j=1,temp%s
-        sumbj = sumbj + bj(j)
-        if(mype .eq. 0) print*, "Substep ",j, ", bj=",sumbj
+        !sumbj = sumbj + bj(j)
+        !if(mype .eq. 0) print*, "Substep ",j, ", dt_j=", (bj(j)*temp%dt_expl)
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w)
             do i = 1,size(temp%ixChange)
               ii=temp%ixChange(i)
-              ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+sumbj*my_dt*ps1(igrid)%w(ixM^T,ii)
+              ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+bj(j)*temp%dt_expl*ps1(igrid)%w(ixM^T,ii)
             end do
             !if( igrid .eq. 1) print*, " ps1Bx " , ps1(igrid)%w(1:10,8)
             !if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
@@ -504,7 +500,7 @@ contains
 
     !call init_comm_fix_conserve(1,ndim,1)
 
-    !!tod pass this to sts_set_sources
+    !!todo pass this to sts_set_sources
     fix_conserve_at_step = time_advance .and. levmax>levmin
 
     temp => head_sts_terms
@@ -522,17 +518,18 @@ contains
         if(.not. allocated(ps4(igrid)%w)) then
               allocate(ps4(igrid)%w(ixG^T,1:nw))
         endif 
-          !TODO vars are recalculated from  ps1%w afterwards
+          !we need the full set of variables
+          !for the calculation of the sources
 !        do i = 1,size(temp%ixChange)
 !          j=temp%ixChange(i)
 !          ps1(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
 !          ps2(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
 !          ps3(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
 !        enddo
-      ps1(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
-      ps2(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
-      ps3(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
-      ps4(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
+        ps1(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
+        ps2(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
+        ps3(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
+        ps4(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
       enddo
       !$OMP END PARALLEL DO
   
@@ -575,7 +572,7 @@ contains
 !                minval(ps1(igrid)%w(ixM^T,5)), maxval(ps1(igrid)%w(ixM^T,5))
 
 
-
+        !!!eq solved: dU/dt = S
         !!!In ps3 is stored S^n
         do i = 1,size(temp%ixChange)
           ii=temp%ixChange(i)
