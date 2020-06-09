@@ -582,7 +582,7 @@ contains
           ps3(igrid)%w(ixM^T,ii) = my_dt * ps4(igrid)%w(ixM^T,ii)
           ps1(igrid)%w(ixM^T,ii) = ps1(igrid)%w(ixM^T,ii) + cmut * ps3(igrid)%w(ixM^T,ii)
         enddo
-        if( igrid .eq. 1) print*, " 1sperpps1 bx " , ps1(igrid)%w(1:10,8)
+!        if( igrid .eq. 1) print*, " 1sperpps1 bx " , ps1(igrid)%w(1:10,8)
 !        if( igrid .eq. 1)   print*," 1stepps1 e " , ps1(igrid)%w(1:10,5)
 !        if( igrid .eq. 1) print*, " 1stepps4Bx " , ps4(igrid)%w(1:10,8)
 
@@ -657,7 +657,7 @@ contains
 !            if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
 !
 !            if( igrid .eq. 1) print*, " tmpPs1Bx " , tmpPs1(igrid)%w(1:10,8)
-            if( igrid .eq. 1) print*, " tmpPs2Bx " , tmpPs2(igrid)%w(1:10,8)
+!            if( igrid .eq. 1) print*, " tmpPs2Bx " , tmpPs2(igrid)%w(1:10,8)
 !            if( igrid .eq. 1)   print*," tmpPs2e " , tmpPs2(igrid)%w(1:10,5)
         end do
       !$OMP END PARALLEL DO
@@ -677,12 +677,12 @@ contains
           ps(igrid)%w(ixG^T,ii)=tmpPs2(igrid)%w(ixG^T,ii)
         end do 
         !ps(igrid)%w(ixG^T,1:nw)=tmpPs2(igrid)%w(ixG^T,1:nw)
-        if(igrid .eq. 1) then
+!        if(igrid .eq. 1) then
 !          print*, igrid, " MINMAX_EnsSTS Bx ", minval(ps(igrid)%w(ixG^T,8)), maxval(ps(igrid)%w(ixG^T,8))
-          print*, igrid,  " MINMAX_EnsSTS Bx first 10 ", ps(igrid)%w(1:10,8)
+!          print*, igrid,  " MINMAX_EnsSTS Bx first 10 ", ps(igrid)%w(1:10,8)
 !          print*, igrid,  " MINMAX_EnsSTS E ", minval(ps(igrid)%w(ixG^T,5)), maxval(ps(igrid)%w(ixG^T,5))
 !          print*, igrid,  " MINMAX_EnsSTS E firat 10 ", ps(igrid)%w(1:10,5)
-        endif
+!        endif
         !print*, " MINMAXloc  ", minloc(ps(igrid)%w(ixG^T,1:nw)), maxloc(ps(igrid)%w(ixG^T,1:nw))
       end do 
       !$OMP END PARALLEL DO
