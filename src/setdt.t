@@ -6,7 +6,7 @@ subroutine setdt()
   use mod_physics
   use mod_usr_methods, only: usr_get_dt
   use mod_thermal_conduction
-  use mod_supertimestepping, only: set_dt_sts_ncycles, is_sts_initialized
+  use mod_supertimestepping, only: set_dt_sts_ncycles, is_sts_initialized, sourcetype_sts,sourcetype_sts_split
 
   integer :: iigrid, igrid, ncycle, ncycle2, ifile, idim
   double precision :: dtnew, qdtnew, dtmin_mype, factor, dx^D, dxmin^D
@@ -138,10 +138,17 @@ subroutine setdt()
   if(is_sts_initialized()) then
     !!reuse qdtnew
     !qdtnew = dt 
-    qdtnew = 0.5d0 * dt 
-    if (set_dt_sts_ncycles(qdtnew)) then
-      dt = 2d0*qdtnew
-    endif  
+    if(sourcetype_sts .eq. sourcetype_sts_split) then
+      qdtnew = 0.5d0 * dt 
+      if (set_dt_sts_ncycles(qdtnew)) then
+        dt = 2d0*qdtnew
+      endif  
+    else
+      !if(mype .eq. 0) print*, "Original dt ", dt
+      if(set_dt_sts_ncycles(dt))then 
+       !  if(mype .eq. 0) print*, "dt is now", dt
+      endif
+    endif
   endif
 
   !$OMP PARALLEL DO PRIVATE(igrid)

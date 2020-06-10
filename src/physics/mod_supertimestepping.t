@@ -36,6 +36,7 @@ module mod_supertimestepping
   public :: add_sts_method
   public :: sts_add_source
   public :: set_dt_sts_ncycles
+  public :: sourcetype_sts, sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split
 
 
   !> input parameters
@@ -45,7 +46,11 @@ module mod_supertimestepping
   !!method 2 only, not input
   double precision,parameter :: nu_sts = 0.5
   
-  integer, parameter :: method_sts = 2
+  integer :: method_sts = 1
+  integer, parameter :: sourcetype_sts_prior =0
+  integer, parameter :: sourcetype_sts_after =1
+  integer, parameter :: sourcetype_sts_split =2
+  integer :: sourcetype_sts = sourcetype_sts_after
 
   !> Whether to conserve fluxes at the current partial step
   logical :: fix_conserve_at_step = .true.
@@ -124,7 +129,7 @@ contains
     character(len=*), intent(in) :: files(:)
     integer                      :: n
 
-    namelist /sts_list/ sts_dtpar,sts_ncycles
+    namelist /sts_list/ sts_dtpar,sts_ncycles,method_sts,sourcetype_sts
 
     do n = 1, size(files)
        open(unitpar, file=trim(files(n)), status="old")
@@ -311,6 +316,7 @@ contains
     temp => head_sts_terms
     dt_modified = .false.
     do while(associated(temp))
+      dt_modified = .false.
       dtmin_mype=bigdouble
       !$OMP PARALLEL DO PRIVATE(igrid,dtnew,&
       !$OMP& dx^D) REDUCTION(min:dtmin_mype)
@@ -336,7 +342,6 @@ contains
        if(associated(oldTemp,temp)) then
         temp=>temp%next
        endif
-       dt_modified = .false.
 
     enddo
 
@@ -359,18 +364,20 @@ contains
   FUNCTION sum_chev(nu,N,limMax)
     double precision, intent(in) :: nu,limmax
     integer, intent(inout)       ::  N
-    double precision             :: sum_chev
+    double precision             :: sum_chev, tmp
 
     integer :: j
 
-    sum_chev = 0d0
+    tmp = 0d0
     j=1
 
-    do while (j .le. N .and. sum_chev .le. limMax)
-      sum_chev = sum_chev + chev(j,nu,N)
+    do while (j .le. N .and. tmp .le. limMax)
+      sum_chev = tmp
+      tmp = tmp + chev(j,nu,N)
       j=j+1
     enddo
     N=j-1
+    
   END FUNCTION sum_chev
 
 

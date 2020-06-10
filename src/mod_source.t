@@ -14,7 +14,8 @@ contains
     use mod_ghostcells_update
     use mod_thermal_conduction, only: phys_thermal_conduction
     use mod_physics, only: phys_req_diagonal, phys_global_source
-    use mod_supertimestepping, only: is_sts_initialized, sts_add_source    
+    use mod_supertimestepping, only: is_sts_initialized, sts_add_source,sourcetype_sts,&
+                                      sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split   
 
 
     logical, intent(in) :: prior
@@ -25,7 +26,20 @@ contains
 
     ! add thermal conduction
     if(associated(phys_thermal_conduction)) call phys_thermal_conduction()
-    if(is_sts_initialized()) call sts_add_source(0.5*dt)
+    if(is_sts_initialized()) then
+        select case (sourcetype_sts)
+          case (sourcetype_sts_prior)
+            if(prior) then
+              call sts_add_source(dt)
+            endif  
+          case (sourcetype_sts_after)
+            if(.not. prior) then
+              call sts_add_source(dt)
+            endif
+          case (sourcetype_sts_split)
+            call sts_add_source(0.5*dt)
+          endselect
+    endif  
     src_active = .false.
 
     if ((.not.prior).and.&
