@@ -300,19 +300,19 @@ contains
     logical,intent(inout) :: dt_modified
     integer :: is
 
-    double precision    :: ss
+    double precision    :: ss,rr
     integer:: ncycles
 
+      rr = dt/dtnew
       ncycles = sts_ncycles 
       !print*, "NCYCLES BEFORE ",ncycles
-      ss=sum_chev(nu_sts,ncycles,dt/dtnew)
+      ss=sum_chev(nu_sts,ncycles,rr)
       !print*, "NCYCLES AFTER ",ncycles
       is = ncycles
       !print*, "SUMCHEV ", ss, " NCYCLES ", ncycles
-      ss = dtnew *ss 
-      if(ss .ne. dt) then
+      if(ss < rr) then
         dt_modified = .true.
-        dt = ss
+        dt = ss *  dtnew
       endif
 
 
@@ -386,15 +386,12 @@ contains
 
     integer :: j
 
-    tmp = 0d0
     j=1
 
-    do while (j .le. N .and. tmp .le. limMax)
-      sum_chev = tmp
-      tmp = tmp + chev(j,nu,N)
+    do while (j < N .and. sum_chev < limMax)
+      sum_chev = sum_chev + chev(j,nu,N)
       j=j+1
     enddo
-    N=j-1
     
   END FUNCTION sum_chev
 
@@ -442,7 +439,7 @@ contains
     
     double precision, intent(in) :: my_dt
     double precision, allocatable :: bj(:)
-    !double precision :: sumbj  !!NO need
+    double precision :: sumbj,dtj  
 
     integer:: iigrid, igrid,j,i,ii,ii2
     logical :: stagger_flag
@@ -456,7 +453,6 @@ contains
 
     call init_comm_fix_conserve(1,ndim,1)
 
-    !!tod pass this to sts_set_sources
     fix_conserve_at_step = time_advance .and. levmax>levmin
 
     temp => head_sts_terms
@@ -482,9 +478,14 @@ contains
       !!first step
       !call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
 
-      !sumbj=0d0
+      sumbj=0d0
       do j=1,temp%s
-        !sumbj = sumbj + bj(j)
+        sumbj = sumbj + bj(j)
+        if(j .eq. temp%s .and. sumbj * temp%dt_expl > my_dt) then
+          dtj = my_dt - sumbj * temp%dt_expl
+        else
+          dtj = bj(j)* temp%dt_expl
+        endif  
         !if(mype .eq. 0) print*, "Substep ",j, ", dt_j=", (bj(j)*temp%dt_expl)
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
