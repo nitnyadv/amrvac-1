@@ -506,9 +506,9 @@ contains
     if (mhd_ambipolar .and. mhd_ambipolar_sts) then
       call sts_init()
       if(mhd_solve_eaux) then 
-        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(3),(/mag(1),mag(2),mag(3),e_,eaux_/))
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_,eaux_/), (/ndir,1,1/),(/.true.,.true.,.false. /))
       else
-        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(3),(/mag(1),mag(2),mag(3),e_/))
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_/), (/ndir,1/),(/.true.,.true./))
       endif
     end if
     
@@ -1699,13 +1699,17 @@ contains
     end subroutine add_source_ambipolar_internal_energy
 
 
-     subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres)
-        use mod_global_parameters
-        use mod_geometry, only: divvector
+     subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres, fix_conserve_at_step,igrid,indexChangeStart, indexChangeN,indexChangeFixC)
+      use mod_global_parameters
+      use mod_geometry, only: divvector
+      use mod_fix_conserve, only: store_flux1
 
-      integer, intent(in) :: ixI^L, ixO^L
+      integer, intent(in) :: ixI^L, ixO^L,igrid
       double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
       double precision, intent(inout) ::  wres(ixI^S,1:nw)
+      logical, intent(in) :: fix_conserve_at_step
+      integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+      logical, intent(in), dimension(:) :: indexChangeFixC
 
       double precision, allocatable, dimension(:^D&,:) :: tmp,ff
       double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
@@ -1722,17 +1726,19 @@ contains
       allocate(tmp(ixI^S,1:3))
       allocate(ff(ixI^S,1:3))
       call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
+      btot(ixA^S,1:3) = 0
       if(B0field) then
-        do i=1,3
-          btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,i)
+        do i=1,ndir
+          btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
         enddo
       else
-        btot(ixA^S,1:3) = w(ixA^S,mag(1:3))
+        btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
       endif
 
       !!tmp is now jxbxb = b^2 * j_perpB
       if(mhd_solve_eaux) then
-        wres(ixO^S,eaux_)=(mhd_eta_ambi/w(ixO^S, rho_)**2) * (sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)) 
+        wres(ixO^S,eaux_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
+        call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
        endif
 
       !print*, "jxbxb_x ", tmp(1:10,1)
@@ -1755,11 +1761,15 @@ contains
       !print*, "Exb_y ", ff(1:10,2)
       !print*, "Exb_z ", ff(1:10,3)
       call divvector(ff,ixI^L,ixO^L,tmp2)
+
+
+      call store_fixc(ff,getStoreIndex(e_))
+
       !print*, "divf_en ", tmp2(1:10)
       !- sign comes from the fact that the flux divergence is a source now
       wres(ixO^S,e_)=-tmp2(ixO^S)
 
-      !write the curl as the divergence
+      !write curl(ele) as the divergence
       !m1={0,ele[[3]],-ele[[2]]}
       !m2={-ele[[3]],0,ele[[1]]}
       !m3={ele[[2]],-ele[[1]],0}
@@ -1767,11 +1777,14 @@ contains
       !print*, "ixA ", ixA^L
       !print*, "e, mag ", e_, mag(1), mag(2), mag(3)
 
+      !!Here it is assumed that the indices for magnetic field are always passed as consecutive
+      i = getStoreIndex(mag(1))
       !!!Bx
       ff(ixA^S,1) = 0
       ff(ixA^S,2) = tmp(ixA^S,3)
       ff(ixA^S,3) = -tmp(ixA^S,2)
       call divvector(ff,ixI^L,ixO^L,tmp2)
+      call store_fixc(ff,i)
       !flux divergence is a source now
       wres(ixO^S,mag(1))=-tmp2(ixO^S)
       !!!By
@@ -1779,6 +1792,7 @@ contains
       ff(ixA^S,2) = 0
       ff(ixA^S,3) = tmp(ixA^S,1)
       call divvector(ff,ixI^L,ixO^L,tmp2)
+      call store_fixc(ff,i+1)
       wres(ixO^S,mag(2))=-tmp2(ixO^S)
 
       !!!Bz
@@ -1786,6 +1800,7 @@ contains
       ff(ixA^S,2) = -tmp(ixA^S,1)
       ff(ixA^S,3) = 0
       call divvector(ff,ixI^L,ixO^L,tmp2)
+      call store_fixc(ff,i+2)
       !print*, "divvMAG3 ", tmp2(1:10)
       wres(ixO^S,mag(3))=-tmp2(ixO^S)
       !print*, "minval_OUT first10 ", wres(1:10,1:nw)
@@ -1795,6 +1810,39 @@ contains
       deallocate(tmp,ff)
       !print*, "minval_OUT ", minval(wres), " maxval ", maxval(wres)
       !print*, "minloc_OUT ", minloc(wres), " maxloc ", maxloc(wres)
+
+    contains
+      subroutine store_fixc(flux,storeIndex)
+      double precision, allocatable, intent(in), dimension(:^D&,:) :: flux
+      integer, intent(in) :: storeIndex
+      double precision, allocatable, dimension(:^D&,:,:) :: fluxC
+ 
+
+      if (fix_conserve_at_step .and. storeIndex >0) then
+        !TODO why reshape does not work?
+        allocate(fluxC(ixI^S,1,1:ndim))
+        fluxC(ixI^S,1,1:ndim) = flux(ixI^S,1:ndim)
+        call store_flux1(igrid,fluxC,1,ndim,storeIndex,1)
+        deallocate(fluxC)
+      end if
+
+
+      end subroutine store_fixc
+
+      function getStoreIndex(indexVar) result(storeIndex)
+        integer, intent(in) :: indexVar
+        integer :: storeIndex
+   
+        integer :: i
+        storeIndex = 1
+  
+        do i = 1,size(indexChangeStart)
+          if(indexChangeStart(i) .eq. indexVar) return
+          if (indexChangeFixC(i)) storeIndex = storeIndex + indexChangeN(i)
+        end do
+        storeIndex = 0
+      end function getStoreIndex
+
    end subroutine sts_set_source_ambipolar
 
 

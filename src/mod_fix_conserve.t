@@ -31,9 +31,9 @@ module mod_fix_conserve
   public :: deallocateBflux
   public :: sendflux
   public :: recvflux
-  public :: store_flux
+  public :: store_flux, store_flux1
   public :: store_edge
-  public :: fix_conserve
+  public :: fix_conserve, fix_conserve1
   public :: fix_edges
 
  contains
@@ -467,6 +467,17 @@ module mod_fix_conserve
 
      integer, intent(in) :: idim^LIM, nw0, nwfluxin
      type(state) :: psb(max_blocks)
+     call fix_conserve1(psb,idim^LIM,nw0,1,nwfluxin)
+
+   end subroutine fix_conserve
+
+  !> modified fix_conserve in order to pass param for nwfluxstart = start index in pflux var
+  !>compatible with store_flux1
+   subroutine fix_conserve1(psb,idim^LIM,nw0,nwfluxstart,nwfluxin)
+     use mod_global_parameters
+
+     integer, intent(in) :: idim^LIM, nw0, nwfluxstart, nwfluxin
+     type(state) :: psb(max_blocks)
 
      integer :: iigrid, igrid, idims, iside, iotherside, i^D, ic^D, inc^D, ix^L
      integer :: nxCo^D, iw, ix, ipe_neighbor, ineighbor, nbuf, ibufnext, nw1
@@ -525,11 +536,11 @@ module mod_fix_conserve
              if (slab_uniform) then
                psb(igrid)%w(ix^D%ixM^T,nw0:nw1) &
                     = psb(igrid)%w(ix^D%ixM^T,nw0:nw1) &
-                    -pflux(iside,^D,igrid)%flux(1^D%:^DD&,1:nwfluxin)
+                    -pflux(iside,^D,igrid)%flux(1^D%:^DD&,nwfluxstart:nwfluxin+nwfluxstart-1)
              else
                do iw=nw0,nw1
                  psb(igrid)%w(ix^D%ixM^T,iw)=psb(igrid)%w(ix^D%ixM^T,iw)&
-                      -pflux(iside,^D,igrid)%flux(1^D%:^DD&,iw-nw0+1) &
+                      -pflux(iside,^D,igrid)%flux(1^D%:^DD&,iw-nw0+nwfluxstart) &
                       /ps(igrid)%dvolume(ix^D%ixM^T)
                end do
              end if
@@ -547,12 +558,12 @@ module mod_fix_conserve
                  if (slab_uniform) then
                    psb(igrid)%w(ix^S,nw0:nw1) &
                         = psb(igrid)%w(ix^S,nw0:nw1) &
-                        + pflux(iotherside,^D,ineighbor)%flux(:^DD&,1:nwfluxin)&
+                        + pflux(iotherside,^D,ineighbor)%flux(:^DD&,nwfluxstart:nwfluxin+nwfluxstart-1)&
                         * CoFiratio
                  else
                    do iw=nw0,nw1
                      psb(igrid)%w(ix^S,iw)=psb(igrid)%w(ix^S,iw) &
-                          +pflux(iotherside,^D,ineighbor)%flux(:^DD&,iw-nw0+1) &
+                          +pflux(iotherside,^D,ineighbor)%flux(:^DD&,iw-nw0+nwfluxstart) &
                           /ps(igrid)%dvolume(ix^S)
                    end do
                  end if
@@ -592,15 +603,27 @@ module mod_fix_conserve
        call MPI_WAITALL(nsend,fc_sendreq,fc_sendstat,ierrmpi)
      end if
 
-   end subroutine fix_conserve
+   end subroutine fix_conserve1
 
    subroutine store_flux(igrid,fC,idim^LIM,nwfluxin)
      use mod_global_parameters
 
      integer, intent(in)          :: igrid, idim^LIM, nwfluxin
      double precision, intent(in) :: fC(ixG^T,1:nwfluxin,1:ndim)
+     call store_flux1(igrid,fC,idim^LIM,1,nwfluxin) 
+   end subroutine store_flux
+
+
+   !> old store_flux modified in order to pass parameter nwfstart1 = start index in pflux
+   subroutine store_flux1(igrid,fC,idim^LIM,nwfstart1,nwfluxin)
+     use mod_global_parameters
+
+     integer, intent(in)          :: igrid, idim^LIM, nwfstart1, nwfluxin
+     integer                      :: nwfend1
+     double precision, intent(in) :: fC(ixG^T,1:nwfluxin,1:ndim)
 
      integer :: idims, iside, i^D, ic^D, inc^D, ix^D, ixCo^D, nxCo^D, iw
+     nwfend1 = nwfstart1-1 + nwfluxin
 
      do idims = idim^LIM
        select case (idims)
@@ -614,10 +637,10 @@ module mod_fix_conserve
            case (neighbor_fine)
              select case (iside)
              case (1)
-               pflux(iside,^D,igrid)%flux(1^D%:^DD&,1:nwfluxin) = &
+               pflux(iside,^D,igrid)%flux(1^D%:^DD&,nwfstart1:nwfend1) = &
                     -fC(nghostcells^D%ixM^T,1:nwfluxin,^D)
              case (2)
-               pflux(iside,^D,igrid)%flux(1^D%:^DD&,1:nwfluxin) = &
+               pflux(iside,^D,igrid)%flux(1^D%:^DD&,nwfstart1:nwfend1) = &
                     fC(ixMhi^D^D%ixM^T,1:nwfluxin,^D)
              end select
            case (neighbor_coarse)
@@ -627,7 +650,7 @@ module mod_fix_conserve
                do iw=1,nwfluxin
                 {do ixCo^DDB=1,nxCo^DDB\}
                    ix^D=nghostcells^D%ix^DD=ixMlo^DD+2*(ixCo^DD-1);
-                   pflux(iside,^D,igrid)%flux(ixCo^DD,iw) &
+                   pflux(iside,^D,igrid)%flux(ixCo^DD,nwfstart1-1+iw) &
                         = {^NOONEDsum}(fC(ix^D^D%ix^DD:ix^DD+1,iw,^D))
                 {end do\}
                end do
@@ -635,7 +658,7 @@ module mod_fix_conserve
                do iw=1,nwfluxin
                 {do ixCo^DDB=1,nxCo^DDB\}
                    ix^D=ixMhi^D^D%ix^DD=ixMlo^DD+2*(ixCo^DD-1);
-                   pflux(iside,^D,igrid)%flux(ixCo^DD,iw) &
+                   pflux(iside,^D,igrid)%flux(ixCo^DD,nwfstart1-1+iw) &
                         =-{^NOONEDsum}(fC(ix^D^D%ix^DD:ix^DD+1,iw,^D))
                 {end do\}
                end do
@@ -645,7 +668,7 @@ module mod_fix_conserve
        end select
      end do
 
-   end subroutine store_flux
+   end subroutine store_flux1
 
    subroutine store_edge(igrid,ixI^L,fE,idim^LIM)
      use mod_global_parameters

@@ -61,12 +61,15 @@ module mod_supertimestepping
   abstract interface
 
   !this is used for setting sources
-    subroutine subr1(ixI^L,ixO^L,w,x,wres)
+    subroutine subr1(ixI^L,ixO^L,w,x,wres,fix_conserve,igrid,ixChangeStart,ixChangeN,ixChangeFixC)
       use mod_global_parameters
       
-      integer, intent(in) :: ixI^L, ixO^L
+      integer, intent(in) :: ixI^L, ixO^L,igrid
       double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
       double precision, intent(inout) :: wres(ixI^S,1:nw)
+      logical, intent(in) :: fix_conserve
+      integer, intent(in), dimension(:) :: ixChangeStart, ixChangeN
+      logical, intent(in), dimension(:) :: ixChangeFixC
 
     end subroutine subr1
 
@@ -112,7 +115,9 @@ module mod_supertimestepping
     integer :: startVar
     integer :: endVar
 
-    integer, dimension(:), allocatable ::ixChange
+    integer, dimension(:), allocatable ::ixChangeStart
+    integer, dimension(:), allocatable ::ixChangeN
+    logical, dimension(:), allocatable ::ixChangeFixC
 
   end type sts_term
 
@@ -142,21 +147,26 @@ contains
 
 
 
-  subroutine add_sts_method(sts_getdt, sts_set_sources, startVar, endVar, ixChange)
+  subroutine add_sts_method(sts_getdt, sts_set_sources, startVar, endVar, ixChangeStart, ixChangeN, ixChangeFixC)
     use mod_global_parameters
     use mod_ghostcells_update
 
 
     integer, intent(in) :: startVar, endVar 
-    integer, intent(in) :: ixChange(:) 
+    integer, intent(in) :: ixChangeStart(:) 
+    integer, intent(in) :: ixChangeN(:) 
+    logical, intent(in) :: ixChangeFixC(:) 
 
     interface
-      subroutine sts_set_sources(ixI^L,ixO^L,w,x,wres)
+      subroutine sts_set_sources(ixI^L,ixO^L,w,x,wres,fix_conserve,igrid, ixChangeStart, ixChangeN, ixChangeFixC)
       use mod_global_parameters
       
-      integer, intent(in) :: ixI^L, ixO^L
+      integer, intent(in) :: ixI^L, ixO^L,igrid
       double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
       double precision, intent(inout) :: wres(ixI^S,1:nw)
+      logical, intent(in) :: fix_conserve
+      integer, intent(in), dimension(:) :: ixChangeStart, ixChangeN
+      logical, intent(in), dimension(:) :: ixChangeFixC
       end subroutine sts_set_sources
   
       function sts_getdt(w,ixG^L,ix^L,dx^D,x) result(dtnew)
@@ -195,8 +205,16 @@ contains
 
     temp%startVar = startVar
     temp%endVar = endVar
-    allocate(temp%ixChange(size(ixChange)))
-    temp%ixChange = ixChange
+    if(size(ixChangeStart) .ne. size(ixChangeN) .or. size(ixChangeStart) .ne. size(ixChangeFixC) ) then
+      if(mype .eq. 0) print*, "sizes are not equal ", size(ixChangeStart), size(ixChangeN), size(ixChangeFixC)
+      return
+    endif  
+    allocate(temp%ixChangeStart(size(ixChangeStart)))
+    allocate(temp%ixChangeN(size(ixChangeStart)))
+    allocate(temp%ixChangeFixC(size(ixChangeStart)))
+    temp%ixChangeStart = ixChangeStart
+    temp%ixChangeN = ixChangeN
+    temp%ixChangeFixC = ixChangeFixC
 
     temp%next => head_sts_terms
     head_sts_terms => temp
@@ -393,18 +411,40 @@ contains
   END FUNCTION total_chev
 !!!> IMPLEMENTATION2 end
 
-
-  subroutine sts_add_source2(my_dt)
-  ! Meyer 2012 MNRAS 422,2102
-    use mod_ghostcells_update
+  subroutine fix_conserve_flux(tmpPs, indexChangeStart, indexChangeN, indexChangeFixC)
     use mod_fix_conserve
     use mod_global_parameters
+    type(state), target               :: tmpPs(max_blocks)
+    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+    logical, intent(in), dimension(:) :: indexChangeFixC
+    integer :: i,storeIndex
+
+      call recvflux(1,ndim)
+      call sendflux(1,ndim)
+      storeIndex = 1
+      !!This is consistent with the subroutine in mod_mhs_phys which gets the indices where
+      !!to store the fluxes in mod_fix_conserve, set_sts_sources_ambipolar 
+      do i = 1,size(indexChangeStart)
+        if (indexChangeFixC(i)) then 
+          call fix_conserve1(tmpPs,1,ndim,indexChangeStart(i),storeIndex, indexChangeN(i))
+          storeIndex = storeIndex + indexChangeN(i)
+        endif
+      end do
+
+  end subroutine fix_conserve_flux
+
+
+  subroutine sts_add_source2(my_dt)
+  ! Turlough Downes 2006,2007
+    use mod_ghostcells_update
+    use mod_global_parameters
+    use mod_fix_conserve
     
     double precision, intent(in) :: my_dt
     double precision, allocatable :: bj(:)
     !double precision :: sumbj  !!NO need
 
-    integer:: iigrid, igrid,j,i,ii,s
+    integer:: iigrid, igrid,j,i,ii,ii2
     logical :: stagger_flag
     type(sts_term), pointer  :: temp
 
@@ -414,7 +454,7 @@ contains
     bcphys=.false.
 
 
-    !call init_comm_fix_conserve(1,ndim,1)
+    call init_comm_fix_conserve(1,ndim,1)
 
     !!tod pass this to sts_set_sources
     fix_conserve_at_step = time_advance .and. levmax>levmin
@@ -449,10 +489,12 @@ contains
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid
-            call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w)
-            do i = 1,size(temp%ixChange)
-              ii=temp%ixChange(i)
-              ps(igrid)%w(ixM^T,ii)=ps(igrid)%w(ixM^T,ii)+bj(j)*temp%dt_expl*ps1(igrid)%w(ixM^T,ii)
+            call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w, fix_conserve_at_step, &
+                                    igrid,temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
+            do i = 1,size(temp%ixChangeStart)
+              ii=temp%ixChangeStart(i)
+              ii2 = ii + temp%ixChangeN(i) -1
+              ps(igrid)%w(ixM^T,ii:ii2)=ps(igrid)%w(ixM^T,ii:ii2)+bj(j)*temp%dt_expl*ps1(igrid)%w(ixM^T,ii:ii2)
             end do
             !if( igrid .eq. 1) print*, " ps1Bx " , ps1(igrid)%w(1:10,8)
             !if( igrid .eq. 1) print*, " psBx " , ps(igrid)%w(1:10,8)
@@ -460,6 +502,7 @@ contains
 
         end do
       !$OMP END PARALLEL DO
+        if (fix_conserve_at_step) call fix_conserve_flux(ps, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
         call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
       end do
 
@@ -494,7 +537,7 @@ contains
     double precision, intent(in) :: my_dt
     double precision :: omega1,cmu,cmut,cnu,cnut
     double precision, allocatable :: bj(:)
-    integer:: iigrid, igrid,j,i,ii,s
+    integer:: iigrid, igrid,j,i,ii,ii2
     logical :: evenstep, stagger_flag
     type(sts_term), pointer  :: temp
     type(state), dimension(:), pointer :: tmpPs1, tmpPs2
@@ -505,9 +548,8 @@ contains
     bcphys=.false.
 
 
-    !call init_comm_fix_conserve(1,ndim,1)
+    call init_comm_fix_conserve(1,ndim,1)
 
-    !!todo pass this to sts_set_sources
     fix_conserve_at_step = time_advance .and. levmax>levmin
 
     temp => head_sts_terms
@@ -569,7 +611,8 @@ contains
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
 !        print*, "1sID_sts ",igrid
-        call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w)
+        call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w, fix_conserve_at_step, &
+                                    igrid, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
 
 !        print*, "FIRST STep Bx ", igrid, minval(ps4(igrid)%w(ixM^T,8)), maxval(ps4(igrid)%w(ixM^T,8))
 !        print*, "FIRST STep e ", igrid, minval(ps4(igrid)%w(ixM^T,5)), maxval(ps4(igrid)%w(ixM^T,5))
@@ -581,10 +624,11 @@ contains
 
         !!!eq solved: dU/dt = S
         !!!In ps3 is stored S^n
-        do i = 1,size(temp%ixChange)
-          ii=temp%ixChange(i)
-          ps3(igrid)%w(ixM^T,ii) = my_dt * ps4(igrid)%w(ixM^T,ii)
-          ps1(igrid)%w(ixM^T,ii) = ps1(igrid)%w(ixM^T,ii) + cmut * ps3(igrid)%w(ixM^T,ii)
+        do i = 1,size(temp%ixChangeStart)
+          ii=temp%ixChangeStart(i)
+          ii2 = ii + temp%ixChangeN(i) -1
+          ps3(igrid)%w(ixM^T,ii:ii2) = my_dt * ps4(igrid)%w(ixM^T,ii:ii2)
+          ps1(igrid)%w(ixM^T,ii:ii2) = ps1(igrid)%w(ixM^T,ii:ii2) + cmut * ps3(igrid)%w(ixM^T,ii:ii2)
         enddo
 !        if( igrid .eq. 1) print*, " 1sperpps1 bx " , ps1(igrid)%w(1:10,8)
 !        if( igrid .eq. 1)   print*," 1stepps1 e " , ps1(igrid)%w(1:10,5)
@@ -609,6 +653,7 @@ contains
       !  call sendflux(1,ndim)
       !  call fix_conserve(ps1,1,ndim,temp%startVar,temp%endVar-temp%startVar+1)
       !end if
+      if (fix_conserve_at_step) call fix_conserve_flux(ps1, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
       call getbc(global_time,0.d0,ps1,temp%startVar,temp%endVar-temp%startVar+1)
       !!first step end
       
@@ -638,7 +683,8 @@ contains
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid
-            call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w, ps(igrid)%x,ps4(igrid)%w)
+            call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w, ps(igrid)%x,ps4(igrid)%w, fix_conserve_at_step, &
+                                    igrid, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
             !print*, "** tmpPs2 ",igrid, loc(tmpPs2(igrid)), " tmpPs1 ", loc(tmpPs1(igrid))
             !print*, " STep ",j , " e ",evenstep, " tmpPs1 ", minval(tmpPs1(igrid)%w),maxval(tmpPs1(igrid)%w)
 !            print*, " BEFORE ADD STep ",j ,  " tmpPs2 ", minval(tmpPs1(igrid)%w),maxval(tmpPs1(igrid)%w)
@@ -647,10 +693,11 @@ contains
 !            print*, " tmpPs1e " , tmpPs1(igrid)%w(1:10,5)
             !print*, " STep ",j ,  " ps3 ", minval(ps3(igrid)%w),maxval(ps3(igrid)%w)
             !print*, " STep ",j ,  " ps4 ", minval(ps4(igrid)%w),maxval(ps4(igrid)%w)
-            do i = 1,size(temp%ixChange)
-              ii=temp%ixChange(i)
-              tmpPs2(igrid)%w(ixM^T,ii)=cmu*tmpPs1(igrid)%w(ixM^T,ii)+cnu*tmpPs2(igrid)%w(ixM^T,ii)+(1.d0-cmu-cnu)*ps(igrid)%w(ixM^T,ii)&
-                        +cmut*my_dt*ps4(igrid)%w(ixM^T,ii)+cnut*ps3(igrid)%w(ixM^T,ii)
+            do i = 1,size(temp%ixChangeStart)
+              ii=temp%ixChangeStart(i)
+              ii2 = ii + temp%ixChangeN(i) - 1
+              tmpPs2(igrid)%w(ixM^T,ii:ii2)=cmu*tmpPs1(igrid)%w(ixM^T,ii:ii2)+cnu*tmpPs2(igrid)%w(ixM^T,ii:ii2)+(1.d0-cmu-cnu)*ps(igrid)%w(ixM^T,ii:ii2)&
+                        +cmut*my_dt*ps4(igrid)%w(ixM^T,ii:ii2)+cnut*ps3(igrid)%w(ixM^T,ii:ii2)
             end do
             !tmpPs2(igrid)%w(ixM^T,1:nw)=cmu*tmpPs1(igrid)%w(ixM^T,1:nw)+cnu*tmpPs2(igrid)%w(ixM^T,1:nw)+(1.d0-cmu-cnu)*ps(igrid)%w(ixM^T,1:nw)&
             !            +cmut*dt*ps4(igrid)%w(ixM^T,1:nw)+cnut*ps3(igrid)%w(ixM^T,1:nw)
@@ -665,6 +712,7 @@ contains
 !            if( igrid .eq. 1)   print*," tmpPs2e " , tmpPs2(igrid)%w(1:10,5)
         end do
       !$OMP END PARALLEL DO
+        if (fix_conserve_at_step) call fix_conserve_flux(tmpPs2, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
         call getbc(global_time,0.d0,tmpPs2,temp%startVar,temp%endVar-temp%startVar+1)
         evenstep=.not. evenstep
 !        print*, "tmpPs2INLOOP ",loc(tmpPs2)
@@ -676,9 +724,10 @@ contains
       !print*, "IGRIDSTAIL  ", igridstail
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail; igrid=igrids(iigrid);
-        do i = 1,size(temp%ixChange)
-          ii=temp%ixChange(i)
-          ps(igrid)%w(ixG^T,ii)=tmpPs2(igrid)%w(ixG^T,ii)
+        do i = 1,size(temp%ixChangeStart)
+          ii=temp%ixChangeStart(i)
+          ii2 = ii + temp%ixChangeN(i) - 1
+          ps(igrid)%w(ixG^T,ii:ii2)=tmpPs2(igrid)%w(ixG^T,ii:ii2)
         end do 
         !ps(igrid)%w(ixG^T,1:nw)=tmpPs2(igrid)%w(ixG^T,1:nw)
 !        if(igrid .eq. 1) then
