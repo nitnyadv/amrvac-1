@@ -183,6 +183,7 @@ mod_mhd_phys.o: mod_physics.mod
 mod_mhd_phys.o: mod_radiative_cooling.mod
 mod_mhd_phys.o: mod_small_values.mod
 mod_mhd_phys.o: mod_supertimestepping.mod
+mod_mhd_phys.o: mod_tc.mod
 mod_mhd_phys.o: mod_thermal_conduction.mod
 mod_mhd_phys.o: mod_viscosity.mod
 mod_mhd_ppm.o: mod_geometry.mod
@@ -256,6 +257,9 @@ mod_supertimestepping.o: mod_fix_conserve.mod
 mod_supertimestepping.o: mod_geometry.mod
 mod_supertimestepping.o: mod_ghostcells_update.mod
 mod_supertimestepping.o: mod_physics.mod
+mod_tc.o: mod_fix_conserve.mod
+mod_tc.o: mod_geometry.mod
+mod_tc.o: mod_supertimestepping.mod
 mod_thermal_conduction.o: mod_fix_conserve.mod
 mod_thermal_conduction.o: mod_geometry.mod
 mod_thermal_conduction.o: mod_ghostcells_update.mod
@@ -275,4 +279,5 @@ refine.o: mod_amr_fct.mod
 refine.o: mod_physics.mod
 set_B0.o: mod_geometry.mod
 setdt.o: mod_physics.mod
+setdt.o: mod_supertimestepping.mod
 setdt.o: mod_thermal_conduction.mod

@@ -31,9 +31,9 @@ module mod_fix_conserve
   public :: deallocateBflux
   public :: sendflux
   public :: recvflux
-  public :: store_flux, store_flux1
+  public :: store_flux, store_flux_var
   public :: store_edge
-  public :: fix_conserve, fix_conserve1
+  public :: fix_conserve, fix_conserve_vars
   public :: fix_edges
 
  contains
@@ -1197,5 +1197,69 @@ module mod_fix_conserve
      end do
 
    end subroutine add_sub_circ
+
+
+  !!this conserves fluxed put by store_flux_var
+  !used for the sts methods where not all the fluxes are stored and fixed.
+  subroutine fix_conserve_vars(tmpPs, indexChangeStart, indexChangeN, indexChangeFixC)
+    use mod_global_parameters
+    type(state), target               :: tmpPs(max_blocks)
+    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+    logical, intent(in), dimension(:) :: indexChangeFixC
+    integer :: i,storeIndex
+
+      call recvflux(1,ndim)
+      call sendflux(1,ndim)
+      storeIndex = 1
+      !!This is consistent with the subroutine in mod_mhs_phys which gets the indices where
+      !!to store the fluxes in mod_fix_conserve, set_sts_sources_ambipolar 
+      do i = 1,size(indexChangeStart)
+        if (indexChangeFixC(i)) then 
+          call fix_conserve1(tmpPs,1,ndim,indexChangeStart(i),storeIndex, indexChangeN(i))
+          storeIndex = storeIndex + indexChangeN(i)
+        endif
+      end do
+
+  end subroutine fix_conserve_vars
+
+  subroutine store_flux_var(flux,indexVar,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    use mod_global_parameters
+    double precision, allocatable, intent(in), dimension(:^D&,:) :: flux
+    integer, intent(in) :: indexVar,igrid
+    double precision, intent(in) :: my_dt
+    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+    logical, intent(in), dimension(:) :: indexChangeFixC
+
+    integer :: storeIndex,i
+    !TODO why reshape does not work?
+    double precision, allocatable, dimension(:^D&,:,:) :: fluxC
+    logical :: found
+
+    storeIndex = 0
+    found = .false.
+    do while (.not. found .and. i .le. size(indexChangeStart))
+      if(indexChangeStart(i) .le. indexVar .and. indexVar .le. indexChangeStart(i) + indexChangeN(i) ) then
+        storeIndex = storeIndex + indexVar - indexChangeStart(i) + 1 
+        found = .true.
+      else
+        if (indexChangeFixC(i)) then 
+            storeIndex = storeIndex + indexChangeN(i)
+        endif  
+        i=i+1
+      endif  
+    end do
+
+    if(storeIndex>0) then
+      !allocate(fluxC(ixI^S,1,1:ndim))
+      allocate(fluxC(^D&size(flux,^D),1,1:ndim))
+      fluxC(:^D&,1,1:ndim) = my_dt * flux(:^D&,1:ndim)
+      call store_flux1(igrid,fluxC,1,ndim,storeIndex,1)
+      deallocate(fluxC)
+    endif
+  end subroutine store_flux_var
+
+
+
+
 
 end module mod_fix_conserve

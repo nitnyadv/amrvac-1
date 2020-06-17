@@ -242,6 +242,7 @@ contains
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
       call thermal_conduction_init(hd_gamma)
+      !call tc_init_hd(hd_gamma, (/rho_, e_/), hd_get_temperature)
     end if
 
     ! Initialize radiative cooling module
@@ -653,6 +654,44 @@ contains
     end if
 
   end subroutine hd_get_pthermal
+
+  !> Calculate temperature=p/rho
+  subroutine hd_get_temperature(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    use mod_small_values, only: small_values_method
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    integer :: ix^D,lowindex(ndim)
+
+    call hd_get_pthermal(w, x, ixI^L, ixO^L, res)
+    ! Clip off negative pressure if small_pressure is set
+    !!this is copied from the thermal conductivity module,
+    !the only place where it is used by now
+    if(small_values_method=='error') then
+       if (any(res(ixO^S)<small_e) .and. .not.crash) then
+         lowindex=minloc(res(ixO^S))
+         ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
+         write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
+         x(^D&lowindex(^D),1:ndim),lowindex,' with limit=',small_e,' on time=',global_time, ' it=',it
+         write(*,*) 'w',w(^D&lowindex(^D),:)
+         crash=.true.
+       end if
+    else
+    {do ix^DB=ixOmin^DB,ixOmax^DB\}
+       if(res(ix^D)<small_e) then
+          res(ix^D)=small_e
+       end if
+    {end do\}
+    end if
+    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+
+
+  end subroutine hd_get_temperature
+
+  
 
   ! Calculate flux f_idim[iw]
   subroutine hd_get_flux_cons(w, x, ixI^L, ixO^L, idim, f)
