@@ -1,5 +1,6 @@
 !> Magneto-hydrodynamics module
 module mod_mhd_phys
+#include "amrvac.h"
   use mod_global_parameters, only: std_len
   implicit none
   private
@@ -262,8 +263,11 @@ contains
 
   subroutine mhd_phys_init()
     use mod_global_parameters
+#if defined(OLD_TC) && OLD_TC==1
     use mod_thermal_conduction
+#else
     use mod_tc
+#endif
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
     use mod_gravity, only: gravity_init
@@ -465,12 +469,15 @@ contains
     ! initialize thermal conduction module
     if (mhd_thermal_conduction) then
       phys_req_diagonal = .true.
-      !call thermal_conduction_init(mhd_gamma)
+#if defined(OLD_TC) && OLD_TC==1
+      call thermal_conduction_init(mhd_gamma)
+#else
       if(mhd_solve_eaux) then
         call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature)
       else
         call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature)
       endif
+#endif
     end if
 
     ! Initialize radiative cooling module
@@ -1418,15 +1425,15 @@ contains
         f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
       endif
 
-!!!mathematica output          
-!(-jxbxb)xb
-!{(bx^2 + by^2 + bz^2)*(bz*vy - by*vz), (bx^2 + by^2 + bz^2)*(-(bz*vx) + bx*vz), -((bx^2 + by^2 + bz^2)*(-(by*vx) + bx*vy))}
-!mag1
-!{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy - bz*(bz*vy - by*vz)}
-!mag2
-!{bz*(bx*vx + by*vy) - (bx^2 + by^2)*vz, 0, by^2*vx - bx*by*vy + bz*(bz*vx - bx*vz)}
-!mag3
-!{-(bx*by*vx) + bx^2*vy + bz*(bz*vy - by*vz), -(by^2*vx) + bx*by*vy - bz*(bz*vx - bx*vz), 0}
+      !!!mathematica output          
+      !(-jxbxb)xb
+      !{(bx^2 + by^2 + bz^2)*(bz*vy - by*vz), (bx^2 + by^2 + bz^2)*(-(bz*vx) + bx*vz), -((bx^2 + by^2 + bz^2)*(-(by*vx) + bx*vy))}
+      !mag1
+      !{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy - bz*(bz*vy - by*vz)}
+      !mag2
+      !{bz*(bx*vx + by*vy) - (bx^2 + by^2)*vz, 0, by^2*vx - bx*by*vy + bz*(bz*vx - bx*vz)}
+      !mag3
+      !{-(bx*by*vx) + bx^2*vy + bz*(bz*vy - by*vz), -(by^2*vx) + bx*by*vy - bz*(bz*vx - bx*vz), 0}
  
       deallocate(Jambi,btot, tmp2)
     endif
@@ -1497,156 +1504,130 @@ contains
   end subroutine mhd_get_jxbxb
 
 
-     subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres, fix_conserve_at_step, my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC )
-      use mod_global_parameters
-      use mod_geometry, only: divvector
-      use mod_fix_conserve, only: store_flux_var
+  subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres, fix_conserve_at_step, my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC )
+    use mod_global_parameters
+    use mod_geometry, only: divvector
+    use mod_fix_conserve, only: store_flux_var
 
-      integer, intent(in) :: ixI^L, ixO^L,igrid
-      double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-      double precision, intent(inout) ::  wres(ixI^S,1:nw)
-      double precision, intent(in) :: my_dt
-      logical, intent(in) :: fix_conserve_at_step
-      integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
-      logical, intent(in), dimension(:) :: indexChangeFixC
+    integer, intent(in) :: ixI^L, ixO^L,igrid
+    double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+    logical, intent(in), dimension(:) :: indexChangeFixC
 
 
-      double precision, allocatable, dimension(:^D&,:) :: tmp,ff
-      double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
+    double precision, allocatable, dimension(:^D&,:) :: tmp,ff
+    double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
 
-      integer :: i, ixA^L
+    integer :: i, ixA^L
 
-      ixA^L=ixO^L^LADD2;
+    ixA^L=ixO^L^LADD2;
 
-      !print*, "ID_mhd ",w(4,:)
-      !print*, "minval_IN ", minval(w), " maxval ", maxval(w)
-      !print*, "minval_IN first10 ", w(1:10,1:nw)
-      !print*, "minloc_IN ", minloc(w), " maxloc ", maxloc(w)
-
-      allocate(tmp(ixI^S,1:3))
-      allocate(ff(ixI^S,1:3))
-      call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
-      btot(ixA^S,1:3) = 0
-      if(B0field) then
-        do i=1,ndir
-          btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
-        enddo
-      else
-        btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
-      endif
-
-      !!tmp is now jxbxb = b^2 * j_perpB
-      if(mhd_solve_eaux) then
-        wres(ixO^S,eaux_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
-        call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
-       endif
-
-      !print*, "jxbxb_x ", tmp(1:10,1)
-      !print*, "jxbxb_y ", tmp(1:10,2)
-      !print*, "jxbxb_z ", tmp(1:10,3)
-      !set electric field in tmp E=-nuA * jxbxb, where nuA=etaA/rho^2
-      do i =1,3
-        !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
-        call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
-        !print*, "TMP ", tmp(1:10,1:3)
+    allocate(tmp(ixI^S,1:3))
+    allocate(ff(ixI^S,1:3))
+    call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
+    btot(ixA^S,1:3) = 0
+    if(B0field) then
+      do i=1,ndir
+        btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
       enddo
+    else
+      btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
+    endif
 
-      !print*, "NU_impl ",-(mhd_eta_ambi/w(1:10, rho_)**2) 
+    !!tmp is now jxbxb = b^2 * j_perpB
+    if(mhd_solve_eaux) then
+      wres(ixO^S,eaux_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
+      call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
+     endif
 
-      !print*, "Ele_x ", tmp(1:10,1)
-      !print*, "Ele_y ", tmp(1:10,2)
-      !print*, "Ele_z ", tmp(1:10,3)
-      call cross_product(ixI^L,ixA^L,tmp,btot,ff)
-      !print*, "Exb_x ", ff(1:10,1)
-      !print*, "Exb_y ", ff(1:10,2)
-      !print*, "Exb_z ", ff(1:10,3)
-      call divvector(ff,ixI^L,ixO^L,tmp2)
+    !set electric field in tmp E=-nuA * jxbxb, where nuA=etaA/rho^2
+    do i =1,3
+      !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
+      call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
+    enddo
 
-       if (fix_conserve_at_step)  call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    call cross_product(ixI^L,ixA^L,tmp,btot,ff)
+    call divvector(ff,ixI^L,ixO^L,tmp2)
+     if (fix_conserve_at_step)  call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
 
-      !print*, "divf_en ", tmp2(1:10)
-      !- sign comes from the fact that the flux divergence is a source now
-      wres(ixO^S,e_)=-tmp2(ixO^S)
+    !- sign comes from the fact that the flux divergence is a source now
+    wres(ixO^S,e_)=-tmp2(ixO^S)
 
-      !write curl(ele) as the divergence
-      !m1={0,ele[[3]],-ele[[2]]}
-      !m2={-ele[[3]],0,ele[[1]]}
-      !m3={ele[[2]],-ele[[1]],0}
-      
-      !print*, "ixA ", ixA^L
-      !print*, "e, mag ", e_, mag(1), mag(2), mag(3)
+    !write curl(ele) as the divergence
+    !m1={0,ele[[3]],-ele[[2]]}
+    !m2={-ele[[3]],0,ele[[1]]}
+    !m3={ele[[2]],-ele[[1]],0}
+    
+    !!!Bx
+    ff(ixA^S,1) = 0
+    ff(ixA^S,2) = tmp(ixA^S,3)
+    ff(ixA^S,3) = -tmp(ixA^S,2)
+    call divvector(ff,ixI^L,ixO^L,tmp2)
+    if (fix_conserve_at_step)  call store_flux_var(ff,mag(1),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    !flux divergence is a source now
+    wres(ixO^S,mag(1))=-tmp2(ixO^S)
+    !!!By
+    ff(ixA^S,1) = -tmp(ixA^S,3)
+    ff(ixA^S,2) = 0
+    ff(ixA^S,3) = tmp(ixA^S,1)
+    call divvector(ff,ixI^L,ixO^L,tmp2)
+    if (fix_conserve_at_step) call store_flux_var(ff,mag(2),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    wres(ixO^S,mag(2))=-tmp2(ixO^S)
 
-      !!Here it is assumed that the indices for magnetic field are always passed as consecutive
-      !!!Bx
-      ff(ixA^S,1) = 0
-      ff(ixA^S,2) = tmp(ixA^S,3)
-      ff(ixA^S,3) = -tmp(ixA^S,2)
-      call divvector(ff,ixI^L,ixO^L,tmp2)
-      if (fix_conserve_at_step)  call store_flux_var(ff,mag(1),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-      !flux divergence is a source now
-      wres(ixO^S,mag(1))=-tmp2(ixO^S)
-      !!!By
-      ff(ixA^S,1) = -tmp(ixA^S,3)
-      ff(ixA^S,2) = 0
-      ff(ixA^S,3) = tmp(ixA^S,1)
-      call divvector(ff,ixI^L,ixO^L,tmp2)
-      if (fix_conserve_at_step) call store_flux_var(ff,mag(2),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-      wres(ixO^S,mag(2))=-tmp2(ixO^S)
-
-      !!!Bz
-      ff(ixA^S,1) = tmp(ixA^S,2)
-      ff(ixA^S,2) = -tmp(ixA^S,1)
-      ff(ixA^S,3) = 0
-      call divvector(ff,ixI^L,ixO^L,tmp2)
-      if (fix_conserve_at_step) call store_flux_var(ff,mag(3),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-      !print*, "divvMAG3 ", tmp2(1:10)
-      wres(ixO^S,mag(3))=-tmp2(ixO^S)
-      !print*, "minval_OUT first10 ", wres(1:10,1:nw)
-
-      !print*, "IMPLICIT FLUX  ", ff(1:10,1)
-
-      deallocate(tmp,ff)
-      !print*, "minval_OUT ", minval(wres), " maxval ", maxval(wres)
-      !print*, "minloc_OUT ", minloc(wres), " maxloc ", maxloc(wres)
-
-   end subroutine sts_set_source_ambipolar
+    !!!Bz
+    ff(ixA^S,1) = tmp(ixA^S,2)
+    ff(ixA^S,2) = -tmp(ixA^S,1)
+    ff(ixA^S,3) = 0
+    call divvector(ff,ixI^L,ixO^L,tmp2)
+    if (fix_conserve_at_step) call store_flux_var(ff,mag(3),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    wres(ixO^S,mag(3))=-tmp2(ixO^S)
 
 
-   function get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
-      use mod_global_parameters
+    deallocate(tmp,ff)
 
-      integer, intent(in) :: ixI^L, ixO^L
-      double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
-      double precision, intent(in) :: w(ixI^S,1:nw)
-      double precision :: dtnew
+  end subroutine sts_set_source_ambipolar
 
-      double precision              :: coef
-      double precision              :: dxarr(ndim)
-      double precision              :: tmp(ixI^S)
-      ^D&dxarr(^D)=dx^D;
 
-      tmp = mhd_mag_en_all(w, ixI^L, ixO^L)
-      call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
-      coef = maxval(abs(tmp))
-      if(slab_uniform) then
-        dtnew=minval(dxarr(1:ndim))**2.0d0/coef
-      else
-        dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
-      end if
+  function get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
+    use mod_global_parameters
 
-    end function get_ambipolar_dt
-   subroutine multiplyAmbiCoef(ixI^L,ixO^L,res,w,x)   
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    double precision              :: coef
+    double precision              :: dxarr(ndim)
+    double precision              :: tmp(ixI^S)
+    ^D&dxarr(^D)=dx^D;
+
+    tmp = mhd_mag_en_all(w, ixI^L, ixO^L)
+    call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
+    coef = maxval(abs(tmp))
+    if(slab_uniform) then
+      dtnew=minval(dxarr(1:ndim))**2.0d0/coef
+    else
+      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
+    end if
+
+  end function get_ambipolar_dt
+
+
+  subroutine multiplyAmbiCoef(ixI^L,ixO^L,res,w,x)   
     use mod_global_parameters
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: res(ixI^S)
-
+  
     res(ixO^S) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * res(ixO^S)
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,res)
     endif
-
-   end subroutine multiplyAmbiCoef
+ 
+  end subroutine multiplyAmbiCoef
 
   !> w[iws]=w[iws]+qdt*S[iws,wCT] where S is the source based on wCT within ixO
   subroutine mhd_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)

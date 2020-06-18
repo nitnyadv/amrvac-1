@@ -35,6 +35,28 @@ module mod_tc
   use mod_geometry
   implicit none
   private
+  !> Coefficient of thermal conductivity (parallel to magnetic field)
+  double precision :: tc_k_para
+
+  !> Coefficient of thermal conductivity perpendicular to magnetic field
+  double precision :: tc_k_perp
+
+  !> The adiabatic index
+  double precision :: tc_gamma
+
+  !> Name of slope limiter for transverse component of thermal flux 
+  character(len=std_len)  :: tc_slope_limiter
+
+
+  !> Logical switch for test constant conductivity
+  logical :: tc_constant
+  !> Calculate thermal conduction perpendicular to magnetic field (.true.) or not (.false.)
+  logical :: tc_perpendicular=.false.
+
+  !> Consider thermal conduction saturation effect (.true.) or not (.false.)
+  logical :: tc_saturate=.true.
+  !> Name of slope limiter for transverse component of thermal flux 
+  integer :: rho_=-1,mag(1:3)=-1,e_=-1,eaux_=-1
 abstract interface
   subroutine get_temperature_subr_interface(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
@@ -45,6 +67,7 @@ abstract interface
 
   end subroutine get_temperature_subr_interface
 end interface
+  procedure (get_temperature_subr_interface), pointer :: get_temperature => null()
 
   public :: tc_init_mhd, tc_init_hd  
 
@@ -71,31 +94,10 @@ interface
 
   end subroutine get_temperature_subr
 end interface
-  procedure (get_temperature_subr_interface), pointer :: get_temperature => null()
 
 
-  !> Coefficient of thermal conductivity (parallel to magnetic field)
-  double precision :: tc_k_para
 
-  !> Coefficient of thermal conductivity perpendicular to magnetic field
-  double precision :: tc_k_perp
-
-  !> The adiabatic index
-  double precision :: tc_gamma
-
-  !> Name of slope limiter for transverse component of thermal flux 
-  character(len=std_len)  :: tc_slope_limiter
-
-
-  !> Logical switch for test constant conductivity
-  logical :: tc_constant
-  !> Calculate thermal conduction perpendicular to magnetic field (.true.) or not (.false.)
-  logical :: tc_perpendicular=.false.
-
-  !> Consider thermal conduction saturation effect (.true.) or not (.false.)
-  logical :: tc_saturate=.true.
-  !> Name of slope limiter for transverse component of thermal flux 
-  integer :: rho_=-1,mag(1:3)=-1,e_=-1,eaux_=-1
+  if(mype .eq. 0) print*, "MHD TC new"
 
     rho_ = ixArray(1)
     e_ = ixArray(2)
@@ -160,6 +162,8 @@ end interface
   end subroutine tc_params_read_mhd
 
 
+  end subroutine tc_init_mhd
+
   function get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
     !Check diffusion time limit dt < tc_dtpar*dx_i**2/((gamma-1)*tc_k_para_i/rho)
     !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
@@ -178,7 +182,7 @@ end interface
 
 
     ^D&dxinv(^D)=one/dx^D;
-    
+
     call get_temperature(w,x,ixI^L,ixO^L,Te)
 
     !tc_k_para_i
@@ -204,7 +208,7 @@ end interface
     end where
 
     if(tc_saturate) B2(ixO^S)=22.d0*dsqrt(Te(ixO^S))
-
+    dtnew=bigdouble
     do idim=1,ndim
       tmp2(ixO^S)=tmp(ixO^S)*mf(ixO^S,idim)
       if(tc_saturate) then
@@ -512,10 +516,6 @@ end interface
   end function slope_limiter
 
 
-  end subroutine tc_init_mhd
-
-
-
   !> Calculate gradient of a scalar q at cell interfaces in direction idir
   subroutine gradientC(q,ixI^L,ixO^L,idir,gradq)
     use mod_global_parameters
@@ -575,19 +575,6 @@ interface
 
   end subroutine get_temperature_subr
 end interface
-  procedure (get_temperature_subr_interface), pointer :: get_temperature => null()
-
-  !> Coefficient of thermal conductivity (parallel to magnetic field)
-  double precision :: tc_k_para
-
-  !> The adiabatic index
-  double precision :: tc_gamma
-
-
-
-  !> Consider thermal conduction saturation effect (.true.) or not (.false.)
-  logical :: tc_saturate=.true.
-  integer :: rho_=-1,e_=-1
 
     rho_ = ixArray(1)
     e_ = ixArray(2)
@@ -630,6 +617,8 @@ end interface
     end do
 
   end subroutine tc_params_read_hd
+
+  end subroutine tc_init_hd
 
   function get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
     ! Check diffusion time limit dt < tc_dtpar * dx_i**2 / ((gamma-1)*tc_k_para_i/rho)
@@ -771,8 +760,6 @@ end interface
 
   end subroutine sts_set_source_tc_hd
 
-  end subroutine tc_init_hd
-
 
 !!-------------------------------------------------------
   subroutine cornerValue(ixI^L, ixC^L, qd, ke)
@@ -823,8 +810,8 @@ end interface
         ke=0.d0
         {do ix^DB=0,1 \}
            if({ ix^D==0 .and. ^D==idims | .or.}) then
-             ixBmin^D=ixCmin^D - ix^D;
-             ixBmax^D=ixCmax^D - ix^D;
+             ixBmin^D=ixCmin^D-ix^D;
+             ixBmax^D=ixCmax^D-ix^D;
              ke(ixC^S)=ke(ixC^S)+qd(ixB^S,idims)
            end if
         {end do\}

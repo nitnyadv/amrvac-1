@@ -1,6 +1,7 @@
 !>setdt  - set dt for all levels between levmin and levmax. 
 !>         dtpar>0  --> use fixed dtpar for all level
 !>         dtpar<=0 --> determine CFL limited timestep 
+#include "amrvac.h"
 subroutine setdt()
   use mod_global_parameters
   use mod_physics
@@ -95,6 +96,7 @@ subroutine setdt()
     endif
   endif   
 
+#if defined(OLD_TC) && OLD_TC ==1
   ! estimate time step of thermal conduction
   if(associated(phys_getdt_heatconduct)) then
      dtmin_mype=bigdouble
@@ -134,7 +136,7 @@ subroutine setdt()
      if(mype==0 .and. .false.) write(*,*) 'supertime steps:',s,' normal subcycles:',&
                                  ceiling(dt/dtnew/2.d0)
   endif
-
+#endif
   if(is_sts_initialized()) then
     !!reuse qdtnew
     !qdtnew = dt 
