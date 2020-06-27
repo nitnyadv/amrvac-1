@@ -305,20 +305,18 @@ contains
 
     double precision    :: ss,rr
     integer:: ncycles
-
       rr = dt/dtnew
+      !print*, dt, " --DTEXPL-- ", dtnew, ", rr ",rr
       ncycles = sts_ncycles 
       !print*, "NCYCLES BEFORE ",ncycles
       ss=sum_chev(nu_sts,ncycles,rr)
       !print*, "NCYCLES AFTER ",ncycles
       is = ncycles
-      !print*, "SUMCHEV ", ss, " NCYCLES ", ncycles
+      !print*, "SUMCHEV ", ss, " NCYCLES ", is
       if(ss < rr) then
         dt_modified = .true.
         dt = ss *  dtnew
       endif
-
-
 
   end  function sts_get_ncycles2
 
@@ -390,12 +388,13 @@ contains
     integer :: j
 
     j=1
-
+    !print*, N," LIMMAX ", limMax
     do while (j < N .and. sum_chev < limMax)
       sum_chev = sum_chev + chev(j,nu,N)
+      !print*, " SS j ", sum_chev,j
       j=j+1
     enddo
-    
+   N=j 
   END FUNCTION sum_chev
 
 
