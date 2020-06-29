@@ -1,6 +1,5 @@
 !> Hydrodynamics physics module
 module mod_hd_phys
-#include "amrvac.h"
   implicit none
   private
 
@@ -241,11 +240,11 @@ contains
     if (hd_thermal_conduction) then
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
-#if defined(OLD_TC) && OLD_TC == 1
-      call thermal_conduction_init(hd_gamma)
-#else
-      call tc_init_hd(hd_gamma, (/rho_, e_/), hd_get_temperature)
-#endif
+      if(.not. use_new_tc) then
+        call thermal_conduction_init(hd_gamma)
+      else
+        call tc_init_hd(hd_gamma, (/rho_, e_/), hd_get_temperature)
+      endif
     end if
 
     ! Initialize radiative cooling module

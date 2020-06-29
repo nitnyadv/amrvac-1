@@ -158,7 +158,6 @@ contains
       phys_get_heatconduct   => hd_get_heatconduct
       phys_getdt_heatconduct => hd_getdt_heatconduct
     else if(physics_type=='mhd') then
-      if(mype .eq. 0) print*, "MHD TC old"
       phys_get_heatconduct   => mhd_get_heatconduct
       phys_getdt_heatconduct => mhd_getdt_heatconduct
     end if

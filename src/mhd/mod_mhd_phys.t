@@ -1,6 +1,5 @@
 !> Magneto-hydrodynamics module
 module mod_mhd_phys
-#include "amrvac.h"
   use mod_global_parameters, only: std_len
   implicit none
   private
@@ -263,11 +262,11 @@ contains
 
   subroutine mhd_phys_init()
     use mod_global_parameters
-#if defined(OLD_TC) && OLD_TC==1
+!#if defined(OLD_TC) && OLD_TC==1
     use mod_thermal_conduction
-#else
+!#else
     use mod_tc
-#endif
+!#endif
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
     use mod_gravity, only: gravity_init
@@ -469,15 +468,15 @@ contains
     ! initialize thermal conduction module
     if (mhd_thermal_conduction) then
       phys_req_diagonal = .true.
-#if defined(OLD_TC) && OLD_TC==1
-      call thermal_conduction_init(mhd_gamma)
-#else
-      if(mhd_solve_eaux) then
-        call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature)
+      if(.not. use_new_tc) then
+        call thermal_conduction_init(mhd_gamma)
       else
-        call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature)
+        if(mhd_solve_eaux) then
+          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature)
+        else
+          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature)
+        endif
       endif
-#endif
     end if
 
     ! Initialize radiative cooling module

@@ -171,7 +171,7 @@ contains
          small_temperature,small_pressure,small_density, &
          small_values_method, small_values_daverage, check_small_values, &
          trace_small_values, angmomfix, small_values_fix_iw, &
-         small_values_use_primitive, schmid_rad^D, trac
+         small_values_use_primitive, schmid_rad^D, trac, use_new_tc
 
     namelist /boundlist/ nghostcells,typeboundary,typeghostfill,prolongation_method,&
          internalboundary, typeboundary_^L, save_physical_boundary

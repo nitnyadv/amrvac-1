@@ -294,6 +294,7 @@ contains
        is=ceiling((dsqrt(9.d0+16.d0*ss)-1.d0)/2.d0)
        is=is/2*2+1
     endif
+    !print*, dt, " --DTEXPL-- ", dtnew, ", ncycle1 ",is
   end  function sts_get_ncycles1
 
 
@@ -350,8 +351,8 @@ contains
       temp%s = sts_get_ncycles(my_dt,dtnew,dt_modified)  
       temp%dt_expl = dtnew
  
-      !if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
-      !   " MODI ",dt_modified
+      if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
+         " MODI ",dt_modified
        if(dt_modified) then
          temp => head_sts_terms
          oldTemp=>temp

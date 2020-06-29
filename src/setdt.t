@@ -1,7 +1,6 @@
 !>setdt  - set dt for all levels between levmin and levmax. 
 !>         dtpar>0  --> use fixed dtpar for all level
 !>         dtpar<=0 --> determine CFL limited timestep 
-#include "amrvac.h"
 subroutine setdt()
   use mod_global_parameters
   use mod_physics
@@ -16,7 +15,6 @@ subroutine setdt()
   double precision :: a2max_mype(ndim), tco_mype, tco_global, Tmax_mype, T_bott, T_peak
   double precision :: trac_alfa, trac_dmax, trac_tau
 
-  logical :: dt_modified
 
   if (dtpar<=zero) then
      dtmin_mype=bigdouble
@@ -98,9 +96,9 @@ subroutine setdt()
     endif
   endif   
 
-#if defined(OLD_TC) && OLD_TC ==1
+  
   ! estimate time step of thermal conduction
-  if(associated(phys_getdt_heatconduct)) then
+  if(.not. use_new_tc .and. associated(phys_getdt_heatconduct)) then
      dtmin_mype=bigdouble
   !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,&
   !$OMP& dx^D) REDUCTION(min:dtmin_mype)
@@ -138,28 +136,20 @@ subroutine setdt()
      if(mype==0 .and. .false.) write(*,*) 'supertime steps:',s,' normal subcycles:',&
                                  ceiling(dt/dtnew/2.d0)
   endif
-#endif
+
   if(is_sts_initialized()) then
     !!reuse qdtnew
     !qdtnew = dt 
-    dt_modified = .false.
     if(sourcetype_sts .eq. sourcetype_sts_split) then
       qdtnew = 0.5d0 * dt 
       if (set_dt_sts_ncycles(qdtnew)) then
         dt = 2d0*qdtnew
-        dt_modified = .true.
       endif  
     else
       !if(mype .eq. 0) print*, "Original dt ", dt
       if(set_dt_sts_ncycles(dt))then 
        !  if(mype .eq. 0) print*, "dt is now", dt
-        dt_modified = .true.
       endif
-    endif
-    if(dt_modified) then
-      qdtnew = dt
-      call MPI_ALLREDUCE(qdtnew,dt,1,MPI_DOUBLE_PRECISION,MPI_MIN, &
-                           icomm,ierrmpi)
     endif
   endif
 

@@ -40,13 +40,6 @@ contains
     ! split source addition
     call add_split_source(prior=.true.)
 
-!       print*, "ADVANCE1 SOURCE1bx ", igrid, minval(ps(igrid)%w(:,8)) , maxval(ps(igrid)%w(:,8))
-!       print*, "ADVANCE1 SOURCE1bx FIRST 10 ", igrid, ps(igrid)%w(1:10,8)
-!       print*, "ADVANCE1 SOURCE1e ", igrid, minval(ps(igrid)%w(:,5)) , maxval(ps(igrid)%w(:,5))
-!       print*, "ADVANCE1 SOURCE1e FIRST 10 ", igrid, ps(igrid)%w(1:10,5)
-!       print*, "ADVANCE1 SOURCE1 ALL FIRST 10 ", igrid, ps(igrid)%w(1:10,1:nw)
-
-
     firstsweep=.true.
     if (dimsplit) then
        if ((iit/2)*2==iit .or. typedimsplit=='xy') then
@@ -72,11 +65,6 @@ contains
     ! split source addition
     call add_split_source(prior=.false.)
 
-!       print*, "ADVANCE2 SOURCE1bx ", igrid, minval(ps(igrid)%w(:,8)) , maxval(ps(igrid)%w(:,8))
-!       print*, "ADVANCE2 SOURCE1bx FIRST 10 ", igrid, ps(igrid)%w(1:10,8)
-!       print*, "ADVANCE2 SOURCE1e ", igrid, minval(ps(igrid)%w(:,5)) , maxval(ps(igrid)%w(:,5))
-!       print*, "ADVANCE2 SOURCE1e FIRST 10 ", igrid, ps(igrid)%w(1:10,5)
-!       print*, "ADVANCE2 SOURCE1 ALL FIRST 10 ", igrid, ps(igrid)%w(1:10,1:nw)
     if(use_particles) call handle_particles
 
   end subroutine advance

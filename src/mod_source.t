@@ -1,6 +1,5 @@
 !> Module for handling split source terms (split from the fluxes)
 module mod_source
-#include "amrvac.h"
   implicit none
   private
 
@@ -23,10 +22,8 @@ contains
     double precision :: qdt, qt
     integer :: iigrid, igrid, i^D
     logical :: src_active
-#if defined(OLD_TC) && OLD_TC ==1
     ! add thermal conduction
-    if(associated(phys_thermal_conduction)) call phys_thermal_conduction()
-#endif
+    if(.not. use_new_tc .and. associated(phys_thermal_conduction)) call phys_thermal_conduction()
     if(is_sts_initialized()) then
         select case (sourcetype_sts)
           case (sourcetype_sts_prior)
