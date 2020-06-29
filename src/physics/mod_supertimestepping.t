@@ -347,12 +347,12 @@ contains
       !$OMP END PARALLEL DO
       call MPI_ALLREDUCE(dtmin_mype,dtnew,1,MPI_DOUBLE_PRECISION,MPI_MIN, &
                                icomm,ierrmpi)
- 
+      !print*, "MYDT ", my_dt, " dtnew ", dtnew 
       temp%s = sts_get_ncycles(my_dt,dtnew,dt_modified)  
       temp%dt_expl = dtnew
  
-      if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
-         " MODI ",dt_modified
+      !if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
+      !   " MODI ",dt_modified
        if(dt_modified) then
          temp => head_sts_terms
          oldTemp=>temp
@@ -389,6 +389,7 @@ contains
     integer :: j
 
     j=1
+    sum_chev = 0d0
     !print*, N," LIMMAX ", limMax
     do while (j < N .and. sum_chev < limMax)
       sum_chev = sum_chev + chev(j,nu,N)

@@ -1605,7 +1605,7 @@ contains
 
     tmp = mhd_mag_en_all(w, ixI^L, ixO^L)
     call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
-    coef = maxval(abs(tmp))
+    coef = maxval(abs(tmp(ixO^S)))
     if(slab_uniform) then
       dtnew=minval(dxarr(1:ndim))**2.0d0/coef
     else
