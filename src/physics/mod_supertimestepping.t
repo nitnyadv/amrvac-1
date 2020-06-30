@@ -352,7 +352,7 @@ contains
       temp%dt_expl = dtnew
  
       !if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
-      !   " MODI ",dt_modified
+      !   " MODI ",dt_modified, " dt expl ", dtnew
        if(dt_modified) then
          temp => head_sts_terms
          oldTemp=>temp
