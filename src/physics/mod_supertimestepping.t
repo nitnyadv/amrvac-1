@@ -340,12 +340,11 @@ contains
       !$OMP END PARALLEL DO
       call MPI_ALLREDUCE(dtmin_mype,dtnew,1,MPI_DOUBLE_PRECISION,MPI_MIN, &
                                icomm,ierrmpi)
-      !print*, "MYDT ", my_dt, " dtnew ", dtnew 
       temp%s = sts_get_ncycles(my_dt,dtnew,dt_modified)  
       temp%dt_expl = dtnew
  
-      !if(mype==0) write(*,*) 'supertime steps:',temp%s, " , dt is ", dt,&
-      !   " MODI ",dt_modified, " dt expl ", dtnew
+      !if(mype==0) write(*,*) 'supertime steps:',temp%s, ", dt is ", dt,&
+      !   " MODI ",dt_modified, " dt expl ", dtnew, ", my_dt=",my_dt
        if(dt_modified) then
          temp => head_sts_terms
          oldTemp=>temp

@@ -1475,7 +1475,6 @@ contains
     double precision :: tmp(ixI^S),b2(ixI^S)
 
 
-    !print*, "getcurrent ixO ", ixO^L
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
     !!!here we know that current has nonzero values only for components in the range idirmin, 3
@@ -1487,11 +1486,6 @@ contains
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
     endif
-    !print*, "Btot_x ", btot(1:10,1)
-    !print*, "Btot_y ", btot(1:10,2)
-    !print*, "GETjxbxb Btot_x ", btot(1:10,3)
-
-    !print*, "GETjxbxb J_y ", current(1:10,2)
     tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
     b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
     do idir=1,idirmin-1
@@ -1542,7 +1536,7 @@ contains
       call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
      endif
 
-    !set electric field in tmp E=-nuA * jxbxb, where nuA=etaA/rho^2
+    !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
     do i =1,3
       !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
@@ -1603,7 +1597,7 @@ contains
     double precision              :: tmp(ixI^S)
     ^D&dxarr(^D)=dx^D;
 
-    tmp = mhd_mag_en_all(w, ixI^L, ixO^L)
+    tmp(ixO^S) = mhd_mag_en_all(w, ixI^L, ixO^L)
     call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
     coef = maxval(abs(tmp(ixO^S)))
     if(slab_uniform) then
@@ -1625,7 +1619,6 @@ contains
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,res)
     endif
- 
   end subroutine multiplyAmbiCoef
 
   !> w[iws]=w[iws]+qdt*S[iws,wCT] where S is the source based on wCT within ixO
