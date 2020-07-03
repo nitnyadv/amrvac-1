@@ -624,7 +624,6 @@ module mod_fix_conserve
 
      integer :: idims, iside, i^D, ic^D, inc^D, ix^D, ixCo^D, nxCo^D, iw
      nwfend1 = nwfstart1-1 + nwfluxin
-
      do idims = idim^LIM
        select case (idims)
          {case (^D)
@@ -1206,7 +1205,7 @@ module mod_fix_conserve
     type(state), target               :: tmpPs(max_blocks)
     integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
     logical, intent(in), dimension(:) :: indexChangeFixC
-    integer :: i,storeIndex
+    integer :: i,storeIndex,j
 
       call recvflux(1,ndim)
       call sendflux(1,ndim)
@@ -1215,13 +1214,18 @@ module mod_fix_conserve
       !!to store the fluxes in mod_fix_conserve, set_sts_sources_ambipolar 
       do i = 1,size(indexChangeStart)
         if (indexChangeFixC(i)) then 
-          call fix_conserve1(tmpPs,1,ndim,indexChangeStart(i),storeIndex, indexChangeN(i))
+          !this has to be done one by one, as they are not stored at contiguous locations
+          do j = 0,indexChangeN(i)-1
+            call fix_conserve1(tmpPs,1,ndim,indexChangeStart(i),storeIndex+j, 1)
+          enddo
           storeIndex = storeIndex + indexChangeN(i)
         endif
       end do
 
   end subroutine fix_conserve_vars
 
+
+  !!this stores the fluxes one at a time, even if ..
   subroutine store_flux_var(flux,indexVar,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
     use mod_global_parameters
     double precision, allocatable, intent(in), dimension(:^D&,:) :: flux
@@ -1231,7 +1235,6 @@ module mod_fix_conserve
     logical, intent(in), dimension(:) :: indexChangeFixC
 
     integer :: storeIndex,i
-    !TODO why reshape does not work?
     double precision, allocatable, dimension(:^D&,:,:) :: fluxC
     logical :: found
 

@@ -278,21 +278,14 @@ contains
        dt = ss
        is = sts_ncycles 
      else  
-
-      ss = dt/dtnew
-  
-      ! get number of sub-steps of supertime stepping (Meyer 2012 MNRAS 422,2102)
-!     if(ss< 0.5d0) then
-!       is=1
-!     else if(ss< 2.d0) then
-!       is=2
-!     else
-!       is=ceiling((dsqrt(9.d0+8.d0*ss)-1.d0)/2.d0)
-!       ! only use odd s number
-!       is=is/2*2+1
-!     endif
-       is=ceiling((dsqrt(9.d0+16.d0*ss)-1.d0)/2.d0)
-       is=is/2*2+1
+       ss = dt/dtnew
+       ! get number of sub-steps of supertime stepping (Meyer 2012 MNRAS 422,2102)
+       if(ss .le. 1d0) then
+         is=1
+       else
+         is=ceiling((dsqrt(9.d0+16.d0*ss)-1.d0)/2.d0)
+         is=is/2*2+1
+      endif
     endif
     !print*, dt, " --DTEXPL-- ", dtnew, ", ncycle1 ",is
   end  function sts_get_ncycles1
