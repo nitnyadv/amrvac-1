@@ -1454,7 +1454,7 @@ contains
     double precision, allocatable, dimension(:^D&,:) :: jxbxb
       allocate(jxbxb(ixI^S,1:3))
       call mhd_get_jxbxb(wCT,x,ixI^L,ixO^L,jxbxb)
-      tmp = sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)
+      tmp(ixO^S) = sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)
       call multiplyAmbiCoef(ixI^L,ixO^L,tmp,wCT,x)   
       w(ixO^S,eaux_)=w(ixO^S,eaux_)+qdt * tmp
       deallocate(jxbxb)
