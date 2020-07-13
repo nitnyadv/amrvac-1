@@ -264,7 +264,7 @@ contains
        pass_wall_time=MPI_WTIME()-time0+dt_loop+4.d0*time_write >=wall_time_max
 
        ! exit time loop if time is up
-       if (it>=it_max .or. global_time>=time_max .or. pass_wall_time) exit time_evol
+       if (it>=it_max .or. global_time>=time_max .or. pass_wall_time .or. final_dt_exit) exit time_evol
 
        ! solving equations
        call advance(it)
@@ -376,7 +376,7 @@ contains
     end if
     if (it==itsavelast(ifile)+ditsave(ifile)) oksave=.true.
 
-    if (global_time>=tsave(isavet(ifile),ifile)) then
+    if (global_time>=tsave(isavet(ifile),ifile).and.global_time-dt<tsave(isavet(ifile),ifile)) then
        oksave=.true.
        isavet(ifile)=isavet(ifile)+1
     end if
