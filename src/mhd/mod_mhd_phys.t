@@ -180,7 +180,7 @@ module mod_mhd_phys
   public :: mhd_face_to_center
   public :: get_divb
   public :: get_current
-  public :: multiplyAmbiCoef  !!needed for dumping the coef in user file
+  public :: multiplyAmbiCoef  !!needed for ambi coef in user file
   public :: get_normalized_divb
   public :: b_from_vector_potential
   public :: mhd_mag_en_all
@@ -1615,11 +1615,15 @@ contains
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: res(ixI^S)
-  
-    res(ixO^S) = -(mhd_eta_ambi/w(ixO^S, rho_)**2) * res(ixO^S)
+    double precision :: tmp(ixI^S)
+
+      
+    tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
     if (associated(usr_mask_ambipolar)) then
-      call usr_mask_ambipolar(ixI^L,ixO^L,w,x,res)
+      call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
     endif
+
+    res(ixO^S) = tmp(ixO^S) * res(ixO^S)
   end subroutine multiplyAmbiCoef
 
   !> w[iws]=w[iws]+qdt*S[iws,wCT] where S is the source based on wCT within ixO
