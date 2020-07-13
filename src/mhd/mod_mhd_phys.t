@@ -180,6 +180,7 @@ module mod_mhd_phys
   public :: mhd_face_to_center
   public :: get_divb
   public :: get_current
+  public :: multiplyAmbiCoef  !!needed for dumping the coef in user file
   public :: get_normalized_divb
   public :: b_from_vector_potential
   public :: mhd_mag_en_all

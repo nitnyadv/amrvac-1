@@ -334,6 +334,13 @@ contains
       !$OMP PARALLEL DO PRIVATE(igrid,dtnew,&
       !$OMP& dx^D) REDUCTION(min:dtmin_mype)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
+          !!maybe the following global variables are neeeded in get_dt!!!!!!!
+          ! next few lines ensure correct usage of routines like divvector etc
+            ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+            block=>ps(igrid)
+            typelimiter=type_limiter(node(plevel_,igrid))
+            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
+            !!end maybe the following global variables are neeeded in get_dt!!!!!!!
             dx^D=rnode(rpdx^D_,igrid);
             dtmin_mype=min(dtmin_mype, sts_dtpar * temp%sts_getdt(ps(igrid)%w,ixG^LL,ixM^LL,dx^D,ps(igrid)%x))
       end do
@@ -465,6 +472,15 @@ contains
         !if(mype .eq. 0) print*, "Substep ",j, ", dt_j=", (bj(j)*temp%dt_expl)
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
+
+          !!maybe the following global variables are neeeded in set_sources!!!!!!!
+          ! next few lines ensure correct usage of routines like divvector etc
+            ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+            block=>ps(igrid)
+            typelimiter=type_limiter(node(plevel_,igrid))
+            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
+            !!end maybe the following global variables are neeeded in set_sources!!!!!!!
+
             !print*, "ID_sts ",igrid
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w, ps(igrid)%x,ps1(igrid)%w, fix_conserve_at_step, &
                                     dtj,igrid,temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
@@ -588,6 +604,13 @@ contains
       dtj = cmut*my_dt
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
+          !!maybe the following global variables are neeeded in set_sources!!!!!!!
+          ! next few lines ensure correct usage of routines like divvector etc
+            ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+            block=>ps(igrid)
+            typelimiter=type_limiter(node(plevel_,igrid))
+            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
+            !!end maybe the following global variables are neeeded in set_sources!!!!!!!
 !        print*, "1sID_sts ",igrid
         call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w, fix_conserve_at_step, dtj, &
                                     igrid, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
@@ -661,6 +684,13 @@ contains
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid
+          !!maybe the following global variables are neeeded in set_sources!!!!!!!
+          ! next few lines ensure correct usage of routines like divvector etc
+            ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+            block=>ps(igrid)
+            typelimiter=type_limiter(node(plevel_,igrid))
+            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
+            !!end maybe the following global variables are neeeded in set_sources!!!!!!!
             call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w, ps(igrid)%x,ps4(igrid)%w, fix_conserve_at_step,dtj, &
                                     igrid, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
             !print*, "** tmpPs2 ",igrid, loc(tmpPs2(igrid)), " tmpPs1 ", loc(tmpPs1(igrid))
