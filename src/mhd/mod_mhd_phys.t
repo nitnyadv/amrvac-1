@@ -1623,7 +1623,10 @@ contains
     !tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
     !!first impl end 
     call mhd_get_pthermal(w,x,ixI^L,ixI^L,tmp)
-    tmp(ixI^S) = -(mhd_eta_ambi/(w(ixI^S, rho_)**1.5 * sqrt(tmp(ixI^S))) ) 
+    !print*, "PRESSURE ", tmp(ixI^S)
+    tmp(ixI^S) = -(mhd_eta_ambi/(w(ixI^S, rho_)**2 * sqrt(abs(tmp(ixI^S)/w(ixI^S,rho_)))) ) 
+    !print*, "DENSITY  ", w(ixI^S, rho_)
+    !print*, "END ", tmp(ixI^S)
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
     endif
