@@ -1620,13 +1620,12 @@ contains
 
   
     !!first impl   
-    !tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
+    tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
     !!first impl end 
-    call mhd_get_pthermal(w,x,ixI^L,ixI^L,tmp)
-    !print*, "PRESSURE ", tmp(ixI^S)
-    tmp(ixI^S) = -(mhd_eta_ambi/(w(ixI^S, rho_)**2 * sqrt(abs(tmp(ixI^S)/w(ixI^S,rho_)))) ) 
-    !print*, "DENSITY  ", w(ixI^S, rho_)
-    !print*, "END ", tmp(ixI^S)
+    !!second impl   
+    !call mhd_get_pthermal(w,x,ixI^L,ixI^L,tmp)
+    !tmp(ixI^S) = -(mhd_eta_ambi/(w(ixI^S, rho_)**2 * sqrt(abs(tmp(ixI^S)/w(ixI^S,rho_)))) ) 
+    !!second impl end 
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
     endif
@@ -2760,7 +2759,7 @@ contains
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
  
-    res(ixO^S,idirmin:3)=current(ixO^S,idirmin:3)
+    res(ixO^S,idirmin:3)=-current(ixO^S,idirmin:3)
     do idir = idirmin, 3
       call multiplyAmbiCoef(ixI^L,ixO^L,res(ixI^S,idir),w,x)   
     enddo
