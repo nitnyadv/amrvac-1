@@ -1269,7 +1269,7 @@ contains
     !integer :: iDebug
 
     if (mhd_Hall) then
-      allocate(vHall(ixI^S,1:3))
+      allocate(vHall(ixI^S,1:ndir))
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
 
@@ -1885,13 +1885,6 @@ contains
     w(ixO^S,eaux_)=w(ixO^S,eaux_)-qdt*pth(ixO^S)*divv(ixO^S)
   end subroutine internal_energy_add_source
 
-
-
-
-
-
-
-    
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
     use mod_global_parameters
@@ -2475,7 +2468,7 @@ contains
 
     integer                       :: idirmin,idim
     double precision              :: dxarr(ndim)
-    double precision              :: current(ixI^S,7-2*ndir:3),tmp(ixI^S)
+    double precision              :: current(ixI^S,7-2*ndir:3),eta(ixI^S)
 
     dtnew = bigdouble
 
@@ -2484,16 +2477,15 @@ contains
        dtnew=dtdiffpar*minval(dxarr(1:ndim))**2/mhd_eta
     else if (mhd_eta<zero)then
        call get_current(w,ixI^L,ixO^L,idirmin,current)
-        !tmp is eta here
-       call usr_special_resistivity(w,ixI^L,ixO^L,idirmin,x,current,tmp)
+       call usr_special_resistivity(w,ixI^L,ixO^L,idirmin,x,current,eta)
        dtnew=bigdouble
        do idim=1,ndim
          if(slab_uniform) then
            dtnew=min(dtnew,&
-                dtdiffpar/(smalldouble+maxval(tmp(ixO^S)/dxarr(idim)**2)))
+                dtdiffpar/(smalldouble+maxval(eta(ixO^S)/dxarr(idim)**2)))
          else
            dtnew=min(dtnew,&
-                dtdiffpar/(smalldouble+maxval(tmp(ixO^S)/block%ds(ixO^S,idim)**2)))
+                dtdiffpar/(smalldouble+maxval(eta(ixO^S)/block%ds(ixO^S,idim)**2)))
          end if
        end do
     end if
@@ -2522,11 +2514,6 @@ contains
       dtnew=min(dtdiffpar*get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x),dtnew)
     endif
   end subroutine mhd_get_dt
-
-
-
-
-
 
   ! Add geometrical source terms to w
   subroutine mhd_add_source_geom(qdt,ixI^L,ixO^L,wCT,w,x)

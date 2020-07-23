@@ -392,10 +392,11 @@ contains
     !print*, N," LIMMAX ", limMax
     do while (j < N .and. sum_chev < limMax)
       sum_chev = sum_chev + chev(j,nu,N)
-      !print*, " SS j ", sum_chev,j
       j=j+1
+      !print*, " SS j ", limMax,sum_chev,j
     enddo
-   N=j 
+   N=j-1 
+   !print*, " RES ", N,sum_chev
   END FUNCTION sum_chev
 
 
@@ -444,7 +445,7 @@ contains
 
       allocate(bj(1:temp%s))
       do j=1,temp%s
-        bj(j) = chev(j,nu_sts,temp%s)
+        bj(j) = chev(j,nu_sts,sts_ncycles)
       enddo
 
       type_send_srl=>temp%type_send_srl_sts
@@ -463,13 +464,13 @@ contains
 
       sumbj=0d0
       do j=1,temp%s
-        sumbj = sumbj + bj(j)
-        if(j .eq. temp%s .and. sumbj * temp%dt_expl > my_dt) then
+        if(j .eq. temp%s .and. (sumbj + bj(j)) * temp%dt_expl > my_dt) then
           dtj = my_dt - sumbj * temp%dt_expl
         else
           dtj = bj(j)* temp%dt_expl
         endif  
-        !if(mype .eq. 0) print*, "Substep ",j, ", dt_j=", (bj(j)*temp%dt_expl)
+        sumbj = sumbj + bj(j)
+        !print*, "Substep ",j, ", sumbj=", sumbj, ", dtj=", dtj
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
 
