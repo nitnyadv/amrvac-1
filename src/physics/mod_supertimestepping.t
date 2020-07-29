@@ -33,7 +33,7 @@ module mod_supertimestepping
 
   public :: is_sts_initialized
   public :: sts_init
-  public :: add_sts_method
+  public :: add_sts_method,add_sts_method2
   public :: sts_add_source
   public :: set_dt_sts_ncycles
   public :: sourcetype_sts, sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split
@@ -65,8 +65,8 @@ module mod_supertimestepping
       use mod_global_parameters
       
       integer, intent(in) :: ixI^L, ixO^L,igrid
-      double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-      double precision, intent(inout) :: wres(ixI^S,1:nw)
+      double precision, intent(in) ::  x(ixI^S,1:ndim)
+      double precision, intent(inout) :: wres(ixI^S,1:nw), w(ixI^S,1:nw)
       double precision, intent(in) :: my_dt
       logical, intent(in) :: fix_conserve_at_step
       integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
@@ -85,11 +85,14 @@ module mod_supertimestepping
       double precision :: dtnew
     end function subr2
 
+  !!for the subroutines in this module:
+  !sts_add_source
    subroutine subr3(dt)
     double precision,intent(in) :: dt
    end subroutine subr3
  
 
+ !!sts_get_ncycles 
  function subr4(dt,dtnew,dt_modified) result(s)
     double precision,intent(in) :: dtnew
     double precision,intent(inout) :: dt
@@ -97,12 +100,21 @@ module mod_supertimestepping
     integer :: s
  end function subr4
 
+ !!for before_first_cycle and after_last_cycle
+ subroutine subr5(ixI^L, ixO^L, w, x)
+      use mod_global_parameters
+      integer, intent(in) :: ixI^L, ixO^L
+      double precision, intent(in) :: x(ixI^S,1:ndim)
+      double precision, intent(inout) :: w(ixI^S,1:nw) 
+ end subroutine subr5
+
   end interface
 
   type sts_term
 
     procedure (subr2), pointer, nopass :: sts_getdt
     procedure (subr1), pointer, nopass :: sts_set_sources
+    procedure (subr5), pointer, nopass :: sts_before_first_cycle, sts_after_last_cycle
     type(sts_term), pointer :: next
     double precision :: dt_expl
     integer, public :: s
@@ -146,9 +158,9 @@ contains
 
   end subroutine sts_params_read
 
-
-
-  subroutine add_sts_method(sts_getdt, sts_set_sources, startVar, endVar, ixChangeStart, ixChangeN, ixChangeFixC)
+  !!TODO combine the following two subroutines
+  subroutine add_sts_method2(sts_getdt, sts_set_sources, &
+                             startVar, endVar, ixChangeStart, ixChangeN, ixChangeFixC)
     use mod_global_parameters
     use mod_ghostcells_update
 
@@ -163,8 +175,8 @@ contains
       use mod_global_parameters
       
       integer, intent(in) :: ixI^L, ixO^L,igrid
-      double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-      double precision, intent(inout) :: wres(ixI^S,1:nw)
+      double precision, intent(in) ::  x(ixI^S,1:ndim)
+      double precision, intent(inout) :: wres(ixI^S,1:nw), w(ixI^S,1:nw)
       double precision, intent(in) :: my_dt
       logical, intent(in) :: fix_conserve_at_step
       integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
@@ -180,7 +192,6 @@ contains
       double precision, intent(in) :: w(ixG^S,1:nw) 
       double precision :: dtnew
       end function sts_getdt
-
 
     end interface
 
@@ -204,7 +215,100 @@ contains
 
     temp%sts_getdt => sts_getdt
     temp%sts_set_sources => sts_set_sources
-    
+    temp%sts_before_first_cycle => null()
+    temp%sts_after_last_cycle => null()
+
+    temp%startVar = startVar
+    temp%endVar = endVar
+    if(size(ixChangeStart) .ne. size(ixChangeN) .or. size(ixChangeStart) .ne. size(ixChangeFixC) ) then
+      if(mype .eq. 0) print*, "sizes are not equal ", size(ixChangeStart), size(ixChangeN), size(ixChangeFixC)
+      return
+    endif  
+    allocate(temp%ixChangeStart(size(ixChangeStart)))
+    allocate(temp%ixChangeN(size(ixChangeStart)))
+    allocate(temp%ixChangeFixC(size(ixChangeStart)))
+    temp%ixChangeStart = ixChangeStart
+    temp%ixChangeN = ixChangeN
+    temp%ixChangeFixC = ixChangeFixC
+
+    temp%next => head_sts_terms
+    head_sts_terms => temp
+
+  end subroutine add_sts_method2
+
+  !!the same as above without the sts_before_first_cycle and sts_after_last_cycle
+  subroutine add_sts_method(sts_getdt, sts_set_sources, sts_before_first_cycle, sts_after_last_cycle,&
+                             startVar, endVar, ixChangeStart, ixChangeN, ixChangeFixC)
+    use mod_global_parameters
+    use mod_ghostcells_update
+
+
+    integer, intent(in) :: startVar, endVar 
+    integer, intent(in) :: ixChangeStart(:) 
+    integer, intent(in) :: ixChangeN(:) 
+    logical, intent(in) :: ixChangeFixC(:) 
+
+    interface
+      subroutine sts_set_sources(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step, my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+      use mod_global_parameters
+      
+      integer, intent(in) :: ixI^L, ixO^L,igrid
+      double precision, intent(in) ::  x(ixI^S,1:ndim)
+      double precision, intent(inout) :: wres(ixI^S,1:nw), w(ixI^S,1:nw)
+      double precision, intent(in) :: my_dt
+      logical, intent(in) :: fix_conserve_at_step
+      integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+      logical, intent(in), dimension(:) :: indexChangeFixC
+
+      end subroutine sts_set_sources
+  
+      function sts_getdt(w,ixG^L,ix^L,dx^D,x) result(dtnew)
+        use mod_global_parameters
+        
+      integer, intent(in) :: ixG^L, ix^L
+      double precision, intent(in) :: dx^D, x(ixG^S,1:ndim)
+      double precision, intent(in) :: w(ixG^S,1:nw) 
+      double precision :: dtnew
+      end function sts_getdt
+
+    subroutine sts_before_first_cycle(ixI^L, ixO^L, w, x)
+        use mod_global_parameters
+        integer, intent(in) :: ixI^L, ixO^L
+        double precision, intent(in) :: x(ixI^S,1:ndim)
+        double precision, intent(inout) :: w(ixI^S,1:nw) 
+    end subroutine sts_before_first_cycle
+
+    subroutine sts_after_last_cycle(ixI^L, ixO^L, w, x)
+        use mod_global_parameters
+        integer, intent(in) :: ixI^L, ixO^L
+        double precision, intent(in) :: x(ixI^S,1:ndim)
+        double precision, intent(inout) :: w(ixI^S,1:nw) 
+    end subroutine sts_after_last_cycle
+
+    end interface
+
+    type(sts_term), pointer  :: temp
+    allocate(temp)
+    !!types cannot be initialized here TODO see when init in mhd_phys is called
+!    type_send_srl=>temp%type_send_srl_sts
+!    type_recv_srl=>temp%type_recv_srl_sts
+!    type_send_r=>temp%type_send_r_sts
+!    type_recv_r=>temp%type_recv_r_sts
+!    type_send_p=>temp%type_send_p_sts
+!    type_recv_p=>temp%type_recv_p_sts
+!    call create_bc_mpi_datatype(startVar,endVar-startVar+1)
+!    ! point bc mpi data type back to full type for (M)HD
+!    type_send_srl=>type_send_srl_f
+!    type_recv_srl=>type_recv_srl_f
+!    type_send_r=>type_send_r_f
+!    type_recv_r=>type_recv_r_f
+!    type_send_p=>type_send_p_f
+!    type_recv_p=>type_recv_p_f
+
+    temp%sts_getdt => sts_getdt
+    temp%sts_set_sources => sts_set_sources
+    temp%sts_before_first_cycle => sts_before_first_cycle
+    temp%sts_after_last_cycle => sts_after_last_cycle
 
     temp%startVar = startVar
     temp%endVar = endVar
@@ -426,12 +530,16 @@ contains
     double precision :: sumbj,dtj  
 
     integer:: iigrid, igrid,j,i,ii,ii2
-    logical :: stagger_flag
+    logical :: stagger_flag, prolong_flag, coarsen_flag
     type(sts_term), pointer  :: temp
 
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
+    prolong_flag = prolongprimitive
+    coarsen_flag = coarsenprimitive
     stagger_grid=.false.
+    prolongprimitive = .false.
+    coarsenprimitive = .false.
     bcphys=.false.
 
 
@@ -441,6 +549,13 @@ contains
 
     temp => head_sts_terms
     do while(associated(temp))
+
+      if(associated(temp%sts_before_first_cycle)) then
+        do iigrid=1,igridstail; igrid=igrids(iigrid);
+          call temp%sts_before_first_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)  
+        enddo 
+      endif
+      
 
 
       allocate(bj(1:temp%s))
@@ -500,6 +615,11 @@ contains
         call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
       end do
 
+      if(associated(temp%sts_after_last_cycle)) then 
+        do iigrid=1,igridstail; igrid=igrids(iigrid);
+          call temp%sts_after_last_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)
+        end do 
+      endif
       deallocate(bj)
 
       temp=>temp%next
@@ -516,6 +636,8 @@ contains
   
       ! restore stagger_grid value
       stagger_grid=stagger_flag
+      prolongprimitive  = prolong_flag
+      coarsenprimitive = coarsen_flag
 
 
     endif
@@ -533,13 +655,17 @@ contains
     double precision :: omega1,cmu,cmut,cnu,cnut
     double precision, allocatable :: bj(:)
     integer:: iigrid, igrid,j,i,ii,ii2
-    logical :: evenstep, stagger_flag
+    logical :: evenstep, stagger_flag, prolong_flag, coarsen_flag
     type(sts_term), pointer  :: temp
     type(state), dimension(:), pointer :: tmpPs1, tmpPs2
 
     ! not do fix conserve and getbc for staggered values if stagger is used
     stagger_flag=stagger_grid
+    prolong_flag = prolongprimitive
+    coarsen_flag = coarsenprimitive
     stagger_grid=.false.
+    prolongprimitive = .false.
+    coarsenprimitive = .false.
     bcphys=.false.
 
 
@@ -550,9 +676,11 @@ contains
     temp => head_sts_terms
     do while(associated(temp))
 
-  
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail; igrid=igrids(iigrid);
+        if(associated(temp%sts_before_first_cycle)) then
+          call temp%sts_before_first_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)  
+        endif 
         if(.not. allocated(ps2(igrid)%w)) then
               allocate(ps2(igrid)%w(ixG^T,1:nw))
         endif  
@@ -563,13 +691,8 @@ contains
               allocate(ps4(igrid)%w(ixG^T,1:nw))
         endif 
           !we need the full set of variables
-          !for the calculation of the sources
-!        do i = 1,size(temp%ixChange)
-!          j=temp%ixChange(i)
-!          ps1(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
-!          ps2(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
-!          ps3(igrid)%w(ixG^T,j)=ps(igrid)%w(ixG^T,j)
-!        enddo
+          !for the calculation of the sources and not
+          !only those which change
         ps1(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
         ps2(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
         ps3(igrid)%w(ixG^T,1:nw)=ps(igrid)%w(ixG^T,1:nw)
@@ -750,6 +873,11 @@ contains
       !$OMP END PARALLEL DO
 
       deallocate(bj)
+      if(associated(temp%sts_after_last_cycle)) then 
+        do iigrid=1,igridstail; igrid=igrids(iigrid);
+          call temp%sts_after_last_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)
+        end do 
+      endif
 
       temp=>temp%next
     enddo
@@ -765,6 +893,8 @@ contains
   
       ! restore stagger_grid value
       stagger_grid=stagger_flag
+      prolongprimitive  = prolong_flag
+      coarsenprimitive = coarsen_flag
 
 
     endif

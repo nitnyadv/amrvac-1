@@ -175,6 +175,7 @@ mod_mhd.o: mod_mhd_roe.mod
 mod_mhd_hllc.o: mod_mhd_phys.mod
 mod_mhd_hllc.o: mod_physics_hllc.mod
 mod_mhd_phys.o: mod_constrained_transport.mod
+mod_mhd_phys.o: mod_fix_conserve.mod
 mod_mhd_phys.o: mod_geometry.mod
 mod_mhd_phys.o: mod_gravity.mod
 mod_mhd_phys.o: mod_magnetofriction.mod
@@ -263,6 +264,8 @@ mod_supertimestepping.o: mod_ghostcells_update.mod
 mod_supertimestepping.o: mod_physics.mod
 mod_tc.o: mod_fix_conserve.mod
 mod_tc.o: mod_geometry.mod
+mod_tc.o: mod_physics.mod
+mod_tc.o: mod_small_values.mod
 mod_tc.o: mod_supertimestepping.mod
 mod_thermal_conduction.o: mod_fix_conserve.mod
 mod_thermal_conduction.o: mod_geometry.mod

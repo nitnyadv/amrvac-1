@@ -184,6 +184,7 @@ module mod_mhd_phys
   public :: get_normalized_divb
   public :: b_from_vector_potential
   public :: mhd_mag_en_all
+  public :: mhd_get_temperature_from_etot, mhd_get_temperature_from_eint
   {^NOONED
   public :: mhd_clean_divb_multigrid
   }
@@ -274,7 +275,7 @@ contains
     use mod_particles, only: particles_init
     use mod_magnetofriction, only: magnetofriction_init
     use mod_physics
-    use mod_supertimestepping, only: sts_init, add_sts_method
+    use mod_supertimestepping, only: sts_init, add_sts_method2
 
     {^NOONED
     use mod_multigrid_coupling
@@ -302,7 +303,7 @@ contains
        type_divb = divb_multigrid
        use_multigrid = .true.
        mg%operator_type = mg_laplacian
-       phys_global_source => mhd_clean_divb_multigrid
+       phys_global_source_after => mhd_clean_divb_multigrid
     }
     case ('glm')
       mhd_glm          = .true.
@@ -479,9 +480,9 @@ contains
         call thermal_conduction_init(mhd_gamma)
       else
         if(mhd_solve_eaux) then
-          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature)
+          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
         else
-          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature)
+          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
         endif
       endif
     end if
@@ -526,9 +527,9 @@ contains
     if (mhd_ambipolar .and. mhd_ambipolar_sts) then
       call sts_init()
       if(mhd_solve_eaux) then 
-        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_,eaux_/), (/ndir,1,1/),(/.true.,.true.,.false. /))
+        call add_sts_method2(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_,eaux_/), (/ndir,1,1/),(/.true.,.true.,.false. /))
       else
-        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_/), (/ndir,1/),(/.true.,.true./))
+        call add_sts_method2(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_/), (/ndir,1/),(/.true.,.true./))
       endif
     end if
     
@@ -1191,24 +1192,39 @@ contains
     end if
   end subroutine mhd_get_pthermal
 
-  !> Calculate temperature=p/rho
-  !> TODO this is the same as in hd module
-  subroutine mhd_get_temperature(w, x, ixI^L, ixO^L, res)
+
+  !> Calculate temperature=p/rho from etot
+  subroutine mhd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
-    use mod_small_values, only: small_values_method
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
-    
+
     integer :: ix^D,lowindex(ndim)
 
     call mhd_get_pthermal(w, x, ixI^L, ixO^L, res)
+    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+  end subroutine mhd_get_temperature_from_etot
+
+  
+  !> Calculate temperature=p/rho from eint
+  subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    use mod_small_values, only: small_values_method
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    integer :: ix^D,lowindex(ndim)
+
+    !!check small values
     ! Clip off negative pressure if small_pressure is set
     !!this is copied from the thermal conductivity module,
     !the only place where it is used by now
     if(small_values_method=='error') then
-       if (any(res(ixO^S)<small_e) .and. .not.crash) then
+       if (any(w(ixO^S,e_)<small_e) .and. .not.crash) then
          lowindex=minloc(res(ixO^S))
          ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
          write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
@@ -1218,17 +1234,18 @@ contains
        end if
     else
     {do ix^DB=ixOmin^DB,ixOmax^DB\}
-       if(res(ix^D)<small_e) then
-          res(ix^D)=small_e
+       if(w(ix^D,e_)<small_e) then
+          w(ix^D,e_)=small_e
        end if
     {end do\}
     end if
-
-
+    res(ixO^S) = (mhd_gamma - 1.0d0) * w(ixO^S, e_) 
     res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+  end subroutine mhd_get_temperature_from_eint
 
 
-  end subroutine mhd_get_temperature
+
+
 
   subroutine mhd_find_small_values(primitive, w, x, ixI^L, ixO^L, subname)
     use mod_global_parameters
@@ -1542,8 +1559,8 @@ contains
     use mod_fix_conserve, only: store_flux_var
 
     integer, intent(in) :: ixI^L, ixO^L,igrid
-    double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-    double precision, intent(inout) ::  wres(ixI^S,1:nw)
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
     double precision, intent(in) :: my_dt
     logical, intent(in) :: fix_conserve_at_step
     integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
@@ -1569,8 +1586,8 @@ contains
       btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
     endif
 
-    !!tmp is now jxbxb = b^2 * j_perpB
-    if(mhd_solve_eaux) then
+    !!tmp is now jxbxb 
+    if(phys_solve_eaux) then
       wres(ixO^S,eaux_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
       call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
      endif
@@ -1581,12 +1598,13 @@ contains
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
     enddo
 
-    call cross_product(ixI^L,ixA^L,tmp,btot,ff)
-    call divvector(ff,ixI^L,ixO^L,tmp2)
-     if (fix_conserve_at_step)  call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-
-    !- sign comes from the fact that the flux divergence is a source now
-    wres(ixO^S,e_)=-tmp2(ixO^S)
+    if(mhd_energy) then
+      call cross_product(ixI^L,ixA^L,tmp,btot,ff)
+      call divvector(ff,ixI^L,ixO^L,tmp2)
+       if (fix_conserve_at_step)  call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+      !- sign comes from the fact that the flux divergence is a source now
+      wres(ixO^S,e_)=-tmp2(ixO^S)
+    endif
 
     !write curl(ele) as the divergence
     !m1={0,ele[[3]],-ele[[2]]}
@@ -3753,7 +3771,7 @@ contains
     integer                            :: hxC^L,ixC^L,ixCp^L,jxC^L,ixCm^L
     integer                            :: idim1,idim2,idir
 
-    associate(bfaces=>s%ws,x=>s%x,vbarC=>vcts%vbarC,cbarmin=>vcts%cbarmin,&
+    associate(bfaces=>s%ws,bfacesCT=>sCT%ws,x=>s%x,vbarC=>vcts%vbarC,cbarmin=>vcts%cbarmin,&
       cbarmax=>vcts%cbarmax)
 
     ! Calculate contribution to FEM of each edge,
@@ -3802,11 +3820,11 @@ contains
       ! Eventhough the arrays are larger, reconstruct works with
       ! the limits ixG.
       if(B0field) then
-        bfacetot(ixI^S,idim1)=bfaces(ixI^S,idim1)+block%B0(ixI^S,idim1,idim1)
-        bfacetot(ixI^S,idim2)=bfaces(ixI^S,idim2)+block%B0(ixI^S,idim2,idim2)
+        bfacetot(ixI^S,idim1)=bfacesCT(ixI^S,idim1)+block%B0(ixI^S,idim1,idim1)
+        bfacetot(ixI^S,idim2)=bfacesCT(ixI^S,idim2)+block%B0(ixI^S,idim2,idim2)
       else
-        bfacetot(ixI^S,idim1)=bfaces(ixI^S,idim1)
-        bfacetot(ixI^S,idim2)=bfaces(ixI^S,idim2)
+        bfacetot(ixI^S,idim1)=bfacesCT(ixI^S,idim1)
+        bfacetot(ixI^S,idim2)=bfacesCT(ixI^S,idim2)
       end if
       call reconstruct(ixI^L,ixC^L,idim2,bfacetot(ixI^S,idim1),&
                btilL(ixI^S,idim1),btilR(ixI^S,idim1))

@@ -57,19 +57,35 @@ module mod_tc
   logical :: tc_saturate=.true.
   !> Name of slope limiter for transverse component of thermal flux 
   integer :: rho_=-1,mag(1:3)=-1,e_=-1,eaux_=-1
-abstract interface
-  subroutine get_temperature_subr_interface(w, x, ixI^L, ixO^L, res)
+
+  public :: tc_init_mhd, tc_init_hd  
+
+  abstract interface
+  subroutine get_temperature_from_etot_subr(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
 
-  end subroutine get_temperature_subr_interface
-end interface
-  procedure (get_temperature_subr_interface), pointer :: get_temperature => null()
+  end subroutine get_temperature_from_etot_subr
 
-  public :: tc_init_mhd, tc_init_hd  
+  
+  subroutine get_temperature_from_eint_subr(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    use mod_small_values, only: small_values_method
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+  end subroutine get_temperature_from_eint_subr
+
+  end interface
+
+   procedure (get_temperature_from_eint_subr), pointer :: get_temperature_from_eint => null()
+   procedure (get_temperature_from_etot_subr), pointer :: get_temperature_from_etot => null()
+
+    
 
 contains
 
@@ -79,22 +95,34 @@ contains
   !!as this is a separate module, as a difference from ambipolar,
   !the indices in w arrays are not known here
   !moreover, the indices might be different
-  subroutine tc_init_mhd(phys_gamma, ixArray,get_temperature_subr)
+  subroutine tc_init_mhd(phys_gamma, ixArray, mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
     use mod_global_parameters
     use mod_supertimestepping, only: add_sts_method,sts_init
+    use mod_physics, only: phys_ei_to_e, phys_e_to_ei
     double precision, intent(in) :: phys_gamma
     integer, intent(in) :: ixArray(:)
-interface
-  subroutine get_temperature_subr(w, x, ixI^L, ixO^L, res)
-    use mod_global_parameters
-    integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(in) :: w(ixI^S, 1:nw)
-    double precision, intent(in) :: x(ixI^S, 1:ndim)
-    double precision, intent(out):: res(ixI^S)
 
-  end subroutine get_temperature_subr
-end interface
-
+    interface
+    subroutine mhd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
+      use mod_global_parameters
+      integer, intent(in)          :: ixI^L, ixO^L
+      double precision, intent(in) :: w(ixI^S, 1:nw)
+      double precision, intent(in) :: x(ixI^S, 1:ndim)
+      double precision, intent(out):: res(ixI^S)
+  
+    end subroutine mhd_get_temperature_from_etot
+  
+    
+    subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+      use mod_global_parameters
+      use mod_small_values, only: small_values_method
+      integer, intent(in)          :: ixI^L, ixO^L
+      double precision, intent(inout) :: w(ixI^S, 1:nw)
+      double precision, intent(in) :: x(ixI^S, 1:ndim)
+      double precision, intent(out):: res(ixI^S)
+    end subroutine mhd_get_temperature_from_eint
+  
+    end interface
 
 
   if(mype .eq. 0) print*, "MHD TC new"
@@ -116,10 +144,6 @@ end interface
 
     call tc_params_read_mhd(par_files)
   
-    get_temperature => get_temperature_subr
-
-
-
     if(tc_k_para==0.d0 .and. tc_k_perp==0.d0) then
       if(SI_unit) then
         ! Spitzer thermal conductivity with SI units
@@ -136,14 +160,26 @@ end interface
       tc_constant=.true.
     end if
       call sts_init()
+      get_temperature_from_eint => mhd_get_temperature_from_eint
+      get_temperature_from_etot => mhd_get_temperature_from_etot
       if(eaux_.ne.-1) then
-        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,e_,e_,(/e_,eaux_/), (/1,1/),(/.true.,.true. /))
+        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd, phys_e_to_ei, set_ei_and_ei_to_e, e_,e_,(/e_/), (/1/),(/.true./))
       else
-        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,e_,e_,(/e_/), (/1/),(/.true./))
+        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,phys_e_to_ei,phys_ei_to_e,e_,e_,(/e_/), (/1/),(/.true./))
       endif
 
 
     contains
+
+
+  subroutine set_ei_and_ei_to_e(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+        w(ixI^S,eaux_)=w(ixI^S,e_)
+        call phys_ei_to_e(ixI^L,ixI^L,w,x)
+  end subroutine set_ei_and_ei_to_e
 
   !> Read this module"s parameters from a file
   subroutine tc_params_read_mhd(files)
@@ -169,7 +205,7 @@ end interface
     !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
     !and                        T=p/rho
     use mod_global_parameters
-    
+ 
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
     double precision, intent(in) :: w(ixI^S,1:nw)
@@ -183,7 +219,7 @@ end interface
 
     ^D&dxinv(^D)=one/dx^D;
 
-    call get_temperature(w,x,ixI^L,ixO^L,Te)
+    call get_temperature_from_etot(w,x,ixI^L,ixO^L,Te)
 
     !tc_k_para_i
     if(tc_constant) then
@@ -230,13 +266,13 @@ end interface
   !> Sharma 2007 Journal of Computational Physics 227, 123
 
   subroutine sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-      use mod_global_parameters
-      use mod_geometry, only: divvector
-      use mod_fix_conserve, only: store_flux_var
+    use mod_global_parameters
+    use mod_geometry, only: divvector
+    use mod_fix_conserve, only: store_flux_var
 
     integer, intent(in) :: ixI^L, ixO^L,igrid
-    double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-    double precision, intent(inout) ::  wres(ixI^S,1:nw)
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
     double precision, intent(in) :: my_dt
     logical, intent(in) :: fix_conserve_at_step
     integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
@@ -265,7 +301,7 @@ end interface
 
     dxinv=1.d0/dxlevel
 
-    call get_temperature(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+    call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
     ! T gradient at cell faces
     gradT=0.d0
     do idims=1,ndim
@@ -475,7 +511,6 @@ end interface
     end if
     deallocate(qvec)
     wres(ixO^S,e_)=qd(ixO^S)
-    if(eaux_ .ne. -1)wres(ixO^S,eaux_)=qd(ixO^S)
     
   end subroutine sts_set_source_tc_mhd
 
@@ -559,35 +594,42 @@ end interface
     end associate
   end subroutine gradientC
 
-  subroutine tc_init_hd(phys_gamma, ixArray,get_temperature_subr)
+  subroutine tc_init_hd(phys_gamma, ixArray,hd_get_temperature_from_etot, hd_get_temperature_from_eint)
     use mod_global_parameters
     use mod_supertimestepping, only: add_sts_method,sts_init
+    use mod_physics, only: phys_ei_to_e, phys_e_to_ei
 
     double precision, intent(in) :: phys_gamma
     integer, intent(in) :: ixArray(:)
-interface
-  subroutine get_temperature_subr(w, x, ixI^L, ixO^L, res)
-    use mod_global_parameters
-    integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(in) :: w(ixI^S, 1:nw)
-    double precision, intent(in) :: x(ixI^S, 1:ndim)
-    double precision, intent(out):: res(ixI^S)
 
-  end subroutine get_temperature_subr
-end interface
+    interface
+    subroutine hd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
+      use mod_global_parameters
+      integer, intent(in)          :: ixI^L, ixO^L
+      double precision, intent(in) :: w(ixI^S, 1:nw)
+      double precision, intent(in) :: x(ixI^S, 1:ndim)
+      double precision, intent(out):: res(ixI^S)
+  
+    end subroutine hd_get_temperature_from_etot
+  
+    
+    subroutine hd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+      use mod_global_parameters
+      use mod_small_values, only: small_values_method
+      integer, intent(in)          :: ixI^L, ixO^L
+      double precision, intent(inout) :: w(ixI^S, 1:nw)
+      double precision, intent(in) :: x(ixI^S, 1:ndim)
+      double precision, intent(out):: res(ixI^S)
+    end subroutine hd_get_temperature_from_eint
+    end interface
 
     rho_ = ixArray(1)
     e_ = ixArray(2)
-
     tc_gamma=phys_gamma
-
     tc_k_para=0.d0
-
 
     call tc_params_read_hd(par_files)
   
-    get_temperature => get_temperature_subr
-
     if(tc_k_para==0.d0 ) then
       if(SI_unit) then
         ! Spitzer thermal conductivity with SI units
@@ -597,8 +639,11 @@ end interface
         tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
       end if
     end if
-
-    call add_sts_method(get_tc_dt_hd,sts_set_source_tc_hd,e_,e_,(/e_/), (/1/),(/.true./))
+    
+    get_temperature_from_eint => hd_get_temperature_from_eint
+    get_temperature_from_etot => hd_get_temperature_from_etot
+     call sts_init()
+    call add_sts_method(get_tc_dt_hd,sts_set_source_tc_hd,phys_e_to_ei, phys_ei_to_e, e_,e_,(/e_/), (/1/),(/.true./))
   contains
 
 
@@ -635,7 +680,7 @@ end interface
 
     ^D&dxinv(^D)=one/dx^D;
 
-    call get_temperature(w, x, ixI^L, ixO^L, Te)  
+    call get_temperature_from_etot(w, x, ixI^L, ixO^L, Te)  
     tmp(ixO^S)=(tc_gamma-one)*tc_k_para*dsqrt((Te(ixO^S))**5)/w(ixO^S,rho_)
 
     do idim=1,ndim
@@ -659,17 +704,17 @@ end interface
 
 
   subroutine sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,indexChangeStart, indexChangeN, indexChangeFixC )
-      use mod_global_parameters
-      use mod_geometry, only: divvector
-      use mod_fix_conserve, only: store_flux_var
+    use mod_global_parameters
+    use mod_geometry, only: divvector
+    use mod_fix_conserve, only: store_flux_var
 
-      integer, intent(in) :: ixI^L, ixO^L,igrid
-      double precision, intent(in) ::  x(ixI^S,1:ndim), w(ixI^S,1:nw)
-      double precision, intent(inout) ::  wres(ixI^S,1:nw)
-      double precision, intent(in) :: my_dt
-      logical, intent(in) :: fix_conserve_at_step
-      integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
-      logical, intent(in), dimension(:) :: indexChangeFixC
+    integer, intent(in) :: ixI^L, ixO^L,igrid
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
+    logical, intent(in), dimension(:) :: indexChangeFixC
 
     double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S)
     double precision :: qd(ixI^S)
@@ -686,7 +731,7 @@ end interface
 
     dxinv=1.d0/dxlevel
 
-    call get_temperature(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+    call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
 
     ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
     ! cell corner temperature

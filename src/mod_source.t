@@ -12,10 +12,9 @@ contains
     use mod_global_parameters
     use mod_ghostcells_update
     use mod_thermal_conduction, only: phys_thermal_conduction
-    use mod_physics, only: phys_req_diagonal, phys_global_source
+    use mod_physics, only: phys_req_diagonal, phys_global_source_before, phys_global_source_after
     use mod_supertimestepping, only: is_sts_initialized, sts_add_source,sourcetype_sts,&
                                       sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split   
-
 
     logical, intent(in) :: prior
 
@@ -40,6 +39,10 @@ contains
     endif  
     src_active = .false.
 
+    if (prior .and. associated(phys_global_source_before)) then
+       call phys_global_source_before(dt, qt, src_active)
+    end if
+
     if ((.not.prior).and.&
          (typesourcesplit=='sf' .or. typesourcesplit=='ssf')) return
 
@@ -57,8 +60,8 @@ contains
     end do
     !$OMP END PARALLEL DO
 
-    if (.not. prior .and. associated(phys_global_source)) then
-       call phys_global_source(dt, qt, src_active)
+    if (.not. prior .and. associated(phys_global_source_after)) then
+       call phys_global_source_after(dt, qt, src_active)
     end if
 
     if (src_active) then
