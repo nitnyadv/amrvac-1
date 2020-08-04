@@ -1516,7 +1516,7 @@ contains
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
       endselect
-      if(mhd_energy) then
+      if(mhd_energy .and. .not. mhd_internal_e) then
         f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
       endif
 
@@ -1610,7 +1610,7 @@ contains
     double precision, allocatable, dimension(:^D&,:) :: tmp,ff
     double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
 
-    integer :: i, ixA^L
+    integer :: i, ixA^L, ie_
 
     ixA^L=ixO^L^LADD2;
 
@@ -1626,19 +1626,28 @@ contains
       btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
     endif
 
-    !!tmp is now jxbxb 
-    if(phys_solve_eaux) then
-      wres(ixO^S,eaux_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
-      call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,eaux_),w,x)   
-     endif
-
+    !add contribution to internal energy
+    if(mhd_energy) then
+      if(mhd_internal_e) then
+        ie_ = e_
+      else if(mhd_solve_eaux) then
+        ie_ = eaux_
+      else
+        ie_= -1
+      endif
+      !!tmp is now jxbxb 
+      if(ie_>0) then
+        wres(ixO^S,ie_)=sum(tmp(ixO^S,1:3)**2,dim=ndim+1) / sum(btot(ixO^S,1:3)**2,dim=ndim+1)
+        call multiplyAmbiCoef(ixI^L,ixA^L,wres(ixI^S,ie_),w,x)   
+      endif
+    endif
     !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
     do i =1,3
       !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
     enddo
 
-    if(mhd_energy) then
+    if(mhd_energy .and. .not. mhd_internal_e) then
       call cross_product(ixI^L,ixA^L,tmp,btot,ff)
       call divvector(ff,ixI^L,ixO^L,tmp2)
        if (fix_conserve_at_step)  call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
