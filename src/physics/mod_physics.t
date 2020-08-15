@@ -22,10 +22,10 @@ module mod_physics
   logical :: phys_req_diagonal = .true.
 
   !> Solve energy equation or not
-  logical :: phys_energy=.true.
+  logical :: phys_energy=.false.
 
   !> Solve total energy equation or not
-  logical :: phys_total_energy=.true.
+  logical :: phys_total_energy=.false.
 
   !> Solve internal enery instead of total energy
   logical :: phys_internal_e=.false.
@@ -160,10 +160,10 @@ module mod_physics
        double precision, intent(out)   :: f(ixI^S, nwflux)
      end subroutine sub_get_flux
 
-     subroutine sub_energy_synchro(ixI^L,ixO^L,w,x)
+     subroutine sub_energy_synchro(qdt,ixI^L,ixO^L,wCT,w,x)
        use mod_global_parameters
        integer, intent(in) :: ixI^L,ixO^L
-       double precision, intent(in) :: x(ixI^S,1:ndim)
+       double precision, intent(in) :: qdt,wCT(ixI^S,1:nw),x(ixI^S,1:ndim)
        double precision, intent(inout) :: w(ixI^S,1:nw)
      end subroutine sub_energy_synchro
 

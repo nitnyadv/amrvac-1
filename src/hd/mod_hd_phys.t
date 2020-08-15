@@ -184,6 +184,7 @@ contains
 
     physics_type = "hd"
     phys_energy  = hd_energy
+    phys_total_energy  = hd_energy
     ! set default gamma for polytropic/isothermal process
     if(.not.hd_energy) then
       hd_gamma=1.d0
@@ -254,6 +255,7 @@ contains
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
       if(.not. use_new_tc) then
+        phys_req_diagonal = .true.
         call thermal_conduction_init(hd_gamma)
       else
         call tc_init_hd(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint)
