@@ -726,6 +726,7 @@ contains
       !!first step
       !call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
       dtj = cmut*my_dt
+      !print*, "STS1 1 dtj = ", dtj
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
           !!maybe the following global variables are neeeded in set_sources!!!!!!!
@@ -805,6 +806,7 @@ contains
       !print*, "-------------------------------------------------------------------"
       !print*,"IGRIDSTAIL ACTIVE ", igridstail_active
       dtj = cmut*my_dt
+      !print*, "STS1 ", j, " dtj = ", dtj
       !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             !print*, "ID_sts ",igrid

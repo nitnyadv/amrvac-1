@@ -17,10 +17,10 @@
 !> S=DIV(tc_k_para . GRAD T)
 !> USAGE:
 !> 1. in mod_usr.t -> subroutine usr_init(), add 
-!>        unit_length=<your length unit>
-!>        unit_numberdensity=<your number density unit>
-!>        unit_velocity=<your velocity unit>
-!>        unit_temperature=<your temperature unit>
+!>        unit_length=your length unit
+!>        unit_numberdensity=your number density unit
+!>        unit_velocity=your velocity unit
+!>        unit_temperature=your temperature unit
 !>    before call (m)hd_activate()
 !> 2. to switch on thermal conduction in the (m)hd_list of amrvac.par add:
 !>    (m)hd_thermal_conduction=.true.
@@ -303,15 +303,6 @@ contains
 
     call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
     ! T gradient at cell faces
-    gradT=0.d0
-    do idims=1,ndim
-      ixBmin^D=ixmin^D;
-      ixBmax^D=ixmax^D-kr(idims,^D);
-      call gradientC(Te,ixI^L,ixB^L,idims,minq)
-      gradT(ixB^S,idims)=minq(ixB^S)
-    end do
-
-
     ! B vector
     if(B0field) then
       mf(ixI^S,:)=w(ixI^S,iw_mag(:))+block%B0(ixI^S,:,0)
@@ -332,9 +323,21 @@ contains
     ! ixC is cell-corner index
     ixCmax^D=ixOmax^D; ixCmin^D=ixOmin^D-1;
     ! b unit vector at cell corner
-    call cornerValue(ixI^L, ixC^L, mf, Bc)
-
-
+    Bc=0.d0
+    {do ix^DB=0,1\}
+      ixAmin^D=ixCmin^D+ix^D;
+      ixAmax^D=ixCmax^D+ix^D;
+      Bc(ixC^S,1:ndim)=Bc(ixC^S,1:ndim)+mf(ixA^S,1:ndim)
+    {end do\}
+    Bc(ixC^S,1:ndim)=Bc(ixC^S,1:ndim)*0.5d0**ndim
+    ! T gradient at cell faces
+    gradT=0.d0
+    do idims=1,ndim
+      ixBmin^D=ixmin^D;
+      ixBmax^D=ixmax^D-kr(idims,^D);
+      call gradientC(Te,ixI^L,ixB^L,idims,minq)
+      gradT(ixB^S,idims)=minq(ixB^S)
+    end do
     !!!get ka and ke
     if(tc_constant) then
       if(tc_perpendicular) then
@@ -344,18 +347,36 @@ contains
         ka(ixC^S)=tc_k_para
       end if
     else
-      if(trac) then
-        where(Te(ix^S) < block%special_values(1))
-          Te(ix^S)=block%special_values(1)
-        end where
-      end if
-      minq(ix^S)=tc_k_para*sqrt(Te(ix^S)**5)
       ! conductivity at cell center
-      call cornerValue(ixI^L, ixC^L, minq, ka)
+      if(trac) then
+        minq(ix^S)=Te(ix^S)
+        where(minq(ix^S) < block%special_values(1))
+          minq(ix^S)=block%special_values(1)
+        end where
+        minq(ix^S)=tc_k_para*sqrt(minq(ix^S)**5)
+      else
+        minq(ix^S)=tc_k_para*sqrt(Te(ix^S)**5)
+      end if
+      ka=0.d0
+      {do ix^DB=0,1\}
+        ixBmin^D=ixCmin^D+ix^D;
+        ixBmax^D=ixCmax^D+ix^D;
+        ka(ixC^S)=ka(ixC^S)+minq(ixB^S)
+      {end do\}
+      ! cell corner conductivity
+      ka(ixC^S)=0.5d0**ndim*ka(ixC^S)
       ! compensate with perpendicular conductivity
       if(tc_perpendicular) then
         minq(ix^S)=tc_k_perp*w(ix^S,rho_)**2*Binv(ix^S)**2/dsqrt(Te(ix^S))
-        call cornerValue(ixI^L, ixC^L, minq, ke)
+        !!ke at corners
+        ke=0.d0
+        {do ix^DB=0,1\}
+          ixBmin^D=ixCmin^D+ix^D;
+          ixBmax^D=ixCmax^D+ix^D;
+          ke(ixC^S)=ke(ixC^S)+minq(ixB^S)
+        {end do\}
+        ! cell corner conductivity: k_parallel-k_perpendicular
+        ke(ixC^S)=0.5d0**ndim*ke(ixC^S)
         where(ke(ixC^S)<ka(ixC^S))
           ka(ixC^S)=ka(ixC^S)-ke(ixC^S)
         elsewhere
@@ -368,13 +389,19 @@ contains
 
 
     if(tc_slope_limiter=='no') then
-
-
       ! calculate thermal conduction flux with symmetric scheme
       do idims=1,ndim
-        call cornerValueVec(ixI^L, ixC^L, gradT, qd,idims,ndim)
+        !qd corner values
+        qd=0.d0
+        {do ix^DB=0,1 \}
+           if({ ix^D==0 .and. ^D==idims | .or.}) then
+             ixBmin^D=ixCmin^D+ix^D;
+             ixBmax^D=ixCmax^D+ix^D;
+             qd(ixC^S)=qd(ixC^S)+gradT(ixB^S,idims)
+           end if
+        {end do\}
         ! temperature gradient at cell corner
-        qvec(ixC^S,idims)=qd(ixC^S)
+        qvec(ixC^S,idims)=qd(ixC^S)*0.5d0**(ndim-1)
       end do
       ! b grad T at cell corner
       qd(ixC^S)=sum(qvec(ixC^S,1:ndim)*Bc(ixC^S,1:ndim),dim=ndim+1)
@@ -384,17 +411,32 @@ contains
         if(tc_perpendicular) gradT(ixC^S,idims)=gradT(ixC^S,idims)+ke(ixC^S)*qvec(ixC^S,idims)
       end do
       ! TC flux at cell face
+      !qvec face center values
       qvec=0.d0
       do idims=1,ndim
         ixB^L=ixO^L-kr(idims,^D);
         ixAmax^D=ixOmax^D; ixAmin^D=ixBmin^D;
-        call faceValue(ixI^L, ixA^L, gradT, qd,idims,ndim)
-        qvec(ixA^S,idims)=qd(ixA^S)
+        {do ix^DB=0,1 \}
+           if({ ix^D==0 .and. ^D==idims | .or.}) then
+             ixBmin^D=ixAmin^D-ix^D; 
+             ixBmax^D=ixAmax^D-ix^D; 
+             qvec(ixA^S,idims)=qvec(ixA^S,idims)+gradT(ixB^S,idims)
+           end if
+        {end do\}
+        qvec(ixA^S,idims)=qvec(ixA^S,idims)*0.5d0**(ndim-1)
         if(tc_saturate) then
           ! consider saturation (Cowie and Mckee 1977 ApJ, 211, 135)
           ! unsigned saturated TC flux = 5 phi rho c**3, c is isothermal sound speed
+          Bcf=0.d0
+          {do ix^DB=0,1 \}
+             if({ ix^D==0 .and. ^D==idims | .or.}) then
+               ixBmin^D=ixAmin^D-ix^D;
+               ixBmax^D=ixAmax^D-ix^D;
+               Bcf(ixA^S,idims)=Bcf(ixA^S,idims)+Bc(ixB^S,idims)
+             end if
+          {end do\}
           ! averaged b at face centers
-          call faceValue(ixI^L, ixA^L, Bc, Bcf(ixI^S,idims),idims,ndir)
+          Bcf(ixA^S,idims)=Bcf(ixA^S,idims)*0.5d0**(ndim-1)
           ixB^L=ixA^L+kr(idims,^D);
           qd(ixA^S)=2.75d0*(w(ixA^S,rho_)+w(ixB^S,rho_))*dsqrt(0.5d0*(Te(ixA^S)+Te(ixB^S)))**3*dabs(Bcf(ixA^S,idims))
          {do ix^DB=ixAmin^DB,ixAmax^DB\}
@@ -414,14 +456,10 @@ contains
         ! calculate normal of magnetic field
         ixB^L=ixA^L+kr(idims,^D);
         Bnorm(ixA^S)=0.5d0*(mf(ixA^S,idims)+mf(ixB^S,idims))
-
-
         !!calculate face values of Bc,ka,ke
         Bcf=0.d0
         kaf=0.d0
         kef=0.d0
-        !!TODO as multiple operations are done here, not replaced yet by subroutine
-        !as this is faster
         {do ix^DB=0,1 \}
            if({ ix^D==0 .and. ^D==idims | .or.}) then
              ixBmin^D=ixAmin^D-ix^D;
@@ -442,7 +480,17 @@ contains
         minq(ixA^S)=min(alpha*gradT(ixA^S,idims),gradT(ixA^S,idims)/alpha)
         maxq(ixA^S)=max(alpha*gradT(ixA^S,idims),gradT(ixA^S,idims)/alpha)
         ! eq (19)
-        call cornerValueVec(ixI^L, ixC^L, gradT, qdd,idims,ndim)
+        !corner values of gradT
+        qdd=0.d0
+        {do ix^DB=0,1 \}
+           if({ ix^D==0 .and. ^D==idims | .or.}) then
+             ixBmin^D=ixCmin^D+ix^D;
+             ixBmax^D=ixCmax^D+ix^D;
+             qdd(ixC^S)=qdd(ixC^S)+gradT(ixB^S,idims)
+           end if
+        {end do\}
+        ! temperature gradient at cell corner
+        qdd(ixC^S)=qdd(ixC^S)*0.5d0**(ndim-1)
         ! eq (21)
         qe=0.d0
         {do ix^DB=0,1 \}
@@ -733,10 +781,15 @@ contains
 
     call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
 
+    ! cell corner temperature in ke
+    ke=0.d0
     ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
-    ! cell corner temperature
-    call cornerValue(ixI^L, ixA^L, Te, ke)
-
+    {do ix^DB=0,1\}
+      ixBmin^D=ixAmin^D+ix^D;
+      ixBmax^D=ixAmax^D+ix^D;
+      ke(ixA^S)=ke(ixA^S)+Te(ixB^S)
+    {end do\}
+    ke(ixA^S)=0.5d0**ndim*ke(ixA^S)
     ! T gradient (central difference) at cell corners
     gradT=0.d0
     do idims=1,ndim
@@ -747,7 +800,7 @@ contains
     end do
     ! transition region adaptive conduction
     if(trac) then
-      where(Te(ix^S) < block%special_values(1))
+      where(ke(ix^S) < block%special_values(1))
         ke(ix^S)=block%special_values(1)
       end where
     end if
@@ -760,8 +813,15 @@ contains
       ! consider saturation with unsigned saturated TC flux = 5 phi rho c**3
       ! saturation flux at cell center
       qd(ix^S)=5.d0*w(ix^S,rho_)*dsqrt(Te(ix^S)**3)
-      call cornerValue(ixI^L, ixC^L, qd, ke)
-
+      !cell corner values of qd in ke
+      ke=0.d0
+      {do ix^DB=0,1\}
+        ixBmin^D=ixCmin^D+ix^D;
+        ixBmax^D=ixCmax^D+ix^D;
+        ke(ixC^S)=ke(ixC^S)+qd(ixB^S)
+      {end do\}
+      ! cell corner saturation flux 
+      ke(ixC^S)=0.5d0**ndim*ke(ixC^S)
       ! magnitude of cell corner conduction flux
       qd(ixC^S)=norm2(gradT(ixC^S,:),dim=ndim+1)
       {do ix^DB=ixCmin^DB,ixCmax^DB\}
@@ -775,12 +835,19 @@ contains
     end if
 
     ! conductionflux at cell face
+    !face center values of gradT in qvec
     qvec=0.d0
     do idims=1,ndim
       ixB^L=ixO^L-kr(idims,^D);
       ixAmax^D=ixOmax^D; ixAmin^D=ixBmin^D;
-      call faceValue(ixI^L, ixA^L, gradT, qd,idims,ndim)
-      qvec(ixA^S,idims)=qd(ixA^S)
+      {do ix^DB=0,1 \}
+         if({ ix^D==0 .and. ^D==idims | .or.}) then
+           ixBmin^D=ixAmin^D-ix^D; 
+           ixBmax^D=ixAmax^D-ix^D; 
+           qvec(ixA^S,idims)=qvec(ixA^S,idims)+gradT(ixB^S,idims)
+         end if
+      {end do\}
+      qvec(ixA^S,idims)=qvec(ixA^S,idims)*0.5d0**(ndim-1)
     end do
 
    if (fix_conserve_at_step)   call store_flux_var(qvec,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
@@ -806,63 +873,5 @@ contains
   end subroutine sts_set_source_tc_hd
 
 
-!!-------------------------------------------------------
-  subroutine cornerValue(ixI^L, ixC^L, qd, ke)
-    use mod_global_parameters
-    double precision, intent(in) :: qd(ixI^S)
-    integer, intent(in) :: ixI^L, ixC^L
-    double precision, intent(out) :: ke(ixI^S)
-    
-    integer :: ix^D, ixB^L
-
-      ke=0.d0
-      {do ix^DB=0,1\}
-        ixBmin^D=ixCmin^D+ix^D;
-        ixBmax^D=ixCmax^D+ix^D;
-        ke(ixC^S)=ke(ixC^S)+qd(ixB^S)
-      {end do\}
-      ke(ixC^S)=0.5d0**ndim*ke(ixC^S)
-
-  end subroutine cornerValue
-
-
-  subroutine cornerValueVec(ixI^L, ixC^L, qd, ke,idims,ndim1)
-    use mod_global_parameters
-    double precision, intent(in) :: qd(ixI^S,1:ndim1)
-    integer, intent(in) :: ixI^L, ixC^L, idims,ndim1
-    double precision, intent(out) :: ke(ixI^S)
-    integer :: ix^D,ixB^L
-        ke=0.d0
-        {do ix^DB=0,1 \}
-           if({ ix^D==0 .and. ^D==idims | .or.}) then
-             ixBmin^D=ixCmin^D+ix^D;
-             ixBmax^D=ixCmax^D+ix^D;
-             ke(ixC^S)=ke(ixC^S)+qd(ixB^S,idims)
-           end if
-        {end do\}
-        ! temperature gradient at cell corner
-        ke(ixC^S)=ke(ixC^S)*0.5d0**(ndim-1)
-
-  end subroutine cornerValueVec
-
-  subroutine faceValue(ixI^L, ixC^L, qd, ke,idims,ndim1)
-    use mod_global_parameters
-    double precision, intent(in) :: qd(ixI^S,1:ndim1)
-    integer, intent(in) :: ixI^L, ixC^L, idims,ndim1
-    double precision, intent(out) :: ke(ixI^S)
-    integer :: ix^D,ixB^L
-
-        ke=0.d0
-        {do ix^DB=0,1 \}
-           if({ ix^D==0 .and. ^D==idims | .or.}) then
-             ixBmin^D=ixCmin^D-ix^D;
-             ixBmax^D=ixCmax^D-ix^D;
-             ke(ixC^S)=ke(ixC^S)+qd(ixB^S,idims)
-           end if
-        {end do\}
-        ! temperature gradient at cell corner
-        ke(ixC^S)=ke(ixC^S)*0.5d0**(ndim-1)
-
-  end subroutine faceValue
 
 end module mod_tc
