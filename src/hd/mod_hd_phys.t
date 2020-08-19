@@ -170,6 +170,7 @@ contains
   subroutine hd_phys_init()
     use mod_global_parameters
     use mod_thermal_conduction
+    use mod_tc
     use mod_radiative_cooling
     use mod_dust, only: dust_init
     use mod_viscosity, only: viscosity_init

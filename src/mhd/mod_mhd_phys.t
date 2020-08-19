@@ -270,11 +270,8 @@ contains
 
   subroutine mhd_phys_init()
     use mod_global_parameters
-!#if defined(OLD_TC) && OLD_TC==1
     use mod_thermal_conduction
-!#else
     use mod_tc
-!#endif
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
     use mod_gravity, only: gravity_init
