@@ -177,8 +177,9 @@ contains
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(inout) :: w(ixI^S, nw)
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
-        w(ixI^S,eaux_)=w(ixI^S,e_)
-        call phys_ei_to_e(ixI^L,ixI^L,w,x)
+    !internal energy is stored in e_
+    w(ixI^S,eaux_)=w(ixI^S,e_)
+    call phys_ei_to_e(ixI^L,ixI^L,w,x)
   end subroutine set_ei_and_ei_to_e
 
   !> Read this module"s parameters from a file

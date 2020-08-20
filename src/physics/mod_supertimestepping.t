@@ -680,6 +680,11 @@ contains
       do iigrid=1,igridstail; igrid=igrids(iigrid);
         if(associated(temp%sts_before_first_cycle)) then
           call temp%sts_before_first_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)  
+          ! copied from mod_thermal_conduction, as the same operation
+          !might be needded for the coarse block, in physical boundaries
+          !But, is it used when bcphys = false?
+          if(any(ps(igrid)%is_physical_boundary)) &
+              call temp%sts_before_first_cycle(ixCoG^L,ixCoG^L,psc(igrid)%w,psc(igrid)%x)
         endif 
         if(.not. allocated(ps2(igrid)%w)) then
               allocate(ps2(igrid)%w(ixG^T,1:nw))
@@ -878,6 +883,8 @@ contains
       if(associated(temp%sts_after_last_cycle)) then 
         do iigrid=1,igridstail; igrid=igrids(iigrid);
           call temp%sts_after_last_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)
+          if(any(ps(igrid)%is_physical_boundary)) &
+            call temp%sts_after_last_cycle(ixCoG^L,ixCoG^L,psc(igrid)%w,psc(igrid)%x)
         end do 
       endif
 
