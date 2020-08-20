@@ -513,11 +513,6 @@ module mod_global_parameters
 
   !> How many sub-steps the time integrator takes
   integer :: nstep
-
-  !> Temporary flag for using new thermal conductivity
-  !> implemented with more generic STS
-  !> Used for testing new tc for the moment, it will be removed
-  logical :: use_new_tc = .false.
   
   !> Which time stepper to use
   character(len=std_len) :: time_stepper

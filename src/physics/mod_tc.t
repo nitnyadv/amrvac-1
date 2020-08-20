@@ -125,7 +125,7 @@ contains
     end interface
 
 
-  if(mype .eq. 0) print*, "MHD TC new"
+    !if(mype .eq. 0) print*, "MHD TC new"
 
     rho_ = ixArray(1)
     e_ = ixArray(2)
@@ -159,14 +159,14 @@ contains
     else
       tc_constant=.true.
     end if
-      call sts_init()
-      get_temperature_from_eint => mhd_get_temperature_from_eint
-      get_temperature_from_etot => mhd_get_temperature_from_etot
-      if(eaux_.ne.-1) then
-        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd, phys_e_to_ei, set_ei_and_ei_to_e, e_,e_,(/e_/), (/1/),(/.true./))
-      else
-        call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,phys_e_to_ei,phys_ei_to_e,e_,e_,(/e_/), (/1/),(/.true./))
-      endif
+    call sts_init()
+    get_temperature_from_eint => mhd_get_temperature_from_eint
+    get_temperature_from_etot => mhd_get_temperature_from_etot
+    if(eaux_.ne.-1) then
+      call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd, phys_e_to_ei, set_ei_and_ei_to_e, e_,e_,(/e_/), (/1/),(/.true./))
+    else
+      call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,phys_e_to_ei,phys_ei_to_e,e_,e_,(/e_/), (/1/),(/.true./))
+    endif
 
 
     contains

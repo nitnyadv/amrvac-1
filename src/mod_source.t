@@ -22,7 +22,9 @@ contains
     integer :: iigrid, igrid, i^D
     logical :: src_active
     ! add thermal conduction
-    if(.not. use_new_tc .and. associated(phys_thermal_conduction)) call phys_thermal_conduction()
+    !if use_new_mhd_tc or use_new_hd_tc are set to true
+    !the subroutine pointer will not be associated
+    if(associated(phys_thermal_conduction)) call phys_thermal_conduction()
     if(is_sts_initialized()) then
         select case (sourcetype_sts)
           case (sourcetype_sts_prior)

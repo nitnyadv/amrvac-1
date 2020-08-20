@@ -9,6 +9,9 @@ module mod_hd_phys
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
 
+  !> Whether use new module mod_tc
+  logical, public, protected              :: use_new_hd_tc = .false.
+
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
 
@@ -77,7 +80,7 @@ contains
     integer                      :: n
 
     namelist /hd_list/ hd_energy, hd_n_tracer, hd_gamma, hd_adiab, &
-    hd_dust, hd_thermal_conduction, hd_radiative_cooling, hd_viscosity, &
+    hd_dust, hd_thermal_conduction, use_new_hd_tc, hd_radiative_cooling, hd_viscosity, &
     hd_gravity, He_abundance, SI_unit, hd_particles, hd_rotating_frame
 
     do n = 1, size(files)
@@ -255,7 +258,7 @@ contains
     if (hd_thermal_conduction) then
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
-      if(.not. use_new_tc) then
+      if(.not. use_new_hd_tc) then
         phys_req_diagonal = .true.
         call thermal_conduction_init(hd_gamma)
       else
