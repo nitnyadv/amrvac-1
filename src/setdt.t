@@ -108,7 +108,7 @@ subroutine setdt()
 
   
   ! estimate time step of thermal conduction
-  if(.not. use_new_tc .and. associated(phys_getdt_heatconduct)) then
+  if(associated(phys_getdt_heatconduct)) then
      dtmin_mype=bigdouble
   !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,&
   !$OMP& dx^D) REDUCTION(min:dtmin_mype)

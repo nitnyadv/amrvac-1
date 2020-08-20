@@ -10,6 +10,9 @@ module mod_mhd_phys
   !> Whether thermal conduction is used
   logical, public, protected              :: mhd_thermal_conduction = .false.
 
+  !> Whether use new mod_tc
+  logical, public, protected              :: use_new_mhd_tc = .false.
+
   !> Whether radiative cooling is added
   logical, public, protected              :: mhd_radiative_cooling = .false.
 
@@ -222,7 +225,7 @@ contains
 
     namelist /mhd_list/ mhd_energy, mhd_n_tracer, mhd_gamma, mhd_adiab,&
       mhd_eta, mhd_eta_hyper, mhd_etah, mhd_eta_ambi, mhd_glm_alpha, mhd_magnetofriction,&
-      mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar, mhd_ambipolar_sts, mhd_gravity,&
+      mhd_thermal_conduction, use_new_mhd_tc, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar, mhd_ambipolar_sts, mhd_gravity,&
       mhd_viscosity, mhd_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, compactres, divbwave, He_abundance, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr, mhd_particles,&
@@ -511,7 +514,7 @@ contains
     ! initialize thermal conduction module
     if (mhd_thermal_conduction) then
       phys_req_diagonal = .true.
-      if(.not. use_new_tc) then
+      if(.not. use_new_mhd_tc) then
         call thermal_conduction_init(mhd_gamma)
       else
         if(mhd_solve_eaux) then
