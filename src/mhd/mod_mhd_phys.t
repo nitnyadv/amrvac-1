@@ -1241,76 +1241,6 @@ contains
       pth(ixO^S)=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
     end if
 
-
-  !> Calculate temperature=p/rho from etot
-  subroutine mhd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
-    use mod_global_parameters
-    integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(in) :: w(ixI^S, 1:nw)
-    double precision, intent(in) :: x(ixI^S, 1:ndim)
-    double precision, intent(out):: res(ixI^S)
-
-    integer :: ix^D,lowindex(ndim)
-
-    call mhd_get_pthermal(w, x, ixI^L, ixO^L, res)
-    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
-  end subroutine mhd_get_temperature_from_etot
-
-  
-  !> Calculate temperature=p/rho from eint
-  subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
-    use mod_global_parameters
-    use mod_small_values, only: small_values_method
-    integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(inout) :: w(ixI^S, 1:nw)
-    double precision, intent(in) :: x(ixI^S, 1:ndim)
-    double precision, intent(out):: res(ixI^S)
-
-    integer :: ix^D,lowindex(ndim)
-
-    !!check small values
-    ! Clip off negative pressure if small_pressure is set
-    !!this is copied from the thermal conductivity module,
-    !the only place where it is used by now
-    if(small_values_method=='error') then
-       if (any(w(ixO^S,e_)<small_e) .and. .not.crash) then
-         lowindex=minloc(res(ixO^S))
-         ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
-         write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
-         x(^D&lowindex(^D),1:ndim),lowindex,' with limit=',small_e,' on time=',global_time, ' it=',it
-         write(*,*) 'w',w(^D&lowindex(^D),:)
-         crash=.true.
-       end if
-    else
-    {do ix^DB=ixOmin^DB,ixOmax^DB\}
-       if(w(ix^D,e_)<small_e) then
-          w(ix^D,e_)=small_e
-       end if
-    {end do\}
-    end if
-    res(ixO^S) = (mhd_gamma - 1.0d0) * w(ixO^S, e_) 
-    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
-  end subroutine mhd_get_temperature_from_eint
-
-
-
-
-
-  subroutine mhd_find_small_values(primitive, w, x, ixI^L, ixO^L, subname)
-    use mod_global_parameters
-    use mod_small_values
-    logical, intent(in)             :: primitive
-    integer, intent(in)             :: ixI^L,ixO^L
-    double precision, intent(in)    :: w(ixI^S,1:nw)
-    double precision, intent(in)    :: x(ixI^S,1:ndim)
-    character(len=*), intent(in)    :: subname
-
-    double precision :: smallw(1:nw)
-    integer :: idir, flag(ixI^S)
-
-    call mhd_check_w(primitive, ixI^L, ixO^L, w, flag, smallw)
-
-    if (any(flag(ixO^S) /= 0)) call small_values_error(w, x, ixI^L, ixO^L, flag, subname, smallw)
     if(check_small_values) then
       {do ix^DB= ixO^LIM^DB\}
          if(pth(ix^D)<small_pressure) then
@@ -1331,6 +1261,88 @@ contains
     end if
 
   end subroutine mhd_get_pthermal
+
+  !> Calculate temperature=p/rho from etot
+  subroutine mhd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    integer :: ix^D,lowindex(ndim)
+
+    call mhd_get_pthermal(w, x, ixI^L, ixO^L, res)
+    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+  end subroutine mhd_get_temperature_from_etot
+
+  
+  !> Calculate temperature=p/rho from eint
+  subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    !use mod_small_values, only: small_values_method
+    use mod_small_values
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+
+
+!    integer :: ix^D,lowindex(ndim)
+!
+!    !!check small values
+!    ! Clip off negative pressure if small_pressure is set
+!    !!this is copied from the thermal conductivity module,
+!    !the only place where it is used by now
+!    if(small_values_method=='error') then
+!       if (any(w(ixO^S,e_)<small_e) .and. .not.crash) then
+!         lowindex=minloc(res(ixO^S))
+!         ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
+!         write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
+!         x(^D&lowindex(^D),1:ndim),lowindex,' with limit=',small_e,' on time=',global_time, ' it=',it
+!         write(*,*) 'w',w(^D&lowindex(^D),:)
+!         crash=.true.
+!       end if
+!    else
+!    {do ix^DB=ixOmin^DB,ixOmax^DB\}
+!       if(w(ix^D,e_)<small_e) then
+!          w(ix^D,e_)=small_e
+!       end if
+!    {end do\}
+!    end if
+
+    character(len=5)   :: subname="newTC"
+    logical :: flag(ixI^S,1:nw)
+    integer :: idir
+
+    flag=.false.
+    where(w(ixO^S,e_)<small_e) flag(ixO^S,e_)=.true.
+    if(any(flag(ixO^S,e_))) then
+      select case (small_values_method)
+      case ("replace")
+        where(flag(ixO^S,e_)) w(ixO^S,e_)=small_e
+      case ("average")
+        call small_values_average(ixI^L, ixO^L, w, x, flag, e_)
+      case default
+        ! small values error shows primitive variables
+        w(ixO^S,e_)=w(ixO^S,e_)*(mhd_gamma-1)
+        do idir = 1, ndir
+           w(ixO^S, iw_mom(idir)) = w(ixO^S, iw_mom(idir))/w(ixO^S,rho_)
+        end do
+        call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
+      end select
+    end if
+
+
+
+    res(ixO^S) = (mhd_gamma - 1.0d0) * w(ixO^S, e_) 
+    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+  end subroutine mhd_get_temperature_from_eint
+
+
+
+
 
   !> Calculate the square of the thermal sound speed csound2 within ixO^L.
   !> csound2=gamma*p/rho
