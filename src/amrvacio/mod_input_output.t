@@ -173,7 +173,7 @@ contains
          small_temperature,small_pressure,small_density, &
          small_values_method, small_values_daverage, check_small_values, &
          trace_small_values, angmomfix, small_values_fix_iw, &
-         small_values_use_primitive, schmid_rad^D, trac, use_new_tc
+         schmid_rad^D, trac, use_new_tc
 
     namelist /boundlist/ nghostcells,typeboundary,typeghostfill,prolongation_method,&
          internalboundary, typeboundary_^L, save_physical_boundary
@@ -717,6 +717,13 @@ contains
               rk3_a32=2.0d0/3.0d0
               rk3_b1=1.0d0/4.0d0
               rk3_b2=0.0d0
+             case(4) 
+              ! we code up Nystrom 3rd order here
+              rk3_a21=2.0d0/3.0d0
+              rk3_a31=0.0d0
+              rk3_a32=2.0d0/3.0d0
+              rk3_b1=1.0d0/4.0d0
+              rk3_b2=3.0d0/8.0d0
              case default
                 call mpistop("Unknown rk3_switch")
             end select
