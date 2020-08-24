@@ -262,7 +262,7 @@ contains
         phys_req_diagonal = .true.
         call thermal_conduction_init(hd_gamma)
       else
-        call tc_init_hd(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint)
+        call tc_init_hd_for_total_energy(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint,hd_e_to_ei1, hd_ei_to_e1)
       endif
     end if
 
@@ -715,7 +715,8 @@ contains
 
   end subroutine hd_get_pthermal
 
-  !> Calculate temperature=p/rho
+  !the following are only used in the new TC module: mod_tc
+  !> Calculate temperature=p/rho when in e_ the  total energy is stored
   subroutine hd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
@@ -723,45 +724,49 @@ contains
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
 
-    integer :: ix^D,lowindex(ndim)
-
     call hd_get_pthermal(w, x, ixI^L, ixO^L, res)
     res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
   end subroutine hd_get_temperature_from_etot
 
   
-  !> Calculate temperature=p/rho
+  !> Calculate temperature=p/rho when in e_ the  internal energy is stored
   subroutine hd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     use mod_small_values, only: small_values_method
     integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(inout) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
-
-    integer :: ix^D,lowindex(ndim)
-    ! Clip off negative pressure if small_pressure is set
-    !!this is copied from the thermal conductivity module,
-    !the only place where it is used by now
-    if(small_values_method=='error') then
-       if (any(w(ixO^S,e_)<small_e) .and. .not.crash) then
-         lowindex=minloc(w(ixO^S,e_))
-         ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
-         write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
-         x(^D&lowindex(^D),1:ndim),lowindex,' with limit=',small_e,' on time=',global_time, ' it=',it
-         write(*,*) 'w',w(^D&lowindex(^D),:)
-         crash=.true.
-       end if
-    else
-    {do ix^DB=ixOmin^DB,ixOmax^DB\}
-       if(w(ix^D,e_)<small_e) then
-          w(ix^D,e_)=small_e
-       end if
-    {end do\}
-    end if
-    res(ixO^S) = (hd_gamma - 1.0d0) * w(ixO^S, e_) 
-    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+    res(ixO^S) = (hd_gamma - 1.0d0) * w(ixO^S, e_) /w(ixO^S,rho_)
   end subroutine hd_get_temperature_from_eint
+
+  !these are very similar to the subroutines without 1, used in mod_thermal_conductivity
+   !but no check as it is already done
+  subroutine hd_ei_to_e1(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+
+    ! Calculate total energy from internal and kinetic energy
+      w(ixO^S,e_)=w(ixO^S,e_)&
+                 +hd_kin_en(w,ixI^L,ixO^L)
+
+  end subroutine hd_ei_to_e1
+
+  !> Transform total energy to internal energy
+  subroutine hd_e_to_ei1(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+
+    ! Calculate ei = e - ek
+      w(ixO^S,e_)=w(ixO^S,e_)&
+                  -hd_kin_en(w,ixI^L,ixO^L)
+
+  end subroutine hd_e_to_ei1
+  !the following are only used in mod_tc end
 
   ! Calculate flux f_idim[iw]
   subroutine hd_get_flux_cons(w, x, ixI^L, ixO^L, idim, f)

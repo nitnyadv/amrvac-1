@@ -281,7 +281,7 @@ contains
     use mod_particles, only: particles_init
     use mod_magnetofriction, only: magnetofriction_init
     use mod_physics
-    use mod_supertimestepping, only: sts_init, add_sts_method2
+    use mod_supertimestepping, only: sts_init, add_sts_method
 
     {^NOONED
     use mod_multigrid_coupling
@@ -517,10 +517,14 @@ contains
       if(.not. use_new_mhd_tc) then
         call thermal_conduction_init(mhd_gamma)
       else
-        if(mhd_solve_eaux) then
-          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
+        if(mhd_internal_e) then
+          call tc_init_mhd_for_internal_energy(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_eint)
         else
-          call tc_init_mhd(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
+          if(mhd_solve_eaux) then
+            call tc_init_mhd_for_total_energy(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint,mhd_e_to_ei1, mhd_ei_to_e1)
+          else
+            call tc_init_mhd_for_total_energy(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint, mhd_e_to_ei1, mhd_ei_to_e1)
+          endif
         endif
       endif
     end if
@@ -565,9 +569,9 @@ contains
     if (mhd_ambipolar .and. mhd_ambipolar_sts) then
       call sts_init()
       if(mhd_solve_eaux) then 
-        call add_sts_method2(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_,eaux_/), (/ndir,1,1/),(/.true.,.true.,.false. /))
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_,eaux_/), (/ndir,1,1/),(/.true.,.true.,.false. /))
       else
-        call add_sts_method2(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_/), (/ndir,1/),(/.true.,.true./))
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar, mag(1),mag(ndir),(/mag(1),e_/), (/ndir,1/),(/.true.,.true./))
       endif
     end if
     
@@ -1266,86 +1270,63 @@ contains
 
   end subroutine mhd_get_pthermal
 
-  !> Calculate temperature=p/rho from etot
+  !!the following are used for the new TC: mod_tc
+  
+  !> Calculate temperature=p/rho when in e_ the internal energy is stored
+  subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+    res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
+  end subroutine mhd_get_temperature_from_eint
+
+  !> Calculate temperature=p/rho when in e_ the total energy is stored
+  !> this does not check the values of mhd_energy and mhd_internal_e, 
+  !>  mhd_energy = .true. and mhd_internal_e = .false.
+  !> also check small_values is avoided
   subroutine mhd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
-
-    integer :: ix^D,lowindex(ndim)
-
-    call mhd_get_pthermal(w, x, ixI^L, ixO^L, res)
-    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
+    res(ixO^S)=(gamma_1*(w(ixO^S,e_)&
+           - mhd_kin_en(w,ixI^L,ixO^L)&
+           - mhd_mag_en(w,ixI^L,ixO^L)))/w(ixO^S,rho_)
   end subroutine mhd_get_temperature_from_etot
 
-  
-  !> Calculate temperature=p/rho from eint
-  subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
+  !> Transform internal energy to total energy
+  !these are very similar to the subroutines without 1, used in mod_thermal_conductivity
+  !but with no check for the flags, as it is already done
+  subroutine mhd_ei_to_e1(ixI^L,ixO^L,w,x)
     use mod_global_parameters
-    !use mod_small_values, only: small_values_method
-    use mod_small_values
-    integer, intent(in)          :: ixI^L, ixO^L
-    double precision, intent(inout) :: w(ixI^S, 1:nw)
-    double precision, intent(in) :: x(ixI^S, 1:ndim)
-    double precision, intent(out):: res(ixI^S)
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+ 
+    ! Calculate total energy from internal, kinetic and magnetic energy
+      w(ixO^S,e_)=w(ixO^S,e_)&
+                 +mhd_kin_en(w,ixI^L,ixO^L)&
+                 +mhd_mag_en(w,ixI^L,ixO^L)
 
+  end subroutine mhd_ei_to_e1
 
+  !> Transform total energy to internal energy
+  subroutine mhd_e_to_ei1(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
 
-!    integer :: ix^D,lowindex(ndim)
-!
-!    !!check small values
-!    ! Clip off negative pressure if small_pressure is set
-!    !!this is copied from the thermal conductivity module,
-!    !the only place where it is used by now
-!    if(small_values_method=='error') then
-!       if (any(w(ixO^S,e_)<small_e) .and. .not.crash) then
-!         lowindex=minloc(res(ixO^S))
-!         ^D&lowindex(^D)=lowindex(^D)+ixOmin^D-1;
-!         write(*,*)'too low internal energy = ',minval(res(ixO^S)),' at x=',&
-!         x(^D&lowindex(^D),1:ndim),lowindex,' with limit=',small_e,' on time=',global_time, ' it=',it
-!         write(*,*) 'w',w(^D&lowindex(^D),:)
-!         crash=.true.
-!       end if
-!    else
-!    {do ix^DB=ixOmin^DB,ixOmax^DB\}
-!       if(w(ix^D,e_)<small_e) then
-!          w(ix^D,e_)=small_e
-!       end if
-!    {end do\}
-!    end if
+    ! Calculate ei = e - ek - eb
+    w(ixO^S,e_)=w(ixO^S,e_)&
+                  -mhd_kin_en(w,ixI^L,ixO^L)&
+                  -mhd_mag_en(w,ixI^L,ixO^L)
 
-    character(len=5)   :: subname="newTC"
-    logical :: flag(ixI^S,1:nw)
-    integer :: idir
-
-    flag=.false.
-    where(w(ixO^S,e_)<small_e) flag(ixO^S,e_)=.true.
-    if(any(flag(ixO^S,e_))) then
-      select case (small_values_method)
-      case ("replace")
-        where(flag(ixO^S,e_)) w(ixO^S,e_)=small_e
-      case ("average")
-        call small_values_average(ixI^L, ixO^L, w, x, flag, e_)
-      case default
-        ! small values error shows primitive variables
-        w(ixO^S,e_)=w(ixO^S,e_)*(mhd_gamma-1)
-        do idir = 1, ndir
-           w(ixO^S, iw_mom(idir)) = w(ixO^S, iw_mom(idir))/w(ixO^S,rho_)
-        end do
-        call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
-      end select
-    end if
-
-
-
-    res(ixO^S) = (mhd_gamma - 1.0d0) * w(ixO^S, e_) 
-    res(ixO^S)=res(ixO^S)/w(ixO^S,rho_)
-  end subroutine mhd_get_temperature_from_eint
-
-
-
+  end subroutine mhd_e_to_ei1
+  !!the following are used for the new TC: mod_tc END
 
 
   !> Calculate the square of the thermal sound speed csound2 within ixO^L.
