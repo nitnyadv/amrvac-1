@@ -229,6 +229,7 @@ contains
     temp%sts_set_sources => sts_set_sources
     temp%sts_before_first_cycle => null()
     temp%sts_after_last_cycle => null()
+    temp%sts_handle_errors => null()
 
     temp%startVar = startVar
     temp%endVar = endVar
