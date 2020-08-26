@@ -703,6 +703,10 @@ contains
     double precision                :: inv_rho(ixO^S)
     integer                         :: itr, idir
 
+    if (check_small_values) then
+      call mhd_handle_small_values(.false., w, x, ixI^L, ixO^L, 'mhd_to_primitive')
+    end if
+
     inv_rho=1.0d0/w(ixO^S,rho_)
 
     ! Calculate pressure = (gamma-1) * (e-ek-eb)
@@ -722,9 +726,6 @@ contains
        w(ixO^S, mom(idir)) = w(ixO^S, mom(idir))*inv_rho
     end do
 
-    if (check_small_values) then
-      call mhd_handle_small_values(.true., w, x, ixI^L, ixO^L, 'mhd_to_primitive')
-    end if
   end subroutine mhd_to_primitive
 
   !> Transform internal energy to total energy
@@ -2015,7 +2016,42 @@ contains
     if(mhd_ambipolar .and. (.not. mhd_ambipolar_sts) .and. mhd_eta_ambi > 0d0)then
        call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,ie)
     endif
+    if(check_small_values) then
+      call mhd_handle_small_ei(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
+    end if
   end subroutine internal_energy_add_source
+
+  !> handle small or negative internal energy
+  subroutine mhd_handle_small_ei(w, x, ixI^L, ixO^L, ie, subname)
+    use mod_global_parameters
+    use mod_small_values
+    integer, intent(in)             :: ixI^L,ixO^L, ie
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    character(len=*), intent(in)    :: subname
+
+    integer :: idir
+    logical :: flag(ixI^S,1:nw)
+
+    flag=.false.
+    where(w(ixO^S,ie)<small_e) flag(ixO^S,ie)=.true.
+    if(any(flag(ixO^S,ie))) then
+      select case (small_values_method)
+      case ("replace")
+        where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e
+      case ("average")
+        call small_values_average(ixI^L, ixO^L, w, x, flag, ie)
+      case default
+        ! small values error shows primitive variables
+        w(ixO^S,e_)=w(ixO^S,e_)*gamma_1
+        do idir = 1, ndir
+           w(ixO^S, mom(idir)) = w(ixO^S, mom(idir))/w(ixO^S,rho_)
+        end do
+        call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
+      end select
+    end if
+
+  end subroutine mhd_handle_small_ei
 
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
