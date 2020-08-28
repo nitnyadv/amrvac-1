@@ -258,8 +258,8 @@ contains
     if (hd_thermal_conduction) then
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
+      phys_req_diagonal = .true.
       if(.not. use_new_hd_tc) then
-        phys_req_diagonal = .true.
         call thermal_conduction_init(hd_gamma)
       else
         call tc_init_hd_for_total_energy(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint,hd_e_to_ei1, hd_ei_to_e1)
