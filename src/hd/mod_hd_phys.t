@@ -191,7 +191,6 @@ contains
     phys_total_energy  = hd_energy
     ! set default gamma for polytropic/isothermal process
     if(.not.hd_energy) then
-      hd_gamma=1.d0
       if(hd_thermal_conduction) then
         hd_thermal_conduction=.false.
         if(mype==0) write(*,*) 'WARNING: set hd_thermal_conduction=F when hd_energy=F'
@@ -908,7 +907,8 @@ contains
     case(Cartesian_expansion)
       !the user provides the functions of exp_factor and del_exp_factor
       if(associated(usr_set_surface)) call usr_set_surface(ixI^L,x,block%dx,exp_factor,del_exp_factor,exp_factor_primitive)
-      source(ixO^S) = wCT(ixO^S,p_)*del_exp_factor(ixO^S)/exp_factor(ixO^S)
+      call hd_get_pthermal(wCT, x, ixI^L, ixO^L, source)
+      source(ixO^S) = source(ixO^S)*del_exp_factor(ixO^S)/exp_factor(ixO^S)
       w(ixO^S,mom(1)) = w(ixO^S,mom(1)) + qdt*source(ixO^S)
 
     case (cylindrical)
