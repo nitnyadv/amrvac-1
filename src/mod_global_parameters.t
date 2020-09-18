@@ -513,7 +513,7 @@ module mod_global_parameters
 
   !> How many sub-steps the time integrator takes
   integer :: nstep
-  
+
   !> Which time stepper to use
   character(len=std_len) :: time_stepper
 
