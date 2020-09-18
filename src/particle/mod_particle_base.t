@@ -10,14 +10,18 @@ module mod_particle_base
   !> String describing the particle integrator type
   character(len=name_len) :: integrator_type_particles = ""
   !> Header string used in CSV files
-  character(len=200)      :: csv_header
+  character(len=400)      :: csv_header
   !> Format string used in CSV files
   character(len=60)       :: csv_format
   !> Maximum number of particles
   integer                 :: nparticleshi
   !> Maximum number of particles in one processor
   integer                 :: nparticles_per_cpu_hi
-  !> Number of additional variables for a particle
+  !> Number of default payload variables for a particle
+  integer                 :: ndefpayload
+  !> Number of user-defined payload variables for a particle
+  integer                 :: nusrpayload
+  !> Number of total payload variables for a particle
   integer                 :: npayload
   !> Number of variables for grid field
   integer                 :: ngridvars
@@ -83,6 +87,10 @@ module mod_particle_base
   integer, allocatable :: bp(:)
   !> Variable index for electric field
   integer, allocatable :: ep(:)
+  !> Variable index for fluid velocity
+  integer, allocatable :: vp(:)
+  !> Variable index for current
+  integer, allocatable :: jp(:)
 
   type particle_ptr
     type(particle_t), pointer         :: self
@@ -116,17 +124,34 @@ module mod_particle_base
   ! The pseudo-random number generator
   type(rng_t) :: rng
 
-  procedure(sub_fill_gridvars), pointer :: particles_fill_gridvars => null()
-  procedure(sub_integrate), pointer     :: particles_integrate     => null()
+  ! Pointers for user-defined stuff
+  procedure(sub_fill_gridvars), pointer              :: particles_fill_gridvars => null()
+  procedure(sub_define_additional_gridvars), pointer :: particles_define_additional_gridvars => null()
+  procedure(sub_fill_additional_gridvars), pointer   :: particles_fill_additional_gridvars => null()
+  procedure(sub_integrate), pointer                  :: particles_integrate => null()
+  procedure(fun_destroy), pointer                    :: usr_destroy_particle => null()
 
   abstract interface
 
     subroutine sub_fill_gridvars
     end subroutine sub_fill_gridvars
 
+    subroutine sub_define_additional_gridvars(ngridvars)
+      integer, intent(inout) :: ngridvars
+    end subroutine sub_define_additional_gridvars
+
+    subroutine sub_fill_additional_gridvars
+    end subroutine sub_fill_additional_gridvars
+
     subroutine sub_integrate(end_time)
       double precision, intent(in) :: end_time
     end subroutine sub_integrate
+
+    function fun_destroy(myparticle)
+      import particle_ptr
+      logical                         :: fun_destroy
+      type(particle_ptr), intent(in)    :: myparticle
+    end function fun_destroy
 
   end interface
 
@@ -158,7 +183,7 @@ contains
 
     namelist /particles_list/ physics_type_particles,nparticleshi, &
          nparticles_per_cpu_hi, particles_eta, particles_etah, write_individual, write_ensemble, &
-         write_snapshot, dtsave_particles,num_particles,npayload,tmax_particles, &
+         write_snapshot, dtsave_particles,num_particles,ndefpayload,nusrpayload,tmax_particles, &
          dtheta,losses, const_dt_particles, relativistic, integrator_type_particles
 
     do n = 1, size(files)
@@ -178,10 +203,11 @@ contains
     character(len=20)  :: strdata
 
     physics_type_particles    = 'advect'
-    nparticleshi              = 100000
-    nparticles_per_cpu_hi     = 100000
+    nparticleshi              = 10000000
+    nparticles_per_cpu_hi     = 1000000
     num_particles             = 1000
-    npayload                  = 1
+    ndefpayload               = 1
+    nusrpayload               = 0
     tmax_particles            = bigdouble
     dtsave_particles          = bigdouble
     const_dt_particles        = -bigdouble
@@ -205,8 +231,10 @@ contains
 
     call particles_params_read(par_files)
 
-    ! If sampling, npayload = nw:
-    if (physics_type_particles == 'sample') npayload = nw
+    ! If sampling, ndefpayload = nw:
+    if (physics_type_particles == 'sample') ndefpayload = nw
+    ! Total number of payloads
+    npayload = ndefpayload + nusrpayload
 
     ! initialise the random number generator
     seed = [310952_i8, 8948923749821_i8]
@@ -224,17 +252,24 @@ contains
     csv_header = ' time, dt, x1, x2, x3, u1, u2, u3,'
     ! If sampling, name the payloads like the fluid quantities
     if (physics_type_particles == 'sample') then
-      do n = 1, npayload
-        write(strdata,"(a,a)") prim_wnames(n), ','
+      do n = 1, nw
+        write(strdata,"(a,a,a)") ' ', trim(prim_wnames(n)), ','
         csv_header = trim(csv_header) // trim(strdata)
       end do
     else ! Otherwise, payloads are called pl01, pl02, ...
-      do n = 1, npayload
-        write(strdata,"(a,i2.2,a)") 'pl', n, ','
+      do n = 1, ndefpayload
+        write(strdata,"(a,i2.2,a)") ' pl', n, ','
         csv_header = trim(csv_header) // trim(strdata)
       end do
     end if
-    csv_header = trim(csv_header) // 'ipe, iteration, index'
+    ! User-defined payloads are called usrpl01, usrpl02, ...
+    if (nusrpayload > 0) then
+      do n = 1, nusrpayload
+        write(strdata,"(a,i2.2,a)") ' usrpl', n, ','
+        csv_header = trim(csv_header) // trim(strdata)
+      end do
+    end if
+    csv_header = trim(csv_header) // ' ipe, iteration, index'
 
     ! Generate format string for CSV files
     write(csv_format, '(A,I0,A,A)') '(', 8 + npayload, '(es14.6,", ")', &
@@ -309,6 +344,9 @@ contains
     end do
 
     call particles_fill_gridvars()
+    if (associated(particles_define_additional_gridvars)) then
+      call particles_fill_additional_gridvars()
+    end if
 
   end subroutine init_gridvars
 
@@ -325,6 +363,7 @@ contains
 
   end subroutine finish_gridvars
 
+  !> This routine fills the particle grid variables with the default for mhd, i.e. only E and B
   subroutine fill_gridvars_default
     use mod_global_parameters
     use mod_usr_methods, only: usr_particle_fields
@@ -356,6 +395,7 @@ contains
 
   !> Determine fields from MHD variables
   subroutine fields_from_mhd(igrid, w_mhd, w_part)
+!    use mod_mhd
     use mod_global_parameters
     integer, intent(in)             :: igrid
     double precision, intent(in)    :: w_mhd(ixG^T,nw)
@@ -367,17 +407,20 @@ contains
     ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
 
     w(ixG^T,1:nw) = w_mhd(ixG^T,1:nw)
-    w_part(ixG^T,1:ngridvars) = 0.0d0
+    w_part(ixG^T,bp(1):bp(3)) = 0.0d0
+    w_part(ixG^T,ep(1):ep(3)) = 0.0d0
 
     call phys_to_primitive(ixG^LL,ixG^LL,w,ps(igrid)%x)
 
     ! fill with magnetic field:
     w_part(ixG^T,bp(:)) = w(ixG^T,iw_mag(:))
 
-    ! fill with electric field
+    ! fill with current
     current = zero
     call particle_get_current(w,ixG^LL,ixG^LLIM^D^LSUB1,idirmin,current)
+    w_part(ixG^T,jp(:)) = current(ixG^T,:)
 
+    ! fill with electric field
     w_part(ixG^T,ep(1)) = w_part(ixG^T,bp(2)) * &
          w(ixG^T,iw_mom(3)) - w_part(ixG^T,bp(3)) * &
          w(ixG^T,iw_mom(2)) + particles_eta * current(ixG^T,1)
@@ -387,6 +430,7 @@ contains
     w_part(ixG^T,ep(3)) = w_part(ixG^T,bp(1)) * &
          w(ixG^T,iw_mom(2)) - w_part(ixG^T,bp(2)) * &
          w(ixG^T,iw_mom(1)) + particles_eta * current(ixG^T,3)
+
     ! Hall term
     if (particles_etah > zero) then
       w_part(ixG^T,ep(1)) = w_part(ixG^T,ep(1)) + particles_etah/w(ixG^T,iw_rho) * &
@@ -458,7 +502,6 @@ contains
     do
       if (tmax_particles >= t_next_output) then
         call advance_particles(t_next_output, steps_taken)
-
         tpartc_io_0 = MPI_WTIME()
         call write_particle_output()
         timeio_tot  = timeio_tot+(MPI_WTIME()-tpartc_io_0)
@@ -470,6 +513,7 @@ contains
              dtsave_particles
       else
         call advance_particles(tmax_particles, steps_taken)
+        call write_particle_output()
         exit
       end if
 
@@ -1379,6 +1423,15 @@ contains
         destroy_n_particles_mype  = destroy_n_particles_mype + 1
         particle_index_to_be_destroyed(destroy_n_particles_mype) = ipart
         cycle
+      end if
+
+      ! Then check user-defined condition
+      if (associated(usr_destroy_particle)) then
+        if (usr_destroy_particle(particle(ipart))) then
+          destroy_n_particles_mype  = destroy_n_particles_mype + 1
+          particle_index_to_be_destroyed(destroy_n_particles_mype) = ipart
+          cycle
+        end if
       end if
 
       ! is my particle still in the same igrid?

@@ -189,11 +189,11 @@ module mod_mhd_phys
   public :: mhd_face_to_center
   public :: get_divb
   public :: get_current
-  public :: multiplyAmbiCoef  !!needed for ambi coef in user file
+  !> needed  public if we want to use the ambipolar coefficient in the user file
+  public :: multiplyAmbiCoef  
   public :: get_normalized_divb
   public :: b_from_vector_potential
   public :: mhd_mag_en_all
-  public :: mhd_get_temperature_from_etot, mhd_get_temperature_from_eint
   {^NOONED
   public :: mhd_clean_divb_multigrid
   }
@@ -517,12 +517,12 @@ contains
         call thermal_conduction_init(mhd_gamma)
       else
         if(mhd_internal_e) then
-          call tc_init_mhd_for_internal_energy(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_eint)
+          call tc_init_mhd_for_internal_energy(mhd_gamma,[rho_,e_,mag(1),eaux_],mhd_get_temperature_from_eint)
         else
           if(mhd_solve_eaux) then
-            call tc_init_mhd_for_total_energy(mhd_gamma, (/rho_, e_, mag(1), eaux_/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint,mhd_e_to_ei1, mhd_ei_to_e1)
+            call tc_init_mhd_for_total_energy(mhd_gamma,[rho_,e_,mag(1),eaux_],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint,mhd_e_to_ei1, mhd_ei_to_e1)
           else
-            call tc_init_mhd_for_total_energy(mhd_gamma, (/rho_, e_, mag(1)/),mhd_get_temperature_from_etot, mhd_get_temperature_from_eint, mhd_e_to_ei1, mhd_ei_to_e1)
+            call tc_init_mhd_for_total_energy(mhd_gamma,[rho_,e_,mag(1)],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint, mhd_e_to_ei1, mhd_ei_to_e1)
           endif
         endif
       endif
@@ -1271,7 +1271,6 @@ contains
   end subroutine mhd_get_pthermal
 
   !!the following are used for the new TC: mod_tc
-  
   !> Calculate temperature=p/rho when in e_ the internal energy is stored
   subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
@@ -1299,7 +1298,7 @@ contains
 
   !> Transform internal energy to total energy
   !these are very similar to the subroutines without 1, used in mod_thermal_conductivity
-  !but with no check for the flags, as it is already done
+  !but with no check for the flags (it is done when adding them as hooks in the STS update)
   subroutine mhd_ei_to_e1(ixI^L,ixO^L,w,x)
     use mod_global_parameters
     integer, intent(in)             :: ixI^L, ixO^L
@@ -1380,8 +1379,6 @@ contains
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
     double precision, allocatable, dimension(:^D&) :: tmp2
 
-    !double precision, allocatable, dimension(:^D&,:) :: tmpDebug
-    !integer :: iDebug
 
     if (mhd_Hall) then
       allocate(vHall(ixI^S,1:ndir))
@@ -1516,7 +1513,7 @@ contains
       deallocate(vHall)
     end if
 
-    ! Contributions of ambipolar term
+    ! Contributions of ambipolar term in explicit scheme
     if(mhd_ambipolar .and. (.not. mhd_ambipolar_sts) .and. mhd_eta_ambi>0) then
       !J_ambi = J * mhd_eta_ambi/rho**2
       allocate(Jambi(ixI^S,1:3))
@@ -1623,7 +1620,11 @@ contains
     enddo
   end subroutine mhd_get_jxbxb
 
-
+  !> Sets the sources for the ambipolar
+  !> this is used for the STS method
+  ! The sources are added directly (instead of fluxes as in the explicit) 
+  !> at the corresponding indices
+  !>  store_flux_var is explicitly called for each of the fluxes one by one
   subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres, fix_conserve_at_step, my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC )
     use mod_global_parameters
     use mod_geometry, only: divvector
@@ -1720,7 +1721,8 @@ contains
 
   end subroutine sts_set_source_ambipolar
 
-
+  !> Calculates the explicit dt for the ambipokar term
+  !> This function is used by both explicit scheme and STS method
   function get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
     use mod_global_parameters
 
@@ -1745,7 +1747,10 @@ contains
 
   end function get_ambipolar_dt
 
-
+  !> multiply res by the ambipolar coefficient
+  !> The ambipolar coefficient is calculated as -mhd_eta_ambi/rho^2
+  !> The user may mask its value in the user file
+  !> by implemneting usr_mask_ambipolar subroutine
   subroutine multiplyAmbiCoef(ixI^L,ixO^L,res,w,x)   
     use mod_global_parameters
     integer, intent(in) :: ixI^L, ixO^L
@@ -1754,13 +1759,7 @@ contains
     double precision :: tmp(ixI^S)
 
   
-    !!first impl   
     tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
-    !!first impl end 
-    !!second impl   
-    !call mhd_get_pthermal(w,x,ixI^L,ixI^L,tmp)
-    !tmp(ixI^S) = -(mhd_eta_ambi/(w(ixI^S, rho_)**2 * sqrt(abs(tmp(ixI^S)/w(ixI^S,rho_)))) ) 
-    !!second impl end 
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
     endif

@@ -48,7 +48,8 @@
   mhd_thermal_conduction =T
   Busr=1.d-5
   typedivbfix='none'
-  !use_new_mhd_tc = .true. 
+  mhd_internal_e=T  
+  use_new_mhd_tc = .true. 
  /
 
  &tc_list

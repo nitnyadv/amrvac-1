@@ -264,6 +264,7 @@ mod_supertimestepping.o: mod_fix_conserve.mod
 mod_supertimestepping.o: mod_geometry.mod
 mod_supertimestepping.o: mod_ghostcells_update.mod
 mod_supertimestepping.o: mod_physics.mod
+mod_supertimestepping.o: mod_small_values.mod
 mod_tc.o: mod_fix_conserve.mod
 mod_tc.o: mod_geometry.mod
 mod_tc.o: mod_physics.mod

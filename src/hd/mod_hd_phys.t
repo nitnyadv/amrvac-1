@@ -69,7 +69,6 @@ module mod_hd_phys
   public :: hd_to_primitive
   public :: hd_check_params
   public :: hd_check_w
-  public :: hd_get_temperature_from_etot, hd_get_temperature_from_eint
 
 contains
 
@@ -740,7 +739,7 @@ contains
   end subroutine hd_get_temperature_from_eint
 
   !these are very similar to the subroutines without 1, used in mod_thermal_conductivity
-   !but no check as it is already done
+   !but no check as it is done whne the method is added
   subroutine hd_ei_to_e1(ixI^L,ixO^L,w,x)
     use mod_global_parameters
     integer, intent(in)             :: ixI^L, ixO^L

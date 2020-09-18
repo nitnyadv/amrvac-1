@@ -65,9 +65,10 @@ module mod_usr_methods
   procedure(set_J0), pointer          :: usr_set_J0           => null()
   procedure(special_resistivity), pointer :: usr_special_resistivity => null()
 
-  ! Particles module related
+  ! Particle module related
   procedure(update_payload), pointer    :: usr_update_payload    => null()
   procedure(create_particles), pointer  :: usr_create_particles  => null()
+  procedure(check_particle), pointer    :: usr_check_particle    => null()
   procedure(particle_fields), pointer   :: usr_particle_fields   => null()
   procedure(particle_analytic), pointer :: usr_particle_analytic => null()
 
@@ -357,14 +358,15 @@ module mod_usr_methods
     end subroutine flag_grid
 
     !> Update payload of particles
-    subroutine update_payload(igrid,w,wold,xgrid,xpart,upart,qpart,mpart,payload,npayload,particle_time)
+    subroutine update_payload(igrid,w,wold,xgrid,x,u,q,m,mypayload,mynpayload,particle_time)
       use mod_global_parameters
-      integer, intent(in)           :: igrid,npayload
+      integer, intent(in)           :: igrid,mynpayload
       double precision, intent(in)  :: w(ixG^T,1:nw),wold(ixG^T,1:nw)
-      double precision, intent(in)  :: xgrid(ixG^T,1:ndim),xpart(1:ndir),upart(1:ndir),qpart,mpart,particle_time
-      double precision, intent(out) :: payload(npayload)
+      double precision, intent(in)  :: xgrid(ixG^T,1:ndim),x(1:ndir),u(1:ndir),q,m,particle_time
+      double precision, intent(out) :: mypayload(mynpayload)
     end subroutine update_payload
 
+    !> Create particles
     subroutine create_particles(n_particles, x, v, q, m, follow)
       integer, intent(in)           :: n_particles
       double precision, intent(out) :: x(3, n_particles)
@@ -373,7 +375,18 @@ module mod_usr_methods
       double precision, intent(out) :: m(n_particles)
       logical, intent(out)          :: follow(n_particles)
     end subroutine create_particles
+    
+    !> Check arbitrary particle conditions or modifications
+    subroutine check_particle(igrid,x,v,q,m,follow,check)
+      use mod_global_parameters
+      integer, intent(in)           :: igrid
+      double precision, intent(in)  :: x(1:ndir)
+      double precision, intent(inout) :: v(1:ndir),q,m
+      logical, intent(inout) :: follow
+      logical, intent(out)   :: check
+    end subroutine check_particle
 
+    !> Associate fields to particle
     subroutine particle_fields(w, x, E, B)
       use mod_global_parameters
       double precision, intent(in)  :: w(ixG^T,1:nw)
