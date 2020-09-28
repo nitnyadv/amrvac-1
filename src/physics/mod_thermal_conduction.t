@@ -921,7 +921,6 @@ contains
 
     if(tc_saturate) B2(ixO^S)=22.d0*dsqrt(Te(ixO^S))
 
-    dtnew=bigdouble 
     do idim=1,ndim
       tmp2(ixO^S)=tmp(ixO^S)*mf(ixO^S,idim)
       if(tc_saturate) then
@@ -1064,7 +1063,7 @@ contains
 
     Te(ixO^S)=tmp(ixO^S)/w(ixO^S,rho_)
     tmp(ixO^S)=(tc_gamma-one)*tc_k_para*dsqrt((Te(ixO^S))**5)/w(ixO^S,rho_)
-    dtnew=bigdouble 
+    
     do idim=1,ndim
        ! dt< tc_dtpar * dx_idim**2/((gamma-1)*tc_k_para_idim/rho)
        dtdiff_tcond=tc_dtpar/maxval(tmp(ixO^S)*dxinv(idim)**2)
