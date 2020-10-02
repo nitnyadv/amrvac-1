@@ -15,7 +15,7 @@ subroutine setdt()
   double precision :: a2max_mype(ndim), tco_mype, tco_global, Tmax_mype, T_bott, T_peak
   double precision :: trac_alfa, trac_dmax, trac_tau
 
-  integer, parameter :: niter_print = 200
+  integer, parameter :: niter_print = 2000
 
   if (dtpar<=zero) then
      dtmin_mype=bigdouble
@@ -38,21 +38,15 @@ subroutine setdt()
         end if
 
         call getdt_courant(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
-        print*, "IGRID ", igrid, " COURANT qdtnew ", qdtnew
         dtnew=min(dtnew,qdtnew)
 
         call phys_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
-        print*, "IGRID ", igrid, " PHYS qdtnew ", qdtnew
         dtnew=min(dtnew,qdtnew)
 
         if (associated(usr_get_dt)) then
            call usr_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
         end if
-      
         dtnew          = min(dtnew,qdtnew)
-
-        print*, "IGRID ", igrid, " dtnew ", dtnew
-
         dtmin_mype     = min(dtmin_mype,dtnew)
         dt_grid(igrid) = dtnew
      end do
@@ -260,10 +254,8 @@ subroutine setdt()
         {^IFONED tco_mype=max(tco_mype,tco_local) }
         Tmax_mype=max(Tmax_mype,Tmax_local)
       end if
-      print*, " DXINV ", dxinv
       do idims=1,ndim
         call phys_get_cmax(w,x,ixI^L,ixO^L,idims,cmax)
-        print*, " CMAX ", maxval(cmax(ixO^S))
         if(need_global_cmax) cmax_mype = max(cmax_mype,maxval(cmax(ixO^S)))
         if(need_global_a2max) a2max_mype = max(a2max_mype,a2max(idims))
         if(slab_uniform) then
@@ -276,7 +268,6 @@ subroutine setdt()
         end if
         courantmaxtot=courantmaxtot+courantmax
       end do
-      print*, " Courant maxtot ", courantmaxtot
       
       select case (typecourant)
       case ('minimum')
