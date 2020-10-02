@@ -37,17 +37,22 @@ subroutine setdt()
                 ps(igrid)%x,ixG^LL,ixM^LL,'setdt')
         end if
 
-        call getdt_courant(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,ps(igrid)%x)
+        call getdt_courant(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
+        print*, "IGRID ", igrid, " COURANT qdtnew ", qdtnew
         dtnew=min(dtnew,qdtnew)
 
         call phys_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
+        print*, "IGRID ", igrid, " PHYS qdtnew ", qdtnew
         dtnew=min(dtnew,qdtnew)
 
         if (associated(usr_get_dt)) then
            call usr_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
         end if
-
+      
         dtnew          = min(dtnew,qdtnew)
+
+        print*, "IGRID ", igrid, " dtnew ", dtnew
+
         dtmin_mype     = min(dtmin_mype,dtnew)
         dt_grid(igrid) = dtnew
      end do
@@ -157,15 +162,13 @@ subroutine setdt()
         dt = 2d0*qdtnew
         !a quick way to print the reduction of time only every niter_print iterations
         !Note that niter_print is a parameter variable hardcoded to the value of 200
-        if(mype==0 .and. mod(it, niter_print) .eq. 1) then
+        if(mype==0 .and. mod(it-1, niter_print) .eq. 0) then
           write(*,*) 'Max number of STS cycles exceeded, reducing dt to',dt
         endif
       endif  
     else
-      !if(mype .eq. 0) print*, "Original dt ", dt
       if(set_dt_sts_ncycles(dt))then 
-       !  if(mype .eq. 0) print*, "dt is now", dt
-       if(mype==0 .and. mod(it, niter_print) .eq. 1) then
+       if(mype==0 .and. mod(it-1, niter_print) .eq. 0) then
          write(*,*) 'Max number of STS cycles exceeded, reducing dt to',dt
        endif
       endif
@@ -225,12 +228,13 @@ subroutine setdt()
   contains
 
     !> compute CFL limited dt (for variable time stepping)
-    subroutine getdt_courant(w,ixI^L,ixO^L,dtnew,x)
+    subroutine getdt_courant(w,ixI^L,ixO^L,dtnew,dx^D,x)
       use mod_global_parameters
       use mod_physics, only: phys_get_cmax,phys_get_a2max,phys_get_tcutoff
       
       integer, intent(in) :: ixI^L, ixO^L
       double precision, intent(in) :: x(ixI^S,1:ndim)
+      double precision, intent(in)    :: dx^D
       double precision, intent(inout) :: w(ixI^S,1:nw), dtnew
       
       integer :: idims
@@ -256,8 +260,10 @@ subroutine setdt()
         {^IFONED tco_mype=max(tco_mype,tco_local) }
         Tmax_mype=max(Tmax_mype,Tmax_local)
       end if
+      print*, " DXINV ", dxinv
       do idims=1,ndim
         call phys_get_cmax(w,x,ixI^L,ixO^L,idims,cmax)
+        print*, " CMAX ", maxval(cmax(ixO^S))
         if(need_global_cmax) cmax_mype = max(cmax_mype,maxval(cmax(ixO^S)))
         if(need_global_a2max) a2max_mype = max(a2max_mype,a2max(idims))
         if(slab_uniform) then
@@ -270,6 +276,7 @@ subroutine setdt()
         end if
         courantmaxtot=courantmaxtot+courantmax
       end do
+      print*, " Courant maxtot ", courantmaxtot
       
       select case (typecourant)
       case ('minimum')
