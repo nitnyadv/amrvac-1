@@ -15,7 +15,7 @@ subroutine setdt()
   double precision :: a2max_mype(ndim), tco_mype, tco_global, Tmax_mype, T_bott, T_peak
   double precision :: trac_alfa, trac_dmax, trac_tau
 
-  integer, parameter :: niter_print = 200
+  integer, parameter :: niter_print = 2000
 
   if (dtpar<=zero) then
      dtmin_mype=bigdouble
@@ -158,7 +158,7 @@ subroutine setdt()
         !a quick way to print the reduction of time only every niter_print iterations
         !Note that niter_print is a parameter variable hardcoded to the value of 200
         if(mype==0 .and. mod(it, niter_print) .eq. 1) then
-          write(*,*) 'Max number of STS cycles exceeded, reducing dt to',dt
+          write(*,*) 'Max number of STS cycles exceeded, reducing dt to ',dt
         endif
       endif  
     else
@@ -166,7 +166,7 @@ subroutine setdt()
       if(set_dt_sts_ncycles(dt))then 
        !  if(mype .eq. 0) print*, "dt is now", dt
        if(mype==0 .and. mod(it, niter_print) .eq. 1) then
-         write(*,*) 'Max number of STS cycles exceeded, reducing dt to',dt
+         write(*,*) 'Max number of STS cycles exceeded, reducing dt to ',dt
        endif
       endif
     endif
