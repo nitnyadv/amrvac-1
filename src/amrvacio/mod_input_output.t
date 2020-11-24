@@ -173,7 +173,7 @@ contains
          small_temperature,small_pressure,small_density, &
          small_values_method, small_values_daverage, fix_small_values, check_small_values, &
          trace_small_values, angmomfix, small_values_fix_iw, &
-         schmid_rad^D, trac
+         schmid_rad^D
 
     namelist /boundlist/ nghostcells,typeboundary,typeghostfill,prolongation_method,&
          internalboundary, typeboundary_^L, save_physical_boundary
@@ -1097,6 +1097,10 @@ contains
       nghostcells=3
     end if
 
+    if(any(limiter(1:nlevelshi)=='teno5ad')) then
+      nghostcells=3
+    end if
+
     if(any(limiter(1:nlevelshi)=='weno5cu6')) then
       nghostcells=3
     end if
@@ -1286,10 +1290,10 @@ contains
     end if
 
     ! TRAC is only for temperature (energy)
-    if(.not.phys_energy .and. trac) then
-      if (mype==0) write(unitterm, '(A)') "Warning, TRAC is not for energy-independent problems, change trac to false."
-      trac=.false.
-    end if
+!    if(.not.phys_energy .and. phys_trac) then
+!      if (mype==0) write(unitterm, '(A)') "Warning, TRAC is not for energy-independent problems, change trac to false."
+!      phys_trac=.false.
+!    end if
 
     if (mype==0) write(unitterm, '(A30)', advance='no') 'Refine estimation: '
 
