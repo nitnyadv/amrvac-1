@@ -8,7 +8,7 @@ subroutine setdt()
   use mod_usr_methods, only: usr_get_dt
   use mod_thermal_conduction
   use mod_supertimestepping, only: set_dt_sts_ncycles, is_sts_initialized, sourcetype_sts,sourcetype_sts_split
-
+  use mod_timing
   integer :: iigrid, igrid, ncycle, ncycle2, ifile, idim
   double precision :: dtnew, qdtnew, dtmin_mype, factor, dx^D, dxmin^D
 
@@ -24,6 +24,7 @@ subroutine setdt()
      a2max_mype = zero
      tco_mype = zero
      Tmax_mype = zero
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,dtnew,dx^D)
      do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
         dtnew=bigdouble
@@ -52,6 +53,7 @@ subroutine setdt()
         dt_grid(igrid) = dtnew
      end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
   else
      dtmin_mype=dtpar
   end if
@@ -109,6 +111,7 @@ subroutine setdt()
   ! estimate time step of thermal conduction
   if(associated(phys_getdt_heatconduct)) then
      dtmin_mype=bigdouble
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,&
   !$OMP& dx^D) REDUCTION(min:dtmin_mype)
      do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
@@ -120,6 +123,7 @@ subroutine setdt()
         dtmin_mype=min(dtmin_mype,qdtnew)
      end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
      call MPI_ALLREDUCE(dtmin_mype,dtnew,1,MPI_DOUBLE_PRECISION,MPI_MIN, &
                            icomm,ierrmpi)
      if(all(flux_scheme=='nul')) dt=min(dt,dtnew)
@@ -168,11 +172,13 @@ subroutine setdt()
     endif
   endif
 
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid)
   do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
      dt_grid(igrid)=dt
   end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
        
   ! global Lax-Friedrich finite difference flux splitting needs fastest wave-speed
   ! so does GLM: 
@@ -199,6 +205,7 @@ subroutine setdt()
       trac_alfa=trac_dmax**(dtnew/trac_tau)
       call MPI_ALLREDUCE(tco_mype,tco_global,1,MPI_DOUBLE_PRECISION,&
            MPI_MAX,icomm,ierrmpi)
+       time_omp0 = MPI_WTIME() 
       !$OMP PARALLEL DO PRIVATE(igrid)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
         ps(igrid)%special_values(1)=tco_global
@@ -214,6 +221,7 @@ subroutine setdt()
         ps(igrid)%special_values(2)=ps(igrid)%special_values(1)
       end do
       !$OMP END PARALLEL DO
+      time_omp= MPI_WTIME() - time_omp0  + time_omp
       }
       !> 2D or 3D simplified TRAC method
       call TRAC_simple(T_peak)

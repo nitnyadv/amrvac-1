@@ -343,6 +343,7 @@ contains
     timeio_tot=timeio_tot+(MPI_WTIME()-timeio0)
 
     if (mype==0) then
+       write(*,'(a,f12.3,a)')' Total time spent on OMP     : ',time_omp,' sec'
        write(*,'(a,f12.3,a)')' Total time spent on IO     : ',timeio_tot,' sec'
        write(*,'(a,f12.3,a)')' Total timeintegration took : ',MPI_WTIME()-time_in,' sec'
        write(*, '(A4,I10,ES12.3,ES12.3,ES12.3)') " #", &

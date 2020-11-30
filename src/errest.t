@@ -15,25 +15,31 @@ subroutine errest
   case (1) 
      ! simply compare w_n-1 with w_n and trigger refinement on relative
      ! differences
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid)
      do iigrid=1,igridstail; igrid=igrids(iigrid);
         call compare1_grid(igrid,pso(igrid)%w,ps(igrid)%w)
      end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
   case (2)
      ! Error estimation is based on Lohner's original scheme
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid)
      do iigrid=1,igridstail; igrid=igrids(iigrid);
         call lohner_orig_grid(igrid)
      end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
   case (3)
      ! Error estimation is based on Lohner's scheme
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid)
      do iigrid=1,igridstail; igrid=igrids(iigrid);
         call lohner_grid(igrid)
      end do
   !$OMP END PARALLEL DO
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
   case default
      call mpistop("Unknown error estimator")
   end select
@@ -45,12 +51,13 @@ subroutine errest
                         icomm,ierrmpi)
      refine=refine2
   end if
+  time_omp0 = MPI_WTIME() 
   !$OMP PARALLEL DO PRIVATE(igrid)
   do iigrid=1,igridstail; igrid=igrids(iigrid);
      call forcedrefine_grid(igrid,ps(igrid)%w)
   end do
   !$OMP END PARALLEL DO
-
+  time_omp= MPI_WTIME() - time_omp0  + time_omp
   if (nbufferx^D/=0|.or.) &
   buffer=.false.
 

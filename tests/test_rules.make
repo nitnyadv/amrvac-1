@@ -4,7 +4,7 @@ $(error AMRVAC_DIR is not set)
 endif
 
 # Can be needed to compile the compare_log utility
-ARCH ?= default
+ARCH ?= defaultOpenmp
 export ARCH
 
 # Location of setup script
@@ -33,7 +33,9 @@ include $(AMRVAC_DIR)/arch/rules.make
 
 %.log: $(LOG_CMP) amrvac force
 	@$(RM) $@		# Remove log to prevent pass when aborted
-	@mpirun -np $(NUM_PROCS) ./amrvac -i $(filter %.par,$^) > run.log
+# for Intel same machine
+# @mpirun -genv I_MPI_FABRICS shm  -np $(NUM_PROCS) ./amrvac -i $(filter %.par,$^) > run.log
+	@mpirun   -np $(NUM_PROCS) ./amrvac -i $(filter %.par,$^) > run.log
 	@if $(LOG_CMP) 1.0e-5 1.0e-8 $@ correct_output/$@ ; \
 	then echo "PASSED $@" ; \
 	else echo "** FAILED ** $@" ; \

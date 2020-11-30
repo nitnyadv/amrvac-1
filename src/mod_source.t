@@ -15,7 +15,7 @@ contains
     use mod_physics, only: phys_req_diagonal, phys_global_source_before, phys_global_source_after
     use mod_supertimestepping, only: is_sts_initialized, sts_add_source,sourcetype_sts,&
                                       sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split   
-
+    use mod_timing
     logical, intent(in) :: prior
 
     double precision :: qdt, qt
@@ -54,6 +54,7 @@ contains
        qt=global_time+dt
     end if
 
+    time_omp0 = MPI_WTIME() 
     !$OMP PARALLEL DO PRIVATE(igrid,qdt,i^D)
     do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
        qdt=dt_grid(igrid)
@@ -61,6 +62,7 @@ contains
        call addsource1_grid(igrid,qdt,qt,ps(igrid)%w,src_active)
     end do
     !$OMP END PARALLEL DO
+    time_omp= MPI_WTIME() - time_omp0  + time_omp
 
     if (.not. prior .and. associated(phys_global_source_after)) then
        call phys_global_source_after(dt, qt, src_active)

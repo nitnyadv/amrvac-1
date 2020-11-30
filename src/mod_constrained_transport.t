@@ -18,11 +18,12 @@ contains
     use mod_fix_conserve
     use mod_physics
     use mod_ghostcells_update
-
+    use mod_timing
     integer :: igrid,iigrid
 
     call init_comm_fix_conserve(1,ndim,^ND)
 
+    time_omp0 = MPI_WTIME() 
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
        ! Make zero the magnetic fluxes
@@ -32,6 +33,7 @@ contains
 
     end do
     !$OMP END PARALLEL DO
+    time_omp= MPI_WTIME() - time_omp0  + time_omp
 
     ! Do correction
     call recvflux(1,ndim)
@@ -41,6 +43,7 @@ contains
     call fix_edges(ps,1,^ND)
 
     ! Now we fill the centers for the staggered variables
+    time_omp0 = MPI_WTIME() 
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
        call phys_to_primitive(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x)
@@ -49,6 +52,7 @@ contains
        call phys_to_conserved(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x)
     end do
     !$OMP END PARALLEL DO
+    time_omp= MPI_WTIME() - time_omp0  + time_omp
 
     call getbc(global_time,0.d0,ps,iwstart,nwgc)
 
