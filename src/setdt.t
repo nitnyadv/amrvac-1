@@ -223,8 +223,10 @@ subroutine setdt()
       !$OMP END PARALLEL DO
       time_omp= MPI_WTIME() - time_omp0  + time_omp
       }
+      {^NOONED
       !> 2D or 3D simplified TRAC method
       call TRAC_simple(T_peak)
+      }
     case(2)
       !> 2D or 3D TRACL(ine) method
       call TRACL(.false.,T_peak)
