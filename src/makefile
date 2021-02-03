@@ -147,7 +147,6 @@ mod_initialize.o: mod_physics.mod
 mod_initialize.o: mod_trac.mod
 mod_input_output.o: mod_collapse.mod
 mod_input_output.o: mod_geometry.mod
-mod_input_output.o: mod_kracken.mod
 mod_input_output.o: mod_limiter.mod
 mod_input_output.o: mod_particles.mod
 mod_input_output.o: mod_physics.mod
