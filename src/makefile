@@ -292,9 +292,5 @@ refine.o: mod_physics.mod
 set_B0.o: mod_geometry.mod
 setdt.o: mod_physics.mod
 setdt.o: mod_supertimestepping.mod
-<<<<<<< HEAD
-setdt.o: mod_thermal_conduction.mod
 setdt.o: mod_timing.mod
-=======
->>>>>>> c179802722128c7fc6901a3dba1e22a871b0d075
 setdt.o: mod_trac.mod
