@@ -75,7 +75,6 @@ mod_advance.o: mod_ghostcells_update.mod
 mod_advance.o: mod_particles.mod
 mod_advance.o: mod_physics.mod
 mod_advance.o: mod_source.mod
-mod_advance.o: mod_timing.mod
 mod_advance.o: mod_tvd.mod
 mod_amr_fct.o: mod_physics.mod
 mod_amrvac.o: mod_geometry.mod
@@ -96,7 +95,6 @@ mod_constrained_transport.o: mod_fix_conserve.mod
 mod_constrained_transport.o: mod_ghostcells_update.mod
 mod_constrained_transport.o: mod_limiter.mod
 mod_constrained_transport.o: mod_physics.mod
-mod_constrained_transport.o: mod_timing.mod
 mod_dust.o: mod_geometry.mod
 mod_dust.o: mod_physics.mod
 mod_finite_difference.o: mod_finite_volume.mod
@@ -233,7 +231,6 @@ mod_particles.o: mod_timing.mod
 mod_physics.o: mod_physics_hllc.mod
 mod_physics.o: mod_physics_ppm.mod
 mod_physics.o: mod_physics_roe.mod
-mod_physics.o: mod_timing.mod
 mod_point_searching.o: mod_particle_base.mod
 mod_point_searching.o: mod_physics.mod
 mod_ppm.o: mod_physics.mod
@@ -263,7 +260,6 @@ mod_solar_atmosphere.o: mod_interpolation.mod
 mod_source.o: mod_ghostcells_update.mod
 mod_source.o: mod_physics.mod
 mod_source.o: mod_supertimestepping.mod
-mod_source.o: mod_timing.mod
 mod_supertimestepping.o: mod_fix_conserve.mod
 mod_supertimestepping.o: mod_geometry.mod
 mod_supertimestepping.o: mod_ghostcells_update.mod
@@ -292,5 +288,4 @@ refine.o: mod_physics.mod
 set_B0.o: mod_geometry.mod
 setdt.o: mod_physics.mod
 setdt.o: mod_supertimestepping.mod
-setdt.o: mod_timing.mod
 setdt.o: mod_trac.mod

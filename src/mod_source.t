@@ -22,7 +22,7 @@ contains
     use mod_physics, only: phys_req_diagonal, phys_global_source_before, phys_global_source_after
     use mod_supertimestepping, only: is_sts_initialized, sts_add_source,sourcetype_sts,&
                                       sourcetype_sts_prior, sourcetype_sts_after, sourcetype_sts_split   
-    use mod_timing
+
     logical, intent(in) :: prior
 
     double precision :: w1(ixG^T,nw)
@@ -64,7 +64,6 @@ contains
     select case (sourcesplit)
     case (sourcesplit_sfs)
       qdtt=0.5d0*qdt 
-      time_omp0 = MPI_WTIME() 
       !$OMP PARALLEL DO PRIVATE(igrid,qdt,i^D,w1)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
          qdt=dt_grid(igrid)
@@ -77,9 +76,7 @@ contains
               ps(igrid)%x,.true.,src_active)
       end do
       !$OMP END PARALLEL DO
-      time_omp= MPI_WTIME() - time_omp0  + time_omp
     case (sourcesplit_sf)
-      time_omp0 = MPI_WTIME() 
       !$OMP PARALLEL DO PRIVATE(igrid,qdt,i^D,w1)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
          qdt=dt_grid(igrid)
@@ -92,10 +89,8 @@ contains
               ps(igrid)%x,.true.,src_active)
       end do
       !$OMP END PARALLEL DO
-      time_omp= MPI_WTIME() - time_omp0  + time_omp
     case (sourcesplit_ssf)
       qdtt=0.5d0*qdt 
-      time_omp0 = MPI_WTIME() 
       !$OMP PARALLEL DO PRIVATE(igrid,qdt,i^D,w1)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
          qdt=dt_grid(igrid)
@@ -110,10 +105,8 @@ contains
               ps(igrid)%x,.true.,src_active)
       end do
       !$OMP END PARALLEL DO
-      time_omp= MPI_WTIME() - time_omp0  + time_omp
     case (sourcesplit_ssfss)
       qdtt=0.5d0*qdt 
-      time_omp0 = MPI_WTIME() 
       !$OMP PARALLEL DO PRIVATE(igrid,qdt,i^D,w1)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
          qdt=dt_grid(igrid)
@@ -128,7 +121,6 @@ contains
               ps(igrid)%x,.true.,src_active)
       end do
       !$OMP END PARALLEL DO
-      time_omp= MPI_WTIME() - time_omp0  + time_omp
     case default
        write(unitterm,*)'No such type of sourcesplit=',sourcesplit
        call mpistop("Error: Unknown type of sourcesplit!")

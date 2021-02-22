@@ -514,26 +514,22 @@ contains
   
   subroutine dummy_evaluate_implicit(qtC,psa)
     use mod_global_parameters
-    use mod_timing
     type(state), target :: psa(max_blocks)   
     double precision, intent(in) :: qtC      
     integer :: iigrid, igrid
 
     ! Just copy in nul state
-    time_omp0 = MPI_WTIME() 
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
        psa(igrid)%w = 0.0d0*psa(igrid)%w
        if(stagger_grid) psa(igrid)%ws = 0.0d0*psa(igrid)%ws
     end do
     !$OMP END PARALLEL DO
-    time_omp= MPI_WTIME() - time_omp0  + time_omp
 
   end subroutine dummy_evaluate_implicit
 
   subroutine dummy_implicit_update(dtfactor,qdt,qtC,psa,psb)
     use mod_global_parameters
-    use mod_timing
     type(state), target :: psa(max_blocks)   
     type(state), target :: psb(max_blocks)   
     double precision, intent(in) :: qdt      
@@ -542,14 +538,12 @@ contains
     integer :: iigrid, igrid
 
     ! Just copy in psb state when using the scheme without implicit part
-    time_omp0 = MPI_WTIME() 
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
        psa(igrid)%w = psb(igrid)%w
        if(stagger_grid) psa(igrid)%ws = psb(igrid)%ws
     end do
     !$OMP END PARALLEL DO
-    time_omp= MPI_WTIME() - time_omp0  + time_omp
 
   end subroutine dummy_implicit_update
 
