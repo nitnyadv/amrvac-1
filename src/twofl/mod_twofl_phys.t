@@ -4160,8 +4160,8 @@ contains
 
 
 
-    !> Implicit solve of psa=psb+dtfactor*dt*F_im(psa)
-  subroutine twofl_implicit_update(dtfactor,qdt,qtC,psa,psb)
+    !> Implicit solve of psb=psa+dtfactor*dt*F_im(psb)
+  subroutine twofl_implicit_update(dtfactor,qdt,qtC,psb,psa)
     use mod_global_parameters
     use mod_forest
     use mod_multigrid_coupling
@@ -4176,8 +4176,13 @@ contains
     integer :: idir
     integer :: iigrid, igrid
 
+
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
+
+      !!first copy psa into psb
+      psb(igrid)%w(ixG^T,:) = psa(igrid)%w(ixG^T,:)
+
       do idir=1,ndir
         tmp(ixG^T) = psa(igrid)%w(ixG^T,mom_n(idir)) + psa(igrid)%w(ixG^T,mom_c(idir))
 
