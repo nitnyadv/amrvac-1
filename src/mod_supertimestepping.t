@@ -48,15 +48,13 @@ module mod_supertimestepping
   abstract interface
 
     !>interface for setting sources in the derived type
-    subroutine subr1(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    subroutine subr1(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
       use mod_global_parameters
-      integer, intent(in) :: ixI^L, ixO^L,igrid
+      integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
       double precision, intent(in) ::  x(ixI^S,1:ndim)
       double precision, intent(inout) :: wres(ixI^S,1:nw), w(ixI^S,1:nw)
       double precision, intent(in) :: my_dt
       logical, intent(in) :: fix_conserve_at_step
-      integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
-      logical, intent(in), dimension(:) :: indexChangeFixC
     end subroutine subr1
 
     !>interface for the function which gets the timestep in dtnew in the derived type
@@ -115,17 +113,22 @@ module mod_supertimestepping
     logical :: types_initialized
 
     !>types used for send/recv ghosts, see mod_ghostcells_update
-    integer, dimension(-1:2^D&,-1:1^D&) :: type_send_srl_sts, type_recv_srl_sts
-    integer, dimension(-1:1^D&,-1:1^D&) :: type_send_r_sts
-    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_r_sts
-    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_p_sts, type_send_p_sts
+    integer, dimension(-1:2^D&,-1:1^D&) :: type_send_srl_sts_1, type_recv_srl_sts_1
+    integer, dimension(-1:1^D&,-1:1^D&) :: type_send_r_sts_1
+    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_r_sts_1
+    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_p_sts_1, type_send_p_sts_1
+
+    integer, dimension(-1:2^D&,-1:1^D&) :: type_send_srl_sts_2, type_recv_srl_sts_2
+    integer, dimension(-1:1^D&,-1:1^D&) :: type_send_r_sts_2
+    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_r_sts_2
+    integer, dimension(-1:1^D&, 0:3^D&) :: type_recv_p_sts_2, type_send_p_sts_2
 
     integer :: startVar
     integer :: endVar
-
-    integer, dimension(:), allocatable ::ixChangeStart
-    integer, dimension(:), allocatable ::ixChangeN
-    logical, dimension(:), allocatable ::ixChangeFixC
+    !> number of flux involved in STS update
+    integer :: nflux
+    integer :: startwbc
+    integer :: nwbc
 
   end type sts_term
 
@@ -188,34 +191,24 @@ contains
   !> Params: 
   !> sts_getdt function calculates the explicit timestep for this term
   !> sts_set_sources subroutine sets the source term
-  !> startVar, endVar indices of the start and end of the variables that need ghostcells exchange
-  !> ixChangeStart, ixChangeN arrays specify the variables that are updated
-  !> with the STS scheme: the first array contains the start indices and the second the length
-  !> ixChangeFixC array specify if the variables defined by ixChangeStart, ixChangeN should be fix_conserved
-  !>   (the fluxes shoud be stored with store_flux_var  by the subroutine sts_set_sources)
-  !> ixChangeStart, ixChangeN, and ixChangeFixC should have equal length
+  !> startVar, endVar, nflux indices of start, end, and number of the variables that need fix conservation
+  !> startwbc, nwbc indices of start and number of the variables that need ghost cell exchange
   !> These terms implemented by an element of the derived type sts_term are put in a linked list
-  subroutine add_sts_method(sts_getdt, sts_set_sources, &
-                             startVar, endVar, ixChangeStart, ixChangeN, ixChangeFixC)
+  subroutine add_sts_method(sts_getdt, sts_set_sources, startVar, nflux, startwbc, nwbc)
     use mod_global_parameters
     use mod_ghostcells_update
 
-    integer, intent(in) :: startVar, endVar 
-    integer, intent(in) :: ixChangeStart(:) 
-    integer, intent(in) :: ixChangeN(:) 
-    logical, intent(in) :: ixChangeFixC(:) 
+    integer, intent(in) :: startVar, nflux, startwbc, nwbc
 
     interface
 
-      subroutine sts_set_sources(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,indexChangeStart,indexChangeN,indexChangeFixC)
+      subroutine sts_set_sources(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
         use mod_global_parameters
-        integer, intent(in) :: ixI^L, ixO^L, igrid
+        integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
         double precision, intent(in) ::  x(ixI^S,1:ndim)
         double precision, intent(inout) :: wres(ixI^S,1:nw), w(ixI^S,1:nw)
         double precision, intent(in) :: my_dt
         logical, intent(in) :: fix_conserve_at_step
-        integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
-        logical, intent(in), dimension(:) :: indexChangeFixC
       end subroutine sts_set_sources
   
       function sts_getdt(w,ixG^L,ix^L,dx^D,x) result(dtnew)
@@ -237,18 +230,11 @@ contains
     temp%sts_after_last_cycle => null()
     temp%sts_handle_errors => null()
     temp%startVar = startVar
-    temp%endVar = endVar
+    temp%endVar= startVar+nflux-1
+    temp%nflux = nflux
+    temp%startwbc = startwbc
+    temp%nwbc = nwbc
     temp%types_initialized = .false.
-    if(size(ixChangeStart) .ne. size(ixChangeN) .or. size(ixChangeStart) .ne. size(ixChangeFixC) ) then
-      if(mype==0) print*, "sizes are not equal ",size(ixChangeStart),size(ixChangeN),size(ixChangeFixC)
-      return
-    end if
-    allocate(temp%ixChangeStart(size(ixChangeStart)))
-    allocate(temp%ixChangeN(size(ixChangeStart)))
-    allocate(temp%ixChangeFixC(size(ixChangeStart)))
-    temp%ixChangeStart = ixChangeStart
-    temp%ixChangeN = ixChangeN
-    temp%ixChangeFixC = ixChangeFixC
 
     temp%next => head_sts_terms
     head_sts_terms => temp
@@ -461,7 +447,7 @@ contains
     double precision, allocatable :: bj(:)
     double precision :: sumbj,dtj  
 
-    integer:: iigrid, igrid,j,i,ii,ii2
+    integer:: iigrid, igrid, j
     logical :: stagger_flag, prolong_flag, coarsen_flag
     type(sts_term), pointer  :: temp
 
@@ -474,20 +460,16 @@ contains
     coarsenprimitive=.false.
     bcphys=.false.
 
-    !The last parameter in init_comm_fix_conserve is set to 1 as the fluxes are
-    ! stored and retrieved one by one
-    call init_comm_fix_conserve(1,ndim,1)
-
     fix_conserve_at_step = time_advance .and. levmax>levmin
 
     temp => head_sts_terms
     do while(associated(temp))
 
+      call init_comm_fix_conserve(1,ndim,temp%nflux)
+
       if(associated(temp%sts_before_first_cycle)) then
         do iigrid=1,igridstail; igrid=igrids(iigrid);
           call temp%sts_before_first_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)  
-          if(any(ps(igrid)%is_physical_boundary)) &
-              call temp%sts_before_first_cycle(ixCoG^L,ixCoG^L,psc(igrid)%w,psc(igrid)%x)
         end do 
       end if
 
@@ -496,19 +478,35 @@ contains
         bj(j) = chev(j,nu_sts,sts_ncycles)
       end do
 
-      type_send_srl=>temp%type_send_srl_sts
-      type_recv_srl=>temp%type_recv_srl_sts
-      type_send_r=>temp%type_send_r_sts
-      type_recv_r=>temp%type_recv_r_sts
-      type_send_p=>temp%type_send_p_sts
-      type_recv_p=>temp%type_recv_p_sts
-        
-      if(.not. temp%types_initialized) then 
-        call create_bc_mpi_datatype(temp%startVar,temp%endVar-temp%startVar+1)
-        temp%types_initialized = .true.
-      end if 
+      type_send_srl=>temp%type_send_srl_sts_1
+      type_recv_srl=>temp%type_recv_srl_sts_1
+      type_send_r=>temp%type_send_r_sts_1
+      type_recv_r=>temp%type_recv_r_sts_1
+      type_send_p=>temp%type_send_p_sts_1
+      type_recv_p=>temp%type_recv_p_sts_1
 
-      sumbj=0d0
+      if(.not. temp%types_initialized) then 
+        call create_bc_mpi_datatype(temp%startwbc,temp%nwbc)
+        if(temp%nflux>temp%nwbc) then
+          ! prepare types for the changed no-need-ghost-update variables in the last getbc
+          type_send_srl=>temp%type_send_srl_sts_2
+          type_recv_srl=>temp%type_recv_srl_sts_2
+          type_send_r=>temp%type_send_r_sts_2
+          type_recv_r=>temp%type_recv_r_sts_2
+          type_send_p=>temp%type_send_p_sts_2
+          type_recv_p=>temp%type_recv_p_sts_2
+          call create_bc_mpi_datatype(temp%startVar,temp%nflux)
+          type_send_srl=>temp%type_send_srl_sts_1
+          type_recv_srl=>temp%type_recv_srl_sts_1
+          type_send_r=>temp%type_send_r_sts_1
+          type_recv_r=>temp%type_recv_r_sts_1
+          type_send_p=>temp%type_send_p_sts_1
+          type_recv_p=>temp%type_recv_p_sts_1
+        end if
+        temp%types_initialized = .true.
+      end if
+        
+      sumbj=0.d0
       do j=1,temp%s
         if(j .eq. temp%s .and. (sumbj + bj(j)) * temp%dt_expl > my_dt) then
           dtj = my_dt - sumbj * temp%dt_expl
@@ -522,17 +520,17 @@ contains
           block=>ps(igrid)
           typelimiter=type_limiter(node(plevel_,igrid))
           typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
-          call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps1(igrid)%w,fix_conserve_at_step, &
-                                  dtj,igrid,temp%ixChangeStart,temp%ixChangeN,temp%ixChangeFixC)
-          do i = 1,size(temp%ixChangeStart)
-            ii=temp%ixChangeStart(i)
-            ii2 = ii + temp%ixChangeN(i) -1
-            ps(igrid)%w(ixM^T,ii:ii2)=ps(igrid)%w(ixM^T,ii:ii2)+dtj*ps1(igrid)%w(ixM^T,ii:ii2)
-          end do
+          call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps1(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
+          ps(igrid)%w(ixM^T,temp%startVar:temp%endVar)=ps(igrid)%w(ixM^T,temp%startVar:temp%endVar)+&
+            dtj*ps1(igrid)%w(ixM^T,temp%startVar:temp%endVar)
         end do
         !$OMP END PARALLEL DO
-        !fix conserve the fluxes set in the STS method by store_flux_var call
-        if(fix_conserve_at_step) call fix_conserve_vars(ps, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
+        !fix conserve the fluxes set in the STS method
+        if(fix_conserve_at_step) then
+          call recvflux(1,ndim)
+          call sendflux(1,ndim)
+          call fix_conserve(ps,1,ndim,temp%startVar,temp%nflux)
+        end if
         if(associated(temp%sts_handle_errors)) then
           !$OMP PARALLEL DO PRIVATE(igrid)
           do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
@@ -541,14 +539,23 @@ contains
           !$OMP END PARALLEL DO
         end if
 
-        call getbc(global_time,0.d0,ps,temp%startVar,temp%endVar-temp%startVar+1)
+        if(temp%nflux>temp%nwbc.and.temp%s==j) then
+          ! include the changed no-need-ghost-update variables in the last getbc
+          type_send_srl=>temp%type_send_srl_sts_2
+          type_recv_srl=>temp%type_recv_srl_sts_2
+          type_send_r=>temp%type_send_r_sts_2
+          type_recv_r=>temp%type_recv_r_sts_2
+          type_send_p=>temp%type_send_p_sts_2
+          type_recv_p=>temp%type_recv_p_sts_2
+          call getbc(global_time,0.d0,ps,temp%startVar,temp%nflux)
+        else
+          call getbc(global_time,0.d0,ps,temp%startwbc,temp%nwbc)
+        end if
       end do
 
       if(associated(temp%sts_after_last_cycle)) then 
         do iigrid=1,igridstail; igrid=igrids(iigrid);
           call temp%sts_after_last_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)
-          if(any(ps(igrid)%is_physical_boundary)) &
-            call temp%sts_after_last_cycle(ixCoG^L,ixCoG^L,psc(igrid)%w,psc(igrid)%x)
         end do 
       end if
       deallocate(bj)
@@ -586,7 +593,7 @@ contains
     double precision :: dtj
     double precision :: omega1,cmu,cmut,cnu,cnut,one_mu_nu
     double precision, allocatable :: bj(:)
-    integer:: iigrid, igrid,j,i,ii,ii2
+    integer:: iigrid, igrid, j
     logical :: evenstep, stagger_flag, prolong_flag, coarsen_flag, total_energy_flag
     type(sts_term), pointer  :: temp
     type(state), dimension(:), pointer :: tmpPs1, tmpPs2
@@ -601,14 +608,12 @@ contains
     coarsenprimitive = .false.
     bcphys=.false.
 
-    !The last parameter in init_comm_fix_conserve is set to 1 as the fluxes are
-    ! stored and retrieved one by one
-    call init_comm_fix_conserve(1,ndim,1)
-
     fix_conserve_at_step = time_advance .and. levmax>levmin
 
     temp => head_sts_terms
     do while(associated(temp))
+
+      call init_comm_fix_conserve(1,ndim,temp%nflux)
 
       if(associated(temp%sts_before_first_cycle)) then
         total_energy_flag=phys_total_energy
@@ -648,15 +653,31 @@ contains
         cmut=1.d0
       end if
 
-      type_send_srl=>temp%type_send_srl_sts
-      type_recv_srl=>temp%type_recv_srl_sts
-      type_send_r=>temp%type_send_r_sts
-      type_recv_r=>temp%type_recv_r_sts
-      type_send_p=>temp%type_send_p_sts
-      type_recv_p=>temp%type_recv_p_sts
+      type_send_srl=>temp%type_send_srl_sts_1
+      type_recv_srl=>temp%type_recv_srl_sts_1
+      type_send_r=>temp%type_send_r_sts_1
+      type_recv_r=>temp%type_recv_r_sts_1
+      type_send_p=>temp%type_send_p_sts_1
+      type_recv_p=>temp%type_recv_p_sts_1
 
       if(.not. temp%types_initialized) then 
-        call create_bc_mpi_datatype(temp%startVar,temp%endVar-temp%startVar+1)
+        call create_bc_mpi_datatype(temp%startwbc,temp%nwbc)
+        if(temp%nflux>temp%nwbc) then
+          ! prepare types for the changed no-need-ghost-update variables in the last getbc
+          type_send_srl=>temp%type_send_srl_sts_2
+          type_recv_srl=>temp%type_recv_srl_sts_2
+          type_send_r=>temp%type_send_r_sts_2
+          type_recv_r=>temp%type_recv_r_sts_2
+          type_send_p=>temp%type_send_p_sts_2
+          type_recv_p=>temp%type_recv_p_sts_2
+          call create_bc_mpi_datatype(temp%startVar,temp%nflux)
+          type_send_srl=>temp%type_send_srl_sts_1
+          type_recv_srl=>temp%type_recv_srl_sts_1
+          type_send_r=>temp%type_send_r_sts_1
+          type_recv_r=>temp%type_recv_r_sts_1
+          type_send_p=>temp%type_send_p_sts_1
+          type_recv_p=>temp%type_recv_p_sts_1
+        end if
         temp%types_initialized = .true.
       end if
       dtj = cmut*my_dt
@@ -667,20 +688,20 @@ contains
         typelimiter=type_limiter(node(plevel_,igrid))
         typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
 
-        call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj, &
-                                    igrid,temp%ixChangeStart,temp%ixChangeN,temp%ixChangeFixC)
+        call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
         !!!eq solved: dU/dt = S
         !!!In ps3 is stored S^n
-        do i = 1,size(temp%ixChangeStart)
-          ii=temp%ixChangeStart(i)
-          ii2 = ii + temp%ixChangeN(i) -1
-          ps3(igrid)%w(ixM^T,ii:ii2) = my_dt * ps4(igrid)%w(ixM^T,ii:ii2)
-          ps1(igrid)%w(ixM^T,ii:ii2) = ps1(igrid)%w(ixM^T,ii:ii2) + cmut * ps3(igrid)%w(ixM^T,ii:ii2)
-        end do
+        ps3(igrid)%w(ixM^T,temp%startVar:temp%endVar) = my_dt * ps4(igrid)%w(ixM^T,temp%startVar:temp%endVar)
+        ps1(igrid)%w(ixM^T,temp%startVar:temp%endVar) = ps1(igrid)%w(ixM^T,temp%startVar:temp%endVar) + &
+          cmut * ps3(igrid)%w(ixM^T,temp%startVar:temp%endVar)
 
       end do
       !$OMP END PARALLEL DO
-      if(fix_conserve_at_step) call fix_conserve_vars(ps1, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
+      if(fix_conserve_at_step) then
+        call recvflux(1,ndim)
+        call sendflux(1,ndim)
+        call fix_conserve(ps1,1,ndim,temp%startVar,temp%nflux)
+      end if
       ! fix conservation of AMR grid by replacing flux from finer neighbors
       if(associated(temp%sts_handle_errors)) then
         !$OMP PARALLEL DO PRIVATE(igrid)
@@ -689,7 +710,18 @@ contains
         end do
         !$OMP END PARALLEL DO
       end if
-      call getbc(global_time,0.d0,ps1,temp%startVar,temp%endVar-temp%startVar+1)
+      if(temp%nflux>temp%nwbc.and.temp%s==1) then
+        ! include the changed no-need-ghost-update variables in the last getbc
+        type_send_srl=>temp%type_send_srl_sts_2
+        type_recv_srl=>temp%type_recv_srl_sts_2
+        type_send_r=>temp%type_send_r_sts_2
+        type_recv_r=>temp%type_recv_r_sts_2
+        type_send_p=>temp%type_send_p_sts_2
+        type_recv_p=>temp%type_recv_p_sts_2
+        call getbc(global_time,0.d0,ps1,temp%startVar,temp%nflux)
+      else
+        call getbc(global_time,0.d0,ps1,temp%startwbc,temp%nwbc)
+      end if
       !!first step end
 
       evenstep=.true.
@@ -721,17 +753,17 @@ contains
           typelimiter=type_limiter(node(plevel_,igrid))
           typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
           ! end maybe the following global variables are needed in set_sources
-          call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w, ps(igrid)%x,ps4(igrid)%w, fix_conserve_at_step,dtj, &
-                                  igrid, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
-          do i = 1,size(temp%ixChangeStart)
-            ii=temp%ixChangeStart(i)
-            ii2 = ii + temp%ixChangeN(i) - 1
-            tmpPs2(igrid)%w(ixM^T,ii:ii2)=cmu*tmpPs1(igrid)%w(ixM^T,ii:ii2)+cnu*tmpPs2(igrid)%w(ixM^T,ii:ii2)+one_mu_nu*ps(igrid)%w(ixM^T,ii:ii2)&
-                      +dtj*ps4(igrid)%w(ixM^T,ii:ii2)+cnut*ps3(igrid)%w(ixM^T,ii:ii2)
-          end do
+          call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
+          tmpPs2(igrid)%w(ixM^T,temp%startVar:temp%endVar)=cmu*tmpPs1(igrid)%w(ixM^T,temp%startVar:temp%endVar)+&
+            cnu*tmpPs2(igrid)%w(ixM^T,temp%startVar:temp%endVar)+one_mu_nu*ps(igrid)%w(ixM^T,temp%startVar:temp%endVar)+&
+            dtj*ps4(igrid)%w(ixM^T,temp%startVar:temp%endVar)+cnut*ps3(igrid)%w(ixM^T,temp%startVar:temp%endVar)
         end do
         !$OMP END PARALLEL DO
-        if(fix_conserve_at_step) call fix_conserve_vars(tmpPs2, temp%ixChangeStart, temp%ixChangeN, temp%ixChangeFixC)
+        if(fix_conserve_at_step) then
+          call recvflux(1,ndim)
+          call sendflux(1,ndim)
+          call fix_conserve(tmpPs2,1,ndim,temp%startVar,temp%nflux)
+        end if
         if(associated(temp%sts_handle_errors)) then
         !$OMP PARALLEL DO PRIVATE(igrid)
           do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
@@ -739,18 +771,25 @@ contains
           end do
         !$OMP END PARALLEL DO
         end if
-        call getbc(global_time,0.d0,tmpPs2,temp%startVar,temp%endVar-temp%startVar+1)
+        if(temp%nflux>temp%nwbc.and.temp%s==j) then
+          ! include the changed no-need-ghost-update variables in the last getbc
+          type_send_srl=>temp%type_send_srl_sts_2
+          type_recv_srl=>temp%type_recv_srl_sts_2
+          type_send_r=>temp%type_send_r_sts_2
+          type_recv_r=>temp%type_recv_r_sts_2
+          type_send_p=>temp%type_send_p_sts_2
+          type_recv_p=>temp%type_recv_p_sts_2
+          call getbc(global_time,0.d0,tmpPs2,temp%startVar,temp%nflux)
+        else
+          call getbc(global_time,0.d0,tmpPs2,temp%startwbc,temp%nwbc)
+        end if
         evenstep=.not.evenstep
       end do
 
       if(associated(temp%sts_after_last_cycle)) then
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail; igrid=igrids(iigrid);
-          do i = 1,size(temp%ixChangeStart)
-            ii=temp%ixChangeStart(i)
-            ii2 = ii + temp%ixChangeN(i) - 1
-            ps(igrid)%w(ixG^T,ii:ii2)=tmpPs2(igrid)%w(ixG^T,ii:ii2)
-          end do
+          ps(igrid)%w(ixG^T,temp%startVar:temp%endVar)=tmpPs2(igrid)%w(ixG^T,temp%startVar:temp%endVar)
           call temp%sts_after_last_cycle(ixG^LL,ixG^LL,ps(igrid)%w,ps(igrid)%x)
         end do
         !$OMP END PARALLEL DO
@@ -758,11 +797,7 @@ contains
       else
         !$OMP PARALLEL DO PRIVATE(igrid)
         do iigrid=1,igridstail; igrid=igrids(iigrid);
-          do i = 1,size(temp%ixChangeStart)
-            ii=temp%ixChangeStart(i)
-            ii2 = ii + temp%ixChangeN(i) - 1
-            ps(igrid)%w(ixG^T,ii:ii2)=tmpPs2(igrid)%w(ixG^T,ii:ii2)
-          end do
+          ps(igrid)%w(ixG^T,temp%startVar:temp%endVar)=tmpPs2(igrid)%w(ixG^T,temp%startVar:temp%endVar)
         end do
         !$OMP END PARALLEL DO
       endif

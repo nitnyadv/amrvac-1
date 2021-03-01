@@ -641,11 +641,8 @@ contains
       phys_req_diagonal = .true.
       if(mhd_ambipolar_sts) then
         call sts_init()
-        if(mhd_solve_eaux) then
-          call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_,eaux_/),(/ndir,1,1/),(/.true.,.true.,.false./))
-        else
-          call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),mag(ndir),(/mag(1),e_/),(/ndir,1/),(/.true.,.true./))
-        endif
+        call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mom(ndir)+1,&
+             mag(ndir)-mom(ndir),mag(1),ndir)
       else
         ! For flux ambipolar term, we need one more reconstructed layer since currents are computed
         ! in mhd_get_flux: assuming one additional ghost layer (two for FOURTHORDER) was
@@ -1682,15 +1679,14 @@ contains
     double precision, intent(in)    :: qdt
     double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
-    double precision  :: tmp(ixI^S)
-    double precision, allocatable, dimension(:^D&,:) :: jxbxb
+    double precision :: tmp(ixI^S)
+    double precision :: jxbxb(ixI^S,1:3)
 
-    allocate(jxbxb(ixI^S,1:3))
     call mhd_get_jxbxb(wCT,x,ixI^L,ixO^L,jxbxb)
     tmp(ixO^S) = sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / mhd_mag_en_all(wCT, ixI^L, ixO^L)
     call multiplyAmbiCoef(ixI^L,ixO^L,tmp,wCT,x)   
     w(ixO^S,ie)=w(ixO^S,ie)+qdt * tmp
-    deallocate(jxbxb)
+
   end subroutine add_source_ambipolar_internal_energy
 
   subroutine mhd_get_jxbxb(w,x,ixI^L,ixO^L,res)
@@ -1699,7 +1695,7 @@ contains
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(in)    :: w(ixI^S,nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
-    double precision, allocatable, intent(inout) :: res(:^D&,:)
+    double precision, intent(inout) :: res(:^D&,:)
 
     double precision  :: btot(ixI^S,1:3)
 
@@ -1707,7 +1703,7 @@ contains
     double precision :: current(ixI^S,7-2*ndir:3)
     double precision :: tmp(ixI^S),b2(ixI^S)
 
-
+    res=0.d0
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
     !!!here we know that current has nonzero values only for components in the range idirmin, 3
@@ -1734,26 +1730,23 @@ contains
   ! The sources are added directly (instead of fluxes as in the explicit) 
   !> at the corresponding indices
   !>  store_flux_var is explicitly called for each of the fluxes one by one
-  subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres, fix_conserve_at_step, my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC )
+  subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
     use mod_global_parameters
-    use mod_fix_conserve, only: store_flux_var
+    use mod_fix_conserve, only: store_flux
 
-    integer, intent(in) :: ixI^L, ixO^L,igrid
+    integer, intent(in) :: ixI^L, ixO^L,igrid,nflux
     double precision, intent(in) ::  x(ixI^S,1:ndim)
     double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
     double precision, intent(in) :: my_dt
     logical, intent(in) :: fix_conserve_at_step
-    integer, intent(in), dimension(:) :: indexChangeStart, indexChangeN
-    logical, intent(in), dimension(:) :: indexChangeFixC
 
-    double precision, allocatable, dimension(:^D&,:) :: tmp,ff
+    double precision, dimension(ixI^S,1:3) :: tmp,ff
+    double precision, allocatable, dimension(:^D&,:,:) :: fluxall
     double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
     integer :: i, ixA^L, ie_
 
     ixA^L=ixO^L^LADD1;
 
-    allocate(tmp(ixI^S,1:3))
-    allocate(ff(ixI^S,1:3))
     call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
     btot(ixA^S,1:3)=0.d0
     if(B0field) then
@@ -1785,10 +1778,12 @@ contains
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
     enddo
 
+    if(fix_conserve_at_step) allocate(fluxall(ixI^S,1:ndir+1,1:ndim))
+
     if(mhd_energy .and. .not.mhd_internal_e) then
       call cross_product(ixI^L,ixA^L,tmp,btot,ff)
       call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
-      if(fix_conserve_at_step) call store_flux_var(ff,e_,my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+      if(fix_conserve_at_step) fluxall(ixI^S,1,1:ndim)=ff(ixI^S,1:ndim)
       !- sign comes from the fact that the flux divergence is a source now
       wres(ixO^S,e_)=-tmp2(ixO^S)
     endif
@@ -1803,7 +1798,7 @@ contains
     ff(ixA^S,2) = tmp(ixA^S,3)
     ff(ixA^S,3) = -tmp(ixA^S,2)
     call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
-    if(fix_conserve_at_step) call store_flux_var(ff,mag(1),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    if(fix_conserve_at_step) fluxall(ixI^S,2,1:ndim)=ff(ixI^S,1:ndim)
     !flux divergence is a source now
     wres(ixO^S,mag(1))=-tmp2(ixO^S)
     !!!By
@@ -1811,18 +1806,24 @@ contains
     ff(ixA^S,2) = 0.d0
     ff(ixA^S,3) = tmp(ixA^S,1)
     call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
-    if(fix_conserve_at_step) call store_flux_var(ff,mag(2),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
+    if(fix_conserve_at_step) fluxall(ixI^S,3,1:ndim)=ff(ixI^S,1:ndim)
     wres(ixO^S,mag(2))=-tmp2(ixO^S)
 
-    !!!Bz
-    ff(ixA^S,1) = tmp(ixA^S,2)
-    ff(ixA^S,2) = -tmp(ixA^S,1)
-    ff(ixA^S,3) = 0.d0
-    call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
-    if(fix_conserve_at_step) call store_flux_var(ff,mag(3),my_dt, igrid,indexChangeStart, indexChangeN, indexChangeFixC)
-    wres(ixO^S,mag(3))=-tmp2(ixO^S)
+    if(ndir==3) then
+      !!!Bz
+      ff(ixA^S,1) = tmp(ixA^S,2)
+      ff(ixA^S,2) = -tmp(ixA^S,1)
+      ff(ixA^S,3) = 0.d0
+      call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+      if(fix_conserve_at_step) fluxall(ixI^S,1+ndir,1:ndim)=ff(ixI^S,1:ndim)
+      wres(ixO^S,mag(ndir))=-tmp2(ixO^S)
+    end if
 
-    deallocate(tmp,ff)
+    if(fix_conserve_at_step) then
+      fluxall=my_dt*fluxall
+      call store_flux(igrid,fluxall,1,ndim,nflux)
+      deallocate(fluxall)
+    end if
 
   end subroutine sts_set_source_ambipolar
 
@@ -1835,7 +1836,7 @@ contains
     double precision, dimension(:^D&,:), intent(inout) :: ff
     double precision, intent(out) :: src(ixI^S)
 
-    double precision :: ffc(ixI^S,1:3)
+    double precision :: ffc(ixI^S,1:ndim)
     double precision :: dxinv(ndim)
     integer :: idims, ix^D, ixA^L, ixB^L, ixC^L
 
@@ -1847,11 +1848,11 @@ contains
     {do ix^DB=0,1\}
       ixBmin^D=ixCmin^D+ix^D;
       ixBmax^D=ixCmax^D+ix^D;
-      ffc(ixC^S,:)=ffc(ixC^S,:)+ff(ixB^S,:)
+      ffc(ixC^S,1:ndim)=ffc(ixC^S,1:ndim)+ff(ixB^S,1:ndim)
     {end do\}
-    ffc(ixC^S,:)=0.5d0**ndim*ffc(ixC^S,:)
+    ffc(ixC^S,1:ndim)=0.5d0**ndim*ffc(ixC^S,1:ndim)
     ! flux at cell face
-    ff=0.d0
+    ff(ixI^S,1:ndim)=0.d0
     do idims=1,ndim
       ixB^L=ixO^L-kr(idims,^D);
       ixCmax^D=ixOmax^D; ixCmin^D=ixBmin^D;
