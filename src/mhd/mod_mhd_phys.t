@@ -1650,17 +1650,17 @@ contains
 
       select case(idim)
         case(1)
-          tmp(ixO^S)=btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3)
-          f(ixO^S,mag(2))= f(ixO^S,mag(2)) - tmp2(ixO^S) * Jambi(ixO^S,3) + tmp3(ixO^S) * btot(ixO^S,3)
-          f(ixO^S,mag(3))= f(ixO^S,mag(3)) + tmp2(ixO^S) * Jambi(ixO^S,2) - tmp3(ixO^S) * btot(ixO^S,2)
+          tmp(ixO^S)=(btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3))
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,3) - btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) + btot(ixO^S,3) * tmp(ixO^S) + btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
         case(2)
-          tmp(ixO^S)=btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1)
-          f(ixO^S,mag(1))= f(ixO^S,mag(1)) + tmp2(ixO^S) * Jambi(ixO^S,3) - tmp3(ixO^S) * btot(ixO^S,3)
-          f(ixO^S,mag(3))= f(ixO^S,mag(3)) - tmp2(ixO^S) * Jambi(ixO^S,1) + tmp3(ixO^S) * btot(ixO^S,1)
+          tmp(ixO^S)=(btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1))
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,3) + btot(ixO^S,3) * sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) - btot(ixO^S,3) * tmp(ixO^S)  + btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
         case(3)
-          tmp(ixO^S)=btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2)
-          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,2) + tmp3(ixO^S) * btot(ixO^S,2)
-          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,1) - tmp3(ixO^S) * btot(ixO^S,1)
+          tmp(ixO^S)=(btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2))
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,1) * (btot(ixO^S,1) * Jambi(ixO^S,3) - btot(ixO^S,2) * Jambi(ixO^S,1))
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + btot(ixO^S,3) * tmp(ixO^S) - btot(ixO^S,2) * (btot(ixO^S,1) * Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,1))
       endselect
 
       if(mhd_energy .and. .not. mhd_internal_e) then
