@@ -118,6 +118,12 @@ module mod_twofl_phys
 
   !> collisional alpha
   double precision, public                :: twofl_alpha_coll = 0d0
+  !> whether include thermal exchange collisional terms
+  logical, public                         :: twofl_coll_inc_te = .true.
+  logical, public                         :: twofl_implicit_coll_terms = .true.
+  double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
+  
+
 
   !> The adiabatic constant
   double precision, public                :: twofl_adiab = 1.0d0
@@ -177,6 +183,22 @@ module mod_twofl_phys
   logical, public, protected :: B0field_forcefree=.true.
 
 
+  !> equi vars flags
+  logical, public, protected :: has_equi_pe_n0 = .false.  
+  logical, public, protected :: has_equi_pe_c0 = .false.  
+  logical, public, protected :: has_equi_rho_n0 = .false. 
+  logical, public, protected :: has_equi_rho_c0 = .false.  
+
+  !> equi vars indices in the state%equi_vars array
+  integer, public, protected :: equi_pe_n0_ = -1
+  integer, public, protected :: equi_pe_c0_ = -1
+  integer, public, protected :: equi_rho_n0_ = -1
+  integer, public, protected :: equi_rho_c0_ = -1
+
+  !> added from modules: gravity
+  !> source split or not
+  logical :: grav_split= .false.
+
   !> gamma minus one and its inverse
   double precision :: gamma_1, inv_gamma_1
 
@@ -216,11 +238,15 @@ contains
     integer                      :: n
 
     namelist /twofl_list/ twofl_eq_energy, twofl_gamma, twofl_adiab,&
-      twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha, twofl_alpha_coll,&
+      twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha,& 
+      twofl_alpha_coll, twofl_implicit_coll_terms, twofl_coll_inc_te, dtcollpar,&
       twofl_thermal_conduction_n, twofl_thermal_conduction_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
       twofl_viscosity, twofl_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, He_abundance, SI_unit, B0field,&
+      !TODO delete following
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
+      ! added the following
+      has_equi_pe_n0, has_equi_pe_c0, has_equi_rho_n0, has_equi_rho_c0, &
       boundary_divbfix, boundary_divbfix_skip, twofl_divb_4thorder, &
       twofl_boris_method, twofl_boris_c, clean_initial_divb,  &
       twofl_trac, twofl_trac_type, twofl_trac_mask
@@ -269,7 +295,7 @@ contains
     use mod_thermal_conduction
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
-    use mod_gravity, only: gravity_init
+    !use mod_gravity, only: gravity_init
     use mod_supertimestepping, only: sts_init, add_sts_method
 
     {^NOONED
@@ -403,12 +429,19 @@ contains
       call mpistop("Unknown twofl_boris_method (none, reduced_force, simplification)")
     end select
 
+    
+    if(.not. twofl_implicit_coll_terms .and. (dtcollpar .le. 0d0 .or. dtcollpar .ge. 1d0)) then
+      if (mype .eq. 0) print*, "Explicit update of coll terms requires 0<dtcollpar<1, dtcollpar set to 0.8."
+      dtcollpar = 0.8
+    endif 
+
     ! Determine flux variables
     rho_n_ = var_set_fluxvar("rho_n", "rho_n")
     rho_c_ = var_set_fluxvar("rho_c", "rho_c")
 
     allocate(mom_n(ndir))
     allocate(mom_c(ndir))
+    ! no assuming about mom_n, mom_c all consecutive
     do idir=1,ndir
       mom_n(idir) = var_set_fluxvar("m_n","v_n",idir)
       mom_c(idir) = var_set_fluxvar("m_c","v_c",idir)
@@ -426,6 +459,7 @@ contains
 
     allocate(mag(ndir))
     mag(:) = var_set_bfield(ndir)
+
 
     if (twofl_glm) then
       psi_ = var_set_fluxvar('psi', 'psi', need_bc=.false.)
@@ -455,6 +489,27 @@ contains
       Tcoff_n_ = -1
       Tcoff_c_ = -1
     end if
+
+    ! set indices of equi vars and update number_equi_vars
+    number_equi_vars = 0
+    if(has_equi_rho_n0) then
+      number_equi_vars = number_equi_vars + 1
+      equi_rho_n0_ = number_equi_vars
+    endif  
+    if(has_equi_pe_n0) then
+      number_equi_vars = number_equi_vars + 1
+      equi_pe_n0_ = number_equi_vars
+    endif  
+    if(has_equi_rho_c0) then
+      number_equi_vars = number_equi_vars + 1
+      equi_rho_c0_ = number_equi_vars
+    endif  
+    if(has_equi_pe_c0) then
+      number_equi_vars = number_equi_vars + 1
+      equi_pe_c0_ = number_equi_vars
+    endif  
+      
+
 
     ! set number of variables which need update ghostcells
     nwgc=nwflux
@@ -517,8 +572,14 @@ contains
     phys_angmomfix           => twofl_angmomfix
     phys_handle_small_values => twofl_handle_small_values
     phys_energy_synchro      => twofl_energy_synchro
-
-    phys_implicit_update => twofl_implicit_update
+    ! implicit collisional terms update
+    if(twofl_implicit_coll_terms .and. twofl_alpha_coll>0d0) then
+      phys_implicit_update => twofl_implicit_coll_terms_update
+    endif
+    !set equilibrium variables for the new grid
+    if(number_equi_vars>0) then
+      phys_set_equi_vars => set_equi_vars_grid
+    endif
 
     if(type_divb==divb_glm) then
       phys_modify_wLR => twofl_modify_wLR
@@ -591,10 +652,10 @@ contains
     !if (twofl_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
 
     ! Initialize gravity module
-    !!TODO
-    !if(twofl_gravity) then
+    if(twofl_gravity) then
     !  call gravity_init()
-    !end if
+       call grav_params_read(par_files)
+    end if
 
     ! Initialize particles module
 
@@ -614,8 +675,36 @@ contains
 
   end subroutine twofl_phys_init
 
+  !> sets the equilibrium variables
+  subroutine set_equi_vars_grid(igrid)
+    use mod_global_parameters
+    use mod_usr_methods
+  
+    integer, intent(in) :: igrid
+    call usr_set_equi_vars(ixG^LL,ixG^LL,ps(igrid)%x,ps(igrid)%equi_vars(ixG^T,1:number_equi_vars))
+ 
+ end subroutine set_equi_vars_grid
+
+
+  !> copied from mod_gravity
+  subroutine grav_params_read(files)
+    use mod_global_parameters, only: unitpar
+    character(len=*), intent(in) :: files(:)
+    integer                      :: n
+
+    namelist /grav_list/ grav_split
+
+    do n = 1, size(files)
+       open(unitpar, file=trim(files(n)), status="old")
+       read(unitpar, grav_list, end=111)
+111    close(unitpar)
+    end do
+
+  end subroutine grav_params_read
+
   subroutine twofl_check_params
     use mod_global_parameters
+    use mod_usr_methods
 
     ! after user parameter setting
     gamma_1=twofl_gamma-1.d0
@@ -640,7 +729,9 @@ contains
     if(H_ion_fr == 1d0 .and. He_ion_fr == 1d0) then
       call mpistop("H_ion_fr or He_ion_fr must be < 1 or use mhd module")
     endif
-
+    if (number_equi_vars > 0 .and. .not. associated(usr_set_equi_vars)) then
+      call mpistop("usr_set_equi_vars has to be implemented in the user file")
+    endif
   end subroutine twofl_check_params
 
   subroutine twofl_physical_units()
@@ -737,10 +828,14 @@ contains
     double precision, intent(inout) :: w(ixI^S, nw)
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
     integer                         :: idir
+    double precision                :: rhon(ixI^S),rhoc(ixI^S)
 
     if (fix_small_values) then
       call twofl_handle_small_values(.true., w, x, ixI^L, ixO^L, 'twofl_to_conserved')
     end if
+
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 
     ! Calculate total energy from pressure, kinetic and magnetic energy
     if(twofl_eq_energy .ne. EQ_ENERGY_NONE) then
@@ -749,26 +844,26 @@ contains
         w(ixO^S,e_c_)=w(ixO^S,e_c_)*inv_gamma_1
       else
         w(ixO^S,e_n_)=w(ixO^S,e_n_)*inv_gamma_1&
-                   +half*sum(w(ixO^S,mom_n(:))**2,dim=ndim+1)*w(ixO^S,rho_n_)
+                   +half*sum(w(ixO^S,mom_n(:))**2,dim=ndim+1)*rhon(ixO^S)
 
         if(twofl_eq_energy == EQ_ENERGY_TOT .or. twofl_eq_energy == EQ_ENERGY_TOT2 ) then
           w(ixO^S,e_c_)=w(ixO^S,e_c_)*inv_gamma_1&
-                   +half*sum(w(ixO^S,mom_c(:))**2,dim=ndim+1)*w(ixO^S,rho_c_)&
+                   +half*sum(w(ixO^S,mom_c(:))**2,dim=ndim+1)*rhoc(ixO^S)&
                    +twofl_mag_en(w, ixI^L, ixO^L)
           if(twofl_eq_energy == EQ_ENERGY_TOT2) then
             w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)*inv_gamma_1
           endif
         elseif(twofl_eq_energy == EQ_ENERGY_KI) then   
           w(ixO^S,e_c_)=w(ixO^S,e_c_)*inv_gamma_1&
-                   +half*sum(w(ixO^S,mom_c(:))**2,dim=ndim+1)*w(ixO^S,rho_c_)
+                   +half*sum(w(ixO^S,mom_c(:))**2,dim=ndim+1)*rhoc(ixO^S)
         endif
       end if
     end if
 
     ! Convert velocity to momentum
     do idir = 1, ndir
-       w(ixO^S, mom_n(idir)) = w(ixO^S, rho_n_) * w(ixO^S, mom_n(idir))
-       w(ixO^S, mom_c(idir)) = w(ixO^S, rho_c_) * w(ixO^S, mom_c(idir))
+       w(ixO^S, mom_n(idir)) = rhon(ixO^S) * w(ixO^S, mom_n(idir))
+       w(ixO^S, mom_c(idir)) = rhoc(ixO^S) * w(ixO^S, mom_c(idir))
     end do
   end subroutine twofl_to_conserved
 
@@ -779,11 +874,14 @@ contains
     double precision, intent(inout) :: w(ixI^S, nw)
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
     integer                         :: idir
+    double precision                :: rhon(ixI^S),rhoc(ixI^S)
 
     if (fix_small_values) then
       call twofl_handle_small_values(.false., w, x, ixI^L, ixO^L, 'twofl_to_primitive')
     end if
 
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 
     if(twofl_eq_energy .ne. EQ_ENERGY_NONE) then
       if(twofl_eq_energy == EQ_ENERGY_INT) then
@@ -811,8 +909,8 @@ contains
     
     ! Convert momentum to velocity
     do idir = 1, ndir
-       w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/w(ixO^S,rho_c_)
-       w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/w(ixO^S,rho_n_)
+       w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
+       w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
     end do
 
   end subroutine twofl_to_primitive
@@ -850,17 +948,15 @@ contains
 !  end subroutine twofl_e_to_ei
 !!USED IN TC END
 
-  subroutine twofl_energy_synchro(qdt,ixI^L,ixO^L,wCT,w,x)
+  subroutine twofl_energy_synchro(ixI^L,ixO^L,w,x)
     use mod_global_parameters
     integer, intent(in) :: ixI^L,ixO^L
-    double precision, intent(in) :: qdt, wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(in) :: x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
 
     double precision :: pth1(ixI^S),pth2(ixI^S),alfa(ixI^S),beta(ixI^S)
     double precision, parameter :: beta_low=0.005d0,beta_high=0.05d0
 
-    ! add the source of internal energy equation
-    call internal_energy_add_source_c(qdt,ixI^L,ixO^L,wCT,w,x,eaux_c_)
 !    double precision :: vtot(ixI^S),cs2(ixI^S),mach(ixI^S)
 !    double precision, parameter :: mach_low=20.d0,mach_high=200.d0
 
@@ -902,6 +998,8 @@ contains
 
     integer :: idir
     logical :: flag(ixI^S,1:nw)
+    double precision :: rhon(ixI^S)
+    double precision :: rhoc(ixI^S)
 
     if(small_values_method == "ignore") return
 
@@ -982,9 +1080,20 @@ contains
             end if
           end if
           ! Convert momentum to velocity
+          if(has_equi_rho_n0) then
+            rhon(ixG^T) = w(ixG^T,rho_n_) + block%equi_vars(ixG^T,equi_rho_n0_)
+          else  
+            rhon(ixG^T) = w(ixG^T,rho_n_) 
+          endif
+    
+          if(has_equi_rho_c0) then
+            rhoc(ixG^T) = w(ixG^T,rho_c_) + block%equi_vars(ixG^T,equi_rho_c0_)
+          else  
+            rhoc(ixG^T) = w(ixG^T,rho_c_) 
+          endif
           do idir = 1, ndir
-             w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/w(ixO^S,rho_n_)
-             w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/w(ixO^S,rho_c_)
+             w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
+             w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
           end do
         end if
         call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
@@ -1000,10 +1109,12 @@ contains
     integer, intent(in)          :: ixI^L, ixO^L, idim
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: cmax(ixI^S)
+    double precision                :: vn(ixI^S),vc(ixI^S)
 
     call twofl_get_csound(w,x,ixI^L,ixO^L,idim,cmax)
-
-    cmax(ixO^S)=max(abs(w(ixO^S,mom_n(idim))/w(ixO^S,rho_n_)), abs(w(ixO^S,mom_c(idim))/w(ixO^S,rho_c_)))+cmax(ixO^S)
+    call twofl_get_v_n_idim(w,x,ixI^L,ixO^L,idim,vn)
+    call twofl_get_v_c_idim(w,x,ixI^L,ixO^L,idim,vc)
+    cmax(ixO^S)=max(abs(vn(ixO^S)), abs(vc(ixO^S)))+cmax(ixO^S)
 
   end subroutine twofl_get_cmax
 
@@ -1043,8 +1154,10 @@ contains
     logical :: lrlt(ixI^S)
 
     {^IFONED
-    tmp1(ixI^S)=w(ixI^S,e_n_)-0.5d0*sum(w(ixI^S,mom_n(:))**2,dim=ndim+1)/w(ixI^S,rho_n_)
-    Te(ixI^S)=tmp1(ixI^S)/w(ixI^S,rho_n_)*(twofl_gamma-1.d0)
+    ! reuse lts as rhon
+    call get_rhon_tot(w,x,ixI^L,ixO^L,lts)
+    tmp1(ixI^S)=w(ixI^S,e_n_)-0.5d0*sum(w(ixI^S,mom_n(:))**2,dim=ndim+1)/lts(ixI^S)
+    Te(ixI^S)=tmp1(ixI^S)/lts(ixI^S)*(twofl_gamma-1.d0)
 
     Tmax_local=maxval(Te(ixO^S))
 
@@ -1078,13 +1191,15 @@ contains
     integer :: idims,jxO^L,hxO^L,ixA^D,ixB^D
     logical :: lrlt(ixI^S)
 
+    ! reuse lts as rhoc
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,lts)
     if(phys_internal_e) then
       tmp1(ixI^S)=w(ixI^S,e_c_)
     else
       tmp1(ixI^S)=w(ixI^S,e_c_)-0.5d0*(sum(w(ixI^S,mom_c(:))**2,dim=ndim+1)/&
-                       w(ixI^S,rho_c_)+sum(w(ixI^S,mag(:))**2,dim=ndim+1))
+                       lts(ixI^S)+sum(w(ixI^S,mag(:))**2,dim=ndim+1))
     end if
-    Te(ixI^S)=tmp1(ixI^S)/w(ixI^S,rho_c_)*(twofl_gamma-1.d0)
+    Te(ixI^S)=tmp1(ixI^S)/lts(ixI^S)*(twofl_gamma-1.d0)
     Tmax_local=maxval(Te(ixO^S))
 
     {^IFONED
@@ -1166,13 +1281,17 @@ contains
     double precision, intent(inout), optional :: cmin(ixI^S)
 
     double precision :: wmean(ixI^S,nw)
+    double precision :: rhon(ixI^S)
+    double precision :: rhoc(ixI^S)
     double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
     integer                            :: idimE,idimN
 
     if (typeboundspeed=='cmaxmean') then
       wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
-      tmp1(ixO^S)=wmean(ixO^S,mom_n(idim))/wmean(ixO^S,rho_n_)
-      tmp2(ixO^S)=wmean(ixO^S,mom_c(idim))/wmean(ixO^S,rho_c_)
+      call get_rhon_tot(wmean,x,ixI^L,ixO^L,rhon)
+      call get_rhoc_tot(wmean,x,ixI^L,ixO^L,rhoc)
+      tmp1(ixO^S)=wmean(ixO^S,mom_n(idim))/rhon(ixO^S)
+      tmp2(ixO^S)=wmean(ixO^S,mom_c(idim))/rhoc(ixO^S)
       call twofl_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
       if(present(cmin)) then
         cmax(ixO^S)=max(max(abs(tmp1(ixO^S)),abs(tmp2(ixO^S)))+csoundR(ixO^S),zero)
@@ -1183,8 +1302,12 @@ contains
     else
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
       ! Methods for Fluid Dynamics" by Toro.
-      tmp1(ixO^S)=sqrt(abs(wLp(ixO^S,rho_c_)+wLp(ixO^S,rho_n_)))
-      tmp2(ixO^S)=sqrt(abs(wRp(ixO^S,rho_c_)+wRp(ixO^S,rho_n_)))
+      call get_rhon_tot(wLP,x,ixI^L,ixO^L,rhon)
+      call get_rhoc_tot(wLP,x,ixI^L,ixO^L,rhoc)
+      tmp1(ixO^S)=sqrt(abs(rhoc(ixO^S)+rhon(ixO^S)))
+      call get_rhon_tot(wRP,x,ixI^L,ixO^L,rhon)
+      call get_rhoc_tot(wRP,x,ixI^L,ixO^L,rhoc)
+      tmp2(ixO^S)=sqrt(abs(rhoc(ixO^S)+rhon(ixO^S)))
       tmp3(ixO^S)=1.d0/(tmp1(ixO^S)+tmp2(ixO^S))
       umean(ixO^S)=(0.5*(wLp(ixO^S,mom_n(idim)) + wLp(ixO^S,mom_c(idim)))*tmp1(ixO^S)+&
                    0.5*(wRp(ixO^S,mom_n(idim))+wRp(ixO^S,mom_c(idim)))*tmp2(ixO^S))*tmp3(ixO^S)
@@ -1256,7 +1379,13 @@ contains
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma2(ixO^S)
 
-    inv_rho=1.d0/(w(ixO^S,rho_n_) + w(ixO^S,rho_c_))
+    !inv_rho=1.d0/(w(ixO^S,rho_n_) + w(ixO^S,rho_c_))
+    !TODO
+    if(has_equi_rho_c0) then
+      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_))
+    else  
+      inv_rho=1.d0/w(ixO^S,rho_c_)
+    end if
 
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
@@ -1306,7 +1435,11 @@ contains
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
 
-    inv_rho=1.d0/(w(ixO^S,rho_n_) + w(ixO^S,rho_c_))
+    if(has_equi_rho_c0) then
+      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_))
+    else  
+      inv_rho=1.d0/w(ixO^S,rho_c_)
+    end if
 
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
@@ -1315,8 +1448,9 @@ contains
     end if
 
     if(phys_energy) then
-      csound(ixO^S)=twofl_gamma*(w(ixO^S,e_n_)+w(ixO^S,e_c_))*inv_rho
+       call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,w(ixI^S,e_c_),w(ixI^S,e_n_),csound)
     else
+      !TODO as above
       csound(ixO^S)=twofl_gamma*twofl_adiab*(w(ixO^S,rho_c_)**twofl_gamma + w(ixO^S,rho_n_)**twofl_gamma)/(w(ixO^S,rho_c_)+ w(ixO^S,rho_n_))
     end if
     ! store |B|^2 in v
@@ -1363,9 +1497,11 @@ contains
       if(phys_internal_e) then
         pth(ixO^S)=gamma_1*w(ixO^S,e_c_)
       elseif(phys_total_energy) then
+        !print*, "EC ",  w(ixO^S,e_c_)
         pth(ixO^S)=gamma_1*(w(ixO^S,e_c_)&
            - twofl_kin_en_c(w,ixI^L,ixO^L)&
            - twofl_mag_en(w,ixI^L,ixO^L))
+        !print*, "PC ",  pth(ixO^S)
       else
         pth(ixO^S)=gamma_1*(w(ixO^S,e_c_)&
            - twofl_kin_en_c(w,ixI^L,ixO^L))
@@ -1374,32 +1510,36 @@ contains
       pth(ixO^S)=twofl_adiab*w(ixO^S,rho_c_)**twofl_gamma
     end if
 
-    if (check_small_values) then
-      {do ix^DB= ixO^LIM^DB\}
-         if(pth(ix^D)<small_pressure) then
-           write(*,*) "Error: small value of gas pressure",pth(ix^D),&
-                " encountered when call twofl_get_pthermal"
-           write(*,*) "Iteration: ", it, " Time: ", global_time
-           write(*,*) "Location: ", x(ix^D,:)
-           write(*,*) "Cell number: ", ix^D
-           do iw=1,nw
-             write(*,*) trim(cons_wnames(iw)),": ",w(ix^D,iw)
-           end do
-           ! use erroneous arithmetic operation to crash the run
-           if(trace_small_values) write(*,*) sqrt(pth(ix^D)-bigdouble)
-           write(*,*) "Saving status at the previous time step"
-           crash=.true.
-         end if
-      {enddo^D&\}
+    ! no check when equi
+    if(.not. has_equi_pe_c0) then
+      if (check_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+             write(*,*) "Error: small value of gas pressure",pth(ix^D),&
+                  " encountered when call twofl_get_pthermal_c"
+             write(*,*) "Iteration: ", it, " Time: ", global_time
+             write(*,*) "Location: ", x(ix^D,:)
+             write(*,*) "Cell number: ", ix^D
+             do iw=1,nw
+               write(*,*) trim(cons_wnames(iw)),": ",w(ix^D,iw)
+             end do
+             ! use erroneous arithmetic operation to crash the run
+             if(trace_small_values) write(*,*) sqrt(pth(ix^D)-bigdouble)
+             write(*,*) "Saving status at the previous time step"
+             crash=.true.
+           end if
+        {enddo^D&\}
+      end if
+  
+      if (fix_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+              pth(ix^D)=small_pressure
+           end if
+        {enddo^D&\}
+      end if
     end if
 
-    if (fix_small_values) then
-      {do ix^DB= ixO^LIM^DB\}
-         if(pth(ix^D)<small_pressure) then
-            pth(ix^D)=small_pressure
-         end if
-      {enddo^D&\}
-    end if
   end subroutine twofl_get_pthermal_c
 
   !> Calculate thermal pressure of neutrals =(gamma-1)*(e-0.5*m**2/rho) within ixO^L
@@ -1424,31 +1564,33 @@ contains
       pth(ixO^S)=twofl_adiab*w(ixO^S,rho_n_)**twofl_gamma
     end if
 
-    if (check_small_values) then
-      {do ix^DB= ixO^LIM^DB\}
-         if(pth(ix^D)<small_pressure) then
-           write(*,*) "Error: small value of gas pressure",pth(ix^D),&
-                " encountered when call twofl_get_pthermal"
-           write(*,*) "Iteration: ", it, " Time: ", global_time
-           write(*,*) "Location: ", x(ix^D,:)
-           write(*,*) "Cell number: ", ix^D
-           do iw=1,nw
-             write(*,*) trim(cons_wnames(iw)),": ",w(ix^D,iw)
-           end do
-           ! use erroneous arithmetic operation to crash the run
-           if(trace_small_values) write(*,*) sqrt(pth(ix^D)-bigdouble)
-           write(*,*) "Saving status at the previous time step"
-           crash=.true.
-         end if
-      {enddo^D&\}
-    end if
-
-    if (fix_small_values) then
-      {do ix^DB= ixO^LIM^DB\}
-         if(pth(ix^D)<small_pressure) then
-            pth(ix^D)=small_pressure
-         end if
-      {enddo^D&\}
+    if(.not. has_equi_pe_n0) then
+      if (check_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+             write(*,*) "Error: small value of gas pressure",pth(ix^D),&
+                  " encountered when call twofl_get_pthermal_n"
+             write(*,*) "Iteration: ", it, " Time: ", global_time
+             write(*,*) "Location: ", x(ix^D,:)
+             write(*,*) "Cell number: ", ix^D
+             do iw=1,nw
+               write(*,*) trim(cons_wnames(iw)),": ",w(ix^D,iw)
+             end do
+             ! use erroneous arithmetic operation to crash the run
+             if(trace_small_values) write(*,*) sqrt(pth(ix^D)-bigdouble)
+             write(*,*) "Saving status at the previous time step"
+             crash=.true.
+           end if
+        {enddo^D&\}
+      end if
+  
+      if (fix_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+              pth(ix^D)=small_pressure
+           end if
+        {enddo^D&\}
+      end if
     end if
   end subroutine twofl_get_pthermal_n
 
@@ -1522,16 +1664,43 @@ contains
     double precision, intent(in)    :: w(ixI^S,nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     double precision, intent(out)   :: csound2(ixI^S)
-    double precision  :: csound1(ixI^S)
+    double precision  :: pe_c1(ixI^S),pe_n1(ixI^S)
 
-    if(phys_energy) then
-      call twofl_get_pthermal_c(w,x,ixI^L,ixO^L,csound2)
-      call twofl_get_pthermal_n(w,x,ixI^L,ixO^L,csound1)
-      csound2(ixO^S)=twofl_gamma*(csound2(ixO^S) + csound1(ixO^S))/(w(ixO^S,rho_c_) + w(ixO^S,rho_n_))
-    else
-      csound2(ixO^S)=twofl_gamma*twofl_adiab*(w(ixO^S,rho_c_)**twofl_gamma + w(ixO^S,rho_n_)**twofl_gamma)/(w(ixO^S,rho_c_) + w(ixO^S,rho_n_)) 
-    end if
+    call twofl_get_pthermal_c(w,x,ixI^L,ixO^L,pe_c1)
+    call twofl_get_pthermal_n(w,x,ixI^L,ixO^L,pe_n1)
+    call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,pe_n1,csound2)
+
   end subroutine twofl_get_csound2
+
+
+  subroutine twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,pe_n1,csound2)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(in)    :: pe_c1(ixI^S), pe_n1(ixI^S)
+    double precision, intent(out)   :: csound2(ixI^S)
+    double precision  :: csound1(ixI^S),rhon(ixI^S),rhoc(ixI^S)
+
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
+
+    if(has_equi_pe_c0) then
+      csound2(ixI^S) = pe_c1(ixI^S) + block%equi_vars(ixI^S,equi_pe_c0_)
+    else
+      csound2(ixI^S) = pe_c1(ixI^S) 
+    endif
+    if(has_equi_pe_n0) then
+      csound1(ixI^S) = pe_n1(ixI^S) + block%equi_vars(ixI^S,equi_pe_n0_)
+    else
+      csound1(ixI^S) = pe_n1(ixI^S) 
+    endif
+    !csound2(ixO^S)=twofl_gamma*(csound2(ixO^S) + csound1(ixO^S))/(w(ixO^S,rho_c_) + w(ixO^S,rho_n_))
+    csound2(ixO^S)=twofl_gamma*max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
+                     csound2(ixO^S)/rhoc(ixO^S), csound1(ixO^S)/rhon(ixO^S))
+  end subroutine twofl_get_csound2_from_pe
+
+
 
   !> Calculate total pressure within ixO^L including magnetic pressure
 !  subroutine twofl_get_p_total(w,x,ixI^L,ixO^L,p)
@@ -1649,6 +1818,11 @@ contains
            end if
         end if
       end if
+      ! add flux of equilibrium internal energy corresponding to pe_c0
+      if(has_equi_pe_c0) then
+        f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
+          + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_) * inv_gamma_1
+      end if
     end if
 
     ! compute flux of magnetic field
@@ -1712,13 +1886,24 @@ contains
     f(ixO^S, mom_n(idim)) = f(ixO^S, mom_n(idim)) + pgas(ixO^S)
 
     if(phys_energy) then
-      ! Energy flux is v_i*e + v*p ! Check? m_i/rho*p
-      f(ixO^S, e_n_) = w(ixO^S,mom_n(idim)) * (wC(ixO^S, e_n_) + w(ixO^S,e_n_))
+      !reuse pgas for storing a in the term: div (u_n * a) and make multiplication at the end
+      pgas(ixO^S) = wC(ixO^S,e_n_)
+      if(.not. phys_internal_e) then
+        ! add pressure
+        pgas(ixO^S) = pgas(ixO^S) + w(ixO^S,e_n_)
+      endif
+      ! add flux of equilibrium internal energy corresponding to pe_n0
+      if(has_equi_pe_n0) then
+        pgas(ixO^S) = pgas(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_) * inv_gamma_1
+      endif
+      ! add u_n * a in the flux
+      f(ixO^S, e_n_) = w(ixO^S,mom_n(idim)) * pgas(ixO^S)
+
+      ! Viscosity fluxes - viscInDiv
+      !if (hd_viscosity) then
+      !  call visc_get_flux_prim(w, x, ixI^L, ixO^L, idim, f, phys_energy)
+      !endif
     end if
-    ! Viscosity fluxes - viscInDiv
-    !if (hd_viscosity) then
-    !  call visc_get_flux_prim(w, x, ixI^L, ixO^L, idim, f, phys_energy)
-    !endif
 
   end subroutine twofl_get_flux
 
@@ -1728,7 +1913,7 @@ contains
     use mod_global_parameters
     use mod_radiative_cooling, only: radiative_cooling_add_source
     use mod_viscosity, only: viscosity_add_source
-    use mod_gravity, only: gravity_add_source
+    !use mod_gravity, only: gravity_add_source
 
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(in)    :: qdt
@@ -1742,6 +1927,17 @@ contains
       if(phys_internal_e) then
         active = .true.
         call internal_energy_add_source(qdt,ixI^L,ixO^L,wCT,w,x,e_c_)
+      else if(twofl_eq_energy == EQ_ENERGY_KI) then
+        active = .true.
+        call add_source_lorentz_work(qdt,ixI^L,ixO^L,w,wCT,x)
+      endif
+      
+      ! add -p0 div v source terms when equi are present
+      if(has_equi_pe_n0) then
+        call add_pe_n0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
+      endif
+      if(has_equi_pe_c0) then
+        call add_pe_c0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
       endif
 
       ! Source for B0 splitting
@@ -1760,6 +1956,11 @@ contains
         active = .true.
         call add_source_hyperres(qdt,ixI^L,ixO^L,wCT,w,x)
       end if
+      !it is not added in a split manner
+      if(.not. twofl_implicit_coll_terms.and. twofl_alpha_coll>0d0) then
+        active = .true.
+        call  twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
+      endif
     end if
 
       {^NOONED
@@ -1848,17 +2049,73 @@ contains
 !           w,x,phys_energy,qsourcesplit,active)
 !    end if
 !
-!    if(twofl_gravity) then
-!      call gravity_add_source(qdt,ixI^L,ixO^L,wCT,&
-!           w,x,phys_total_energy,qsourcesplit,active)
-!    end if
+    if(twofl_gravity) then
+      call gravity_add_source(qdt,ixI^L,ixO^L,wCT,&
+           w,x,twofl_eq_energy .eq. EQ_ENERGY_KI .or. phys_total_energy,qsourcesplit,active)
+    end if
 
     if (twofl_boris_type == boris_reduced_force) then
       call boris_add_source(qdt,ixI^L,ixO^L,wCT,&
            w,x,qsourcesplit,active)
     end if
 
+
   end subroutine twofl_add_source
+
+  subroutine add_pe_n0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
+    use mod_global_parameters
+    use mod_geometry
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision                :: v(ixI^S,1:ndir)
+
+    call twofl_get_v_n(wCT,x,ixI^L,ixI^L,v)
+    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_n0_),w,x,e_n_)
+
+  end subroutine add_pe_n0_divv
+
+  subroutine add_pe_c0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
+    use mod_global_parameters
+    use mod_geometry
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision                :: v(ixI^S,1:ndir)
+
+    call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
+    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_c0_),w,x,e_c_)
+
+  end subroutine add_pe_c0_divv
+
+
+  subroutine add_geom_PdivV(qdt,ixI^L,ixO^L,v,p,w,x,ind)
+    use mod_global_parameters
+    use mod_geometry
+
+    integer, intent(in)             :: ixI^L, ixO^L,ind
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: p(ixI^S), v(ixI^S), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision                :: divv(ixI^S)
+
+    if(slab_uniform) then
+      if(nghostcells .gt. 2) then
+        call divvector(v,ixI^L,ixO^L,divv,sixthorder=.true.)
+      else
+        call divvector(v,ixI^L,ixO^L,divv,fourthorder=.true.)
+      end if
+    else
+     call divvector(v,ixI^L,ixO^L,divv)
+    end if
+    w(ixO^S,ind)=w(ixO^S,ind)+qdt*p(ixO^S)*divv(ixO^S)
+  end subroutine add_geom_PdivV
+
+
 
   subroutine boris_add_source(qdt,ixI^L,ixO^L,wCT,w,x,&
        qsourcesplit,active)
@@ -1915,6 +2172,22 @@ contains
     call cross_product(ixI^L,ixO^L,a,b,JxB)
   end subroutine get_lorentz
 
+  subroutine  add_source_lorentz_work(qdt,ixI^L,ixO^L,w,wCT,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision                :: a(ixI^S,3), b(ixI^S,3)
+    
+    call get_lorentz(ixI^L, ixO^L,wCT,a)
+    call twofl_get_v_c(wCT,x,ixI^L,ixO^L,b)
+    w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*sum(a(ixO^S,1:3)*b(ixO^S,1:3),dim=ndim+1)
+
+
+  end subroutine  add_source_lorentz_work
+
+
   !> Compute 1/(1+v_A^2/c^2) for Boris' approximation, where v_A is the Alfven
   !> velocity
   subroutine twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
@@ -1953,11 +2226,13 @@ contains
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
     double precision, intent(out) :: v(ixI^S,ndir)
-
+    double precision              :: rhon(ixI^S)
     integer :: idir
 
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+
     do idir=1,ndir
-      v(ixO^S,idir) = w(ixO^S, mom_n(idir)) / w(ixO^S,rho_n_)
+      v(ixO^S,idir) = w(ixO^S, mom_n(idir)) / rhon(ixO^S)
     end do
 
   end subroutine twofl_get_v_n
@@ -1969,14 +2244,72 @@ contains
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
     double precision, intent(out) :: v(ixI^S,ndir)
-
+    double precision              :: rhoc(ixI^S)
     integer :: idir
 
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     do idir=1,ndir
-      v(ixO^S,idir) = w(ixO^S, mom_c(idir)) / w(ixO^S,rho_c_)
+      v(ixO^S,idir) = w(ixO^S, mom_c(idir)) / rhoc(ixO^S)
     end do
 
   end subroutine twofl_get_v_c
+
+
+  subroutine get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L
+    double precision, intent(in)  :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(out) :: rhoc(ixI^S)
+    if(has_equi_rho_c0) then
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
+    else  
+      rhoc(ixO^S) = w(ixO^S,rho_c_) 
+    endif
+
+  end subroutine get_rhoc_tot
+
+  subroutine get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L
+    double precision, intent(in)  :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(out) :: rhon(ixI^S)
+    if(has_equi_rho_n0) then
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_)
+    else  
+      rhon(ixO^S) = w(ixO^S,rho_n_) 
+    endif
+
+  end subroutine get_rhon_tot
+
+  !> Calculate v component
+  subroutine twofl_get_v_n_idim(w,x,ixI^L,ixO^L,idim,v)
+    use mod_global_parameters
+
+    integer, intent(in)           :: ixI^L, ixO^L, idim
+    double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
+    double precision, intent(out) :: v(ixI^S)
+    double precision              :: rhon(ixI^S)
+
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    v(ixO^S) = w(ixO^S, mom_n(idim)) / rhon(ixO^S)
+
+  end subroutine twofl_get_v_n_idim
+
+
+  !> Calculate v_c component
+  subroutine twofl_get_v_c_idim(w,x,ixI^L,ixO^L,idim,v)
+    use mod_global_parameters
+
+    integer, intent(in)           :: ixI^L, ixO^L, idim
+    double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
+    double precision, intent(out) :: v(ixI^S)
+    double precision              :: rhoc(ixI^S)
+
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
+    v(ixO^S) = w(ixO^S, mom_c(idim)) / rhoc(ixO^S)
+
+  end subroutine twofl_get_v_c_idim
+
 
   subroutine internal_energy_add_source_n(qdt,ixI^L,ixO^L,wCT,w,x)
     use mod_global_parameters
@@ -2236,14 +2569,12 @@ contains
 
     if (phys_energy) then
        ! de/dt+=eta*J**2
-       tmp(ixO^S)=zero
-       do idir=idirmin,3
-          tmp(ixO^S)=tmp(ixO^S)+current(ixO^S,idir)**2
-       end do
-       w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*eta(ixO^S)*tmp(ixO^S)
-       if(phys_solve_eaux) then
-         w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)+qdt*eta(ixO^S)*tmp(ixO^S)
-       end if
+      tmp(ixO^S)=qdt*eta(ixO^S)*sum(current(ixO^S,:)**2,dim=ndim+1)
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)+tmp(ixO^S)
+      if(phys_solve_eaux) then
+        ! add eta*J**2 source term in the internal energy equation
+        w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)+tmp(ixO^S)
+      end if
     end if
 
     if (fix_small_values) call twofl_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_res1')
@@ -2264,7 +2595,7 @@ contains
 
     ! For ndir=2 only 3rd component of J can exist, ndir=1 is impossible for MHD
     double precision :: current(ixI^S,7-2*ndir:3),eta(ixI^S),curlj(ixI^S,1:3)
-    double precision :: tmpvec(ixI^S,1:3)
+    double precision :: tmpvec(ixI^S,1:3),tmp(ixO^S)
     integer :: ixA^L,idir,idirmin,idirmin1
 
     ixA^L=ixO^L^LADD2;
@@ -2300,11 +2631,12 @@ contains
     if(phys_energy) then
       ! de/dt= +div(B x Jeta) = eta J^2 - B dot curl(eta J)
       ! de1/dt= eta J^2 - B1 dot curl(eta J)
-      w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*(sum(current(ixO^S,:)**2,dim=ndim+1)*eta(ixO^S)-&
+      tmp(ixO^S)=eta(ixO^S)*sum(current(ixO^S,:)**2,dim=ndim+1)
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*(tmp(ixO^S)-&
         sum(wCT(ixO^S,mag(1:ndir))*curlj(ixO^S,1:ndir),dim=ndim+1))
       if(phys_solve_eaux) then
-        w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)+qdt*(sum(current(ixO^S,:)**2,dim=ndim+1)*eta(ixO^S)-&
-            sum(wCT(ixO^S,mag(1:ndir))*curlj(ixO^S,1:ndir),dim=ndim+1))
+        ! add eta*J**2 source term in the internal energy equation
+        w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)+tmp(ixO^S)
       end if
     end if
 
@@ -2363,9 +2695,6 @@ contains
       tmp(ixO^S)=zero
       call divvector(tmpvec2,ixI^L,ixO^L,tmp)
       w(ixO^S,e_c_)=w(ixO^S,e_c_)+tmp(ixO^S)*qdt
-      if(phys_solve_eaux) then
-          w(ixO^S,eaux_c_)=w(ixO^S,eaux_c_)+tmp(ixO^S)*qdt
-      end if
     end if
 
     if (fix_small_values)  call twofl_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_hyperres')
@@ -2647,13 +2976,89 @@ contains
 
   end subroutine get_current
 
+  ! copied from gravity
+  !> w[iw]=w[iw]+qdt*S[wCT,qtC,x] where S is the source based on wCT within ixO
+  subroutine gravity_add_source(qdt,ixI^L,ixO^L,wCT,w,x,&
+       energy,qsourcesplit,active)
+    use mod_global_parameters
+    use mod_usr_methods
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
+    double precision, intent(in)    :: wCT(ixI^S,1:nw)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    logical, intent(in) :: energy,qsourcesplit
+    logical, intent(inout) :: active
+    integer                         :: idim
+
+    double precision :: gravity_field(ixI^S,ndim)
+
+    if(qsourcesplit .eqv. grav_split) then
+      active = .true.
+
+      if (.not. associated(usr_gravity)) then
+        write(*,*) "mod_usr.t: please point usr_gravity to a subroutine"
+        write(*,*) "like the phys_gravity in mod_usr_methods.t"
+        call mpistop("gravity_add_source: usr_gravity not defined")
+      else
+        call usr_gravity(ixI^L,ixO^L,wCT,x,gravity_field)
+      end if
+  
+      do idim = 1, ndim
+        w(ixO^S,mom_n(idim)) = w(ixO^S,mom_n(idim)) &
+              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,rho_n_)
+        w(ixO^S,mom_c(idim)) = w(ixO^S,mom_c(idim)) &
+              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,rho_n_)
+        if(energy) then
+          w(ixO^S,e_n_)=w(ixO^S,e_n_) &
+              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_n(idim))
+          w(ixO^S,e_c_)=w(ixO^S,e_c_) &
+              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_c(idim))
+        end if
+      end do
+    end if
+
+  end subroutine gravity_add_source
+
+  subroutine gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
+    use mod_global_parameters
+    use mod_usr_methods
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: dx^D, x(ixI^S,1:ndim), w(ixI^S,1:nw)
+    double precision, intent(inout) :: dtnew
+
+    double precision                :: dxinv(1:ndim), max_grav
+    integer                         :: idim
+
+    double precision :: gravity_field(ixI^S,ndim)
+
+    ^D&dxinv(^D)=one/dx^D;
+
+    if(.not. associated(usr_gravity)) then
+      write(*,*) "mod_usr.t: please point usr_gravity to a subroutine"
+      write(*,*) "like the phys_gravity in mod_usr_methods.t"
+      call mpistop("gravity_get_dt: usr_gravity not defined")
+    else
+      call usr_gravity(ixI^L,ixO^L,w,x,gravity_field)
+    end if
+
+    do idim = 1, ndim
+      max_grav = maxval(abs(gravity_field(ixO^S,idim)))
+      max_grav = max(max_grav, epsilon(1.0d0))
+      dtnew = min(dtnew, 1.0d0 / sqrt(max_grav * dxinv(idim)))
+    end do
+
+  end subroutine gravity_get_dt
+
+
   !> If resistivity is not zero, check diffusion time limit for dt
   subroutine twofl_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
     use mod_global_parameters
     use mod_usr_methods
-    use mod_radiative_cooling, only: cooling_get_dt
-    use mod_viscosity, only: viscosity_get_dt
-    use mod_gravity, only: gravity_get_dt
+    !use mod_radiative_cooling, only: cooling_get_dt
+    !use mod_viscosity, only: viscosity_get_dt
+    !use mod_gravity, only: gravity_get_dt
 
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(inout) :: dtnew
@@ -2693,6 +3098,13 @@ contains
       end if
     end if
 
+
+    ! the timestep related to coll terms: 1/(rho_n rho_c alpha)
+    if(dtcollpar>0d0 .and. twofl_alpha_coll >0d0) then
+        call coll_get_dt(w,x,ixI^L,ixO^L,dtnew)
+    endif
+
+
 !    if(twofl_radiative_cooling) then
 !      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
 !    end if
@@ -2701,11 +3113,30 @@ contains
 !      call viscosity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
 !    end if
 !
-!    if(twofl_gravity) then
-!      call gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
-!    end if
+    if(twofl_gravity) then
+      call gravity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
+    end if
 
   end subroutine twofl_get_dt
+
+
+  subroutine coll_get_dt(w,x,ixI^L,ixO^L,dtnew)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(inout) :: dtnew
+
+    double precision :: rhon(ixI^S), rhoc(ixI^S)
+
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
+
+    dtnew = min(dtcollpar/(twofl_alpha_coll * maxval(max(rhon(ixO^S), rhoc(ixO^S)))), dtnew)
+
+
+  end subroutine coll_get_dt
+  
 
   ! Add geometrical source terms to w
   subroutine twofl_add_source_geom(qdt,ixI^L,ixO^L,wCT,w,x)
@@ -2880,7 +3311,7 @@ contains
 
   !> Compute evolving magnetic energy
   function twofl_mag_en(w, ixI^L, ixO^L) result(mge)
-    use mod_global_parameters, only: nw, ndim
+    use mod_global_parameters, only: nw, ndim,block,B0field
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: mge(ixO^S)
@@ -2890,22 +3321,29 @@ contains
 
   !> compute kinetic energy of neutrals
   function twofl_kin_en_n(w, ixI^L, ixO^L) result(ke)
-    use mod_global_parameters, only: nw, ndim
+    use mod_global_parameters, only: nw, ndim,block
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: ke(ixO^S)
 
     ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / w(ixO^S, rho_n_)
+    if(has_equi_rho_n0) then
+      ke = ke + sum(w(ixO^S, mom_n(:))**2, dim=ndim+1)/w(ixO^S, rho_n_)**2 * block%equi_vars(ixO^S,equi_rho_n0_) 
+    endif
+
   end function twofl_kin_en_n
 
   !> compute kinetic energy of charges
   function twofl_kin_en_c(w, ixI^L, ixO^L) result(ke)
-    use mod_global_parameters, only: nw, ndim
+    use mod_global_parameters, only: nw, ndim,block
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: ke(ixO^S)
 
     ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / w(ixO^S, rho_c_)
+    if(has_equi_rho_c0) then
+      ke = ke + sum(w(ixO^S, mom_c(:))**2, dim=ndim+1)/w(ixO^S, rho_c_)**2 * block%equi_vars(ixO^S,equi_rho_c0_)
+    endif
   end function twofl_kin_en_c
 
   subroutine twofl_getv_Hall(w,x,ixI^L,ixO^L,vHall)
@@ -2918,6 +3356,14 @@ contains
 
     integer          :: idir, idirmin
     double precision :: current(ixI^S,7-2*ndir:3)
+    double precision :: rho(ixI^S)
+
+    if(has_equi_rho_c0) then
+      rho(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
+    else
+      rho(ixO^S) = w(ixO^S,rho_c_) 
+    endif
+
 
     ! Calculate current density and idirmin
     call get_current(w,ixI^L,ixO^L,idirmin,current)
@@ -2929,38 +3375,38 @@ contains
 
   end subroutine twofl_getv_Hall
 
-
-  subroutine twofl_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)
-    use mod_global_parameters
-
-    integer, intent(in) :: ixI^L, ixO^L
-    double precision, intent(in)    :: dx^D
-    double precision, intent(in)    :: w(ixI^S,1:nw)
-    double precision, intent(in)    :: x(ixI^S,1:ndim)
-    double precision, intent(out)   :: dthall
-    !.. local ..
-    double precision :: dxarr(ndim)
-    double precision :: bmag(ixI^S)
-
-    dthall=bigdouble
-
-    ! because we have that in cmax now:
-    return
-
-    ^D&dxarr(^D)=dx^D;
-
-    if (.not. B0field) then
-       bmag(ixO^S)=sqrt(sum(w(ixO^S,mag(:))**2, dim=ndim+1))
-       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2))
-    end if
-
-    if(slab_uniform) then
-      dthall=dtdiffpar*minval(dxarr(1:ndim))**2.0d0/(twofl_etah*maxval(bmag(ixO^S)/w(ixO^S,rho_c_)))
-    else
-      dthall=dtdiffpar*minval(block%ds(ixO^S,1:ndim))**2.0d0/(twofl_etah*maxval(bmag(ixO^S)/w(ixO^S,rho_c_)))
-    end if
-
-  end subroutine twofl_getdt_Hall
+! the following not used
+!  subroutine twofl_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)
+!    use mod_global_parameters
+!
+!    integer, intent(in) :: ixI^L, ixO^L
+!    double precision, intent(in)    :: dx^D
+!    double precision, intent(in)    :: w(ixI^S,1:nw)
+!    double precision, intent(in)    :: x(ixI^S,1:ndim)
+!    double precision, intent(out)   :: dthall
+!    !.. local ..
+!    double precision :: dxarr(ndim)
+!    double precision :: bmag(ixI^S)
+!
+!    dthall=bigdouble
+!
+!    ! because we have that in cmax now:
+!    return
+!
+!    ^D&dxarr(^D)=dx^D;
+!
+!    if (.not. B0field) then
+!       bmag(ixO^S)=sqrt(sum(w(ixO^S,mag(:))**2, dim=ndim+1))
+!       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2))
+!    end if
+!
+!    if(slab_uniform) then
+!      dthall=dtdiffpar*minval(dxarr(1:ndim))**2.0d0/(twofl_etah*maxval(bmag(ixO^S)/w(ixO^S,rho_c_)))
+!    else
+!      dthall=dtdiffpar*minval(block%ds(ixO^S,1:ndim))**2.0d0/(twofl_etah*maxval(bmag(ixO^S)/w(ixO^S,rho_c_)))
+!    end if
+!
+!  end subroutine twofl_getdt_Hall
 
   subroutine twofl_modify_wLR(ixI^L,ixO^L,qt,wLC,wRC,wLp,wRp,s,idir)
     use mod_global_parameters
@@ -3451,7 +3897,7 @@ contains
           mg%bc(n, mg_iphi)%bc_value = 0.0_dp
        case ('special')
           ! Assume Dirichlet boundary conditions, derivative zero
-          mg%bc(n, mg_iphi)%bc_type = mg_bc_neumann
+          mg%bc(n, mg_iphi)%bc_type = mg_bc_dirichlet
           mg%bc(n, mg_iphi)%bc_value = 0.0_dp
        case ('periodic')
           ! Nothing to do here
@@ -4161,7 +4607,7 @@ contains
 
 
     !> Implicit solve of psb=psa+dtfactor*dt*F_im(psb)
-  subroutine twofl_implicit_update(dtfactor,qdt,qtC,psb,psa)
+  subroutine twofl_implicit_coll_terms_update(dtfactor,qdt,qtC,psb,psa)
     use mod_global_parameters
     use mod_forest
     use mod_multigrid_coupling
@@ -4172,54 +4618,167 @@ contains
     double precision, intent(in) :: qtC
     double precision, intent(in) :: dtfactor
 
-    double precision :: tmp(ixG^T),tmp1(ixG^T),tmp2(ixG^T)
+    double precision :: tmp(ixG^T),tmp1(ixG^T),tmp2(ixG^T),tmp3(ixG^T)
+    double precision :: vc(ixG^T,ndir), vn(ixG^T,ndir)
+    !TODO ? double precision, dimension(:^D&,:), allocatable :: vc, vn
     integer :: idir
     integer :: iigrid, igrid
-
+    double precision :: rhon(ixG^T), rhoc(ixG^T)
+    !print*, "IMPL call ", it
 
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
 
-      !!first copy psa into psb
-      psb(igrid)%w(ixG^T,:) = psa(igrid)%w(ixG^T,:)
+      ! first copy psa into psb
+      !psb(igrid)%w(ixG^T,:) = psa(igrid)%w(ixG^T,:)
+      ! only the indices which are not updated here: densities and mag. field
+      psb(igrid)%w(ixG^T,mag(:)) = psa(igrid)%w(ixG^T,mag(:))
+      psb(igrid)%w(ixG^T,rho_n_) = psa(igrid)%w(ixG^T,rho_n_)
+      psb(igrid)%w(ixG^T,rho_c_) = psa(igrid)%w(ixG^T,rho_c_)
 
+      if(has_equi_rho_n0) then
+        rhon(ixG^T) = psa(igrid)%w(ixG^T,rho_n_) + psa(igrid)%equi_vars(ixG^T,equi_rho_n0_)
+      else  
+        rhon(ixG^T) = psa(igrid)%w(ixG^T,rho_n_) 
+      endif
+
+      if(has_equi_rho_c0) then
+        rhoc(ixG^T) = psa(igrid)%w(ixG^T,rho_c_) + psa(igrid)%equi_vars(ixG^T,equi_rho_c0_)
+      else  
+        rhoc(ixG^T) = psa(igrid)%w(ixG^T,rho_c_) 
+      endif
+
+      ! momentum update
       do idir=1,ndir
         tmp(ixG^T) = psa(igrid)%w(ixG^T,mom_n(idir)) + psa(igrid)%w(ixG^T,mom_c(idir))
 
-        psb(igrid)%w(ixG^T,mom_n(idir)) = (psa(igrid)%w(ixG^T,mom_n(idir)) + dtfactor * dt * twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_n_) * tmp(ixG^T))/&
-            (1d0 + dtfactor * dt * twofl_alpha_coll * (psa(igrid)%w(ixG^T,rho_n_) +  psa(igrid)%w(ixG^T,rho_c_)))
-        psb(igrid)%w(ixG^T,mom_c(idir)) = (psa(igrid)%w(ixG^T,mom_c(idir)) + dtfactor * dt * twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_c_) * tmp(ixG^T))/&
-            (1d0 + dtfactor * dt * twofl_alpha_coll * (psa(igrid)%w(ixG^T,rho_n_) +  psa(igrid)%w(ixG^T,rho_c_)))
+        psb(igrid)%w(ixG^T,mom_n(idir)) = (psa(igrid)%w(ixG^T,mom_n(idir)) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * tmp(ixG^T))/&
+            (1d0 + dtfactor * dt * twofl_alpha_coll * (rhon(ixG^T) +  rhoc(ixG^T)))
+        psb(igrid)%w(ixG^T,mom_c(idir)) = (psa(igrid)%w(ixG^T,mom_c(idir)) + dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * tmp(ixG^T))/&
+            (1d0 + dtfactor * dt * twofl_alpha_coll * (rhon(ixG^T) +  rhoc(ixG^T)))
       enddo
-
-        if(twofl_eq_energy == EQ_ENERGY_TOT) then
-          tmp1(ixG^T) = psa(igrid)%w(ixG^T,e_n_)
-          tmp2(ixG^T) = psa(igrid)%w(ixG^T,e_c_) - twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_n_) * twofl_mag_en(psa(igrid)%w,ixG^LL,ixG^LL)
-        elseif(twofl_eq_energy == EQ_ENERGY_INT) then
-          !calculate tmp = (v_c-v_n)^2
-          tmp(ixG^T) = 0d0
-          do idir=1,ndir
-            tmp(ixG^T) = tmp(ixG^T) + (psa(igrid)%w(ixG^T,mom_c(idir))/psa(igrid)%w(ixG^T,rho_c_) - psa(igrid)%w(ixG^T,mom_n(idir))/psa(igrid)%w(ixG^T,rho_n_))**2
-            !calculate tmp = (v_c-v_n)^2 * alpha * rho_n * rho_c
-            tmp(ixG^T) = tmp(ixG^T) * twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_c_) * psa(igrid)%w(ixG^T,rho_n_)
-          enddo
-          tmp1(ixG^T) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
-          tmp2(ixG^T) = psa(igrid)%w(ixG^T,e_c_) + tmp(ixG^T)
-        elseif(twofl_eq_energy == EQ_ENERGY_KI) then
-          tmp1(ixG^T) = psa(igrid)%w(ixG^T,e_n_)
-          tmp2(ixG^T) = psa(igrid)%w(ixG^T,e_c_)
-        endif          
+      ! energy update
+      if(twofl_coll_inc_te) then
+        tmp1(ixG^T) = psa(igrid)%w(ixG^T,e_n_)
+        tmp2(ixG^T) = psa(igrid)%w(ixG^T,e_c_)
         tmp(ixG^T) = tmp1(ixG^T) + tmp2(ixG^T)
-        
-        psb(igrid)%w(ixG^T,e_n_) = (psa(igrid)%w(ixG^T,e_n_) + dtfactor * dt * twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_n_) * tmp(ixG^T))/&
-            (1d0 + dtfactor * dt * twofl_alpha_coll * (psa(igrid)%w(ixG^T,rho_n_) +  psa(igrid)%w(ixG^T,rho_c_)))
-        psb(igrid)%w(ixG^T,e_c_) = (psa(igrid)%w(ixG^T,e_c_) + dtfactor * dt * twofl_alpha_coll * psa(igrid)%w(ixG^T,rho_c_) * tmp(ixG^T))/&
-            (1d0 + dtfactor * dt * twofl_alpha_coll * (psa(igrid)%w(ixG^T,rho_n_) +  psa(igrid)%w(ixG^T,rho_c_)))
+        tmp3(ixG^T) =  1d0 + dtfactor * dt * twofl_alpha_coll * (rhon(ixG^T) +  rhoc(ixG^T))     
+        psb(igrid)%w(ixG^T,e_n_) = (tmp1(ixG^T) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = (tmp2(ixG^T) + dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
+        if(twofl_eq_energy == EQ_ENERGY_TOT) then
+          tmp2(ixG^T) = tmp2(ixG^T) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * twofl_mag_en(psa(igrid)%w,ixG^LL,ixG^LL)
+        endif
+      else
+
+        ! calculate velocities, using the already updated variables
+        call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vc)
+        call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vn)
+        ! tmp = dtfactor * dt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in mom eq.
+        tmp(ixG^T) = 0.5d0*(sum(vc(ixG^T,1:ndir)**2, dim=ndim+1) - sum(vn(ixG^T,1:ndir)**2, dim=ndim+1))&
+                           * dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * rhon(ixG^T)
+        psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) - tmp(ixG^T)
+
+      endif
+
+      if(twofl_eq_energy == EQ_ENERGY_INT) then
+        ! calculate velocities, using the already updated variables
+        call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vc)
+        call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vn)
+        ! tmp = dtfactor * dt * 1/2 * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING
+        tmp(ixG^T) = 0.5d0 * sum((vc(ixG^T,1:ndir) - vn(ixG^T,1:ndir))**2, dim=ndim+1) &
+                     * dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * rhon(ixG^T)
+        psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) + tmp(ixG^T)
+      endif
 
     end do
     !$OMP END PARALLEL DO
 
-   end subroutine twofl_implicit_update 
+   end subroutine twofl_implicit_coll_terms_update 
 
 
+
+
+
+
+  subroutine twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in) :: wCT(ixI^S,1:nw)
+
+    double precision :: tmp(ixI^S),tmp2(ixI^S) 
+    double precision, dimension(:^D&,:), allocatable :: vc, vn
+    double precision :: rhon(ixI^S), rhoc(ixI^S)
+    integer :: idir
+!    print*, "expl call ", it
+
+!    print*, " RHOC ", wCT(ixI^S,rho_c_) 
+!    print*, " RHON ", wCT(ixI^S,rho_n_) 
+!    print*, " MOM N ", wCT(ixI^S,mom_n(idir))
+!    print*, " MOM C ", wCT(ixI^S,mom_c(idir))
+    if(has_equi_rho_n0) then
+      rhon(ixI^S) = wCT(ixI^S,rho_n_) + block%equi_vars(ixI^S,equi_rho_n0_)
+    else  
+      rhon(ixI^S) = wCT(ixI^S,rho_n_) 
+    endif
+
+    if(has_equi_rho_c0) then
+      rhoc(ixI^S) = wCT(ixI^S,rho_c_) + block%equi_vars(ixI^S,equi_rho_c0_)
+    else  
+      rhoc(ixI^S) = wCT(ixI^S,rho_c_) 
+    endif
+
+    ! momentum update
+    do idir=1,ndir
+      ! the coll. term in the neutrals momentum eq. multiplied by qdt
+      tmp(ixI^S) = qdt * twofl_alpha_coll * (-rhoc(ixI^S) * wCT(ixI^S,mom_n(idir)) + rhon(ixI^S) * wCT(ixI^S,mom_c(idir)))
+      w(ixI^S,mom_n(idir)) = w(ixI^S,mom_n(idir)) + tmp(ixI^S) 
+      w(ixI^S,mom_c(idir)) = w(ixI^S,mom_c(idir)) - tmp(ixI^S) 
+
+    enddo
+    ! energy update
+    ! calculate velocities
+    allocate(vc(ixI^S,1:ndir),vn(ixI^S,1:ndir))
+
+    !use the updated vars
+    call twofl_get_v_c(w,x,ixI^L,ixI^L,vc)
+    call twofl_get_v_n(w,x,ixI^L,ixI^L,vn)
+    if(twofl_eq_energy == EQ_ENERGY_INT) then
+      ! tmp = qdt * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING multiplied by qdt
+      tmp(ixI^S) = 0.5d0 * sum((vc(ixI^S, 1:ndir) - vn(ixI^S, 1:ndir))**2, dim=ndim+1)&
+         * qdt * twofl_alpha_coll * rhoc(ixI^S) * rhon(ixI^S)
+    endif
+    if(.not. twofl_coll_inc_te) then
+      if(twofl_eq_energy .eq. EQ_ENERGY_INT) then
+        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp(ixI^S)
+        w(ixI^S,e_c_) = w(ixI^S,e_c_) + tmp(ixI^S)
+      else  
+        ! tmp = qdt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in NEUTRALS mom
+        ! eq. MULTIPLIED by qdt
+        tmp(ixI^S) = 0.5d0*(sum(vc(ixI^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixI^S, 1:ndir)**2,dim=ndim+1))&
+                     * qdt * twofl_alpha_coll * rhoc(ixI^S) * rhon(ixI^S)
+        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp(ixI^S)
+        w(ixI^S,e_c_) = w(ixI^S,e_c_) - tmp(ixI^S)
+      endif  
+    else
+      ! coll term THERMAL EXCHANGE in neutrals energy eq. multiplied by qdt
+      tmp2(ixI^S) = qdt * twofl_alpha_coll * (-rhoc(ixI^S) * wCT(ixI^S,e_n_) +& 
+                    (rhon(ixI^S) * wCT(ixI^S,e_c_)-twofl_mag_en(wCT,ixI^L,ixO^L) ))
+      if(twofl_eq_energy .eq. EQ_ENERGY_INT) then
+        w(ixI^S,e_n_) = w(ixI^S,e_n_) + (tmp(ixI^S) + tmp2(ixI^S))
+        w(ixI^S,e_c_) = w(ixI^S,e_c_) + (tmp(ixI^S) - tmp2(ixI^S))
+
+      else
+        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp2(ixI^S)
+        w(ixI^S,e_c_) = w(ixI^S,e_c_) - tmp2(ixI^S)
+      endif
+    endif
+    deallocate(vc,vn)
+
+
+  end subroutine twofl_explicit_coll_terms_update
 end module mod_twofl_phys

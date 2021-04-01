@@ -87,6 +87,8 @@ module mod_physics
   procedure(sub_implicit_update), pointer :: phys_implicit_update        => null()
   procedure(sub_evaluate_implicit),pointer:: phys_evaluate_implicit      => null()
   procedure(sub_clean_divb), pointer      :: phys_clean_divb             => null()
+  ! set the equilibrium variables
+  procedure(sub_set_equi_vars), pointer   :: phys_set_equi_vars          => null()
 
   abstract interface
 
@@ -202,6 +204,11 @@ module mod_physics
        double precision, intent(in) :: qt     !< Current time
        logical, intent(inout)       :: active !< Output if the source is active
      end subroutine sub_clean_divb
+
+     !> set equilibrium variables other than b0 (e.g. p0 and rho0)  
+     subroutine sub_set_equi_vars(igrid)
+       integer, intent(in) :: igrid
+     end subroutine sub_set_equi_vars
 
      !> Add special advance in each advect step
      subroutine sub_special_advance(qdt, qt, psa)

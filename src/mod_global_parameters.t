@@ -357,6 +357,9 @@ module mod_global_parameters
   !> split magnetic field as background B0 field
   logical :: B0field=.false.
 
+  ! number of equilibrium set variables, besides the mag field
+  integer :: number_equi_vars = 0
+
   !> Use SI units (.true.) or use cgs units (.false.)
   logical :: SI_unit=.false.
 
