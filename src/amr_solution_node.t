@@ -49,6 +49,7 @@ subroutine alloc_node(igrid)
   use mod_global_parameters
   use mod_geometry
   use mod_usr_methods, only: usr_set_surface
+  use mod_physics, only: phys_set_equi_vars
 
   integer, intent(in) :: igrid
 
@@ -517,6 +518,7 @@ subroutine alloc_node(igrid)
 
   ! initialize background non-evolving solution
   if (B0field) call set_B0_grid(igrid)
+  if (number_equi_vars>0) call phys_set_equi_vars(igrid)
 
   ! find the blocks on the boundaries
   ps(igrid)%is_physical_boundary=.false.
@@ -582,6 +584,10 @@ subroutine alloc_state(igrid, s, ixG^L, ixGext^L, alloc_x)
       allocate(s%B0(ixG^S,1:ndir,0:ndim))
       allocate(s%J0(ixG^S,7-2*ndir:3))
     end if
+    if(number_equi_vars > 0) then
+      allocate(s%equi_vars(ixG^S,1:number_equi_vars))
+    endif
+
     ! allocate space for special values for each block state
     if(phys_trac) then
       ! special_values(1) Tcoff local
@@ -603,6 +609,9 @@ subroutine alloc_state(igrid, s, ixG^L, ixGext^L, alloc_x)
       s%B0=>ps(igrid)%B0
       s%J0=>ps(igrid)%J0
     end if
+    if(number_equi_vars > 0) then
+      s%equi_vars=>ps(igrid)%equi_vars
+    endif
     if(phys_trac) s%special_values=>ps(igrid)%special_values
   end if
 end subroutine alloc_state
@@ -627,9 +636,15 @@ subroutine dealloc_state(igrid, s,dealloc_x)
       deallocate(s%B0)
       deallocate(s%J0)
     end if
+    if(number_equi_vars > 0) then
+      deallocate(s%equi_vars)
+    end if
   else
     nullify(s%x,s%dx,s%ds,s%dvolume,s%surfaceC,s%surface)
     if(B0field) nullify(s%B0,s%J0)
+    if(number_equi_vars > 0) then
+      nullify(s%equi_vars)
+    end if
   end if
 end subroutine dealloc_state
 
