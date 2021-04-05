@@ -18,9 +18,9 @@ INC_DIRS := $(LIB_DIR)
 LIB_DIRS := $(LIB_DIR)
 LIBS := amrvac
 
-.PHONY: all clean allclean force
+.PHONY: all clean allclean force hdr
 
-all: amrvac
+all: hdr amrvac
 
 # Include architecture and compilation rules
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
@@ -55,5 +55,8 @@ allclean: clean
 
 # Dependencies
 amrvac: mod_usr.o amrvac.o
+hdr:
+	cp amrvac.h $(LIB_DIR)
+
 amrvac.o mod_usr.o: $(LIB_AMRVAC)
 amrvac.o: mod_usr.o

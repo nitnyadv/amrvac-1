@@ -3,6 +3,9 @@ VACPP := $(AMRVAC_DIR)/src/vacpp.pl
 # Disable built-in make rules
 .SUFFIXES:
 
+#only this uses amrvac.h -> so no recpompilation needed for the rest, by now, Speedup
+mod_twofl_phys.o: mod_twofl_phys.f amrvac.h
+	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
 # How to compile modules into object files
 mod_%.o: mod_%.f
 	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
