@@ -59,6 +59,7 @@ amrvac: mod_usr.o amrvac.o
 # copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl) if exists
 hdr:
 ifneq ("$(wildcard amrvac.h)","")
+	@mkdir -p $(LIB_DIR)	# Prevent error message
 	cp -u amrvac.h $(LIB_DIR)
 endif
 
