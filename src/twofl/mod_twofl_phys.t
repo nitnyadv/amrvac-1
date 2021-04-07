@@ -467,6 +467,8 @@ contains
     rho_n_ = var_set_fluxvar("rho_n", "rho_n")
 #endif
     rho_c_ = var_set_fluxvar("rho_c", "rho_c")
+    !set variables from mo_variables to point to charges vars
+    iw_rho = rho_c_
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     allocate(mom_n(ndir))
@@ -480,6 +482,8 @@ contains
       mom_c(idir) = var_set_fluxvar("m_c","v_c",idir)
     enddo
 
+    allocate(iw_mom(ndir))
+    iw_mom(1:ndir) = mom_c(1:ndir)
 
     ! Set index of energy variable
     if (phys_energy) then
@@ -487,12 +491,14 @@ contains
       e_n_ = var_set_fluxvar("e_n", "p_n")
 #endif
       e_c_ = var_set_fluxvar("e_c", "p_c")
+      iw_e = e_c_
     else
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       e_n_     = -1
 #endif
       e_c_     = -1
     end if
+
 
     allocate(mag(ndir))
     mag(:) = var_set_bfield(ndir)
@@ -507,6 +513,7 @@ contains
     !  set auxiliary internal energy variable
     if(phys_energy .and. phys_solve_eaux) then
       eaux_c_ = var_set_fluxvar("eaux_c", "paux_c",need_bc=.false.)
+      iw_eaux = eaux_c_
     else
       eaux_c_ = -1
     end if
@@ -519,6 +526,7 @@ contains
 #endif
     if(twofl_trac) then
       Tcoff_c_ = var_set_fluxvar('Tcoff_c', 'TCoff_c', need_bc=.false.)
+      iw_tcoff = Tcoff_c_
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       Tcoff_n_ = var_set_fluxvar('Tcoff_n', 'TCoff_n', need_bc=.false.)
 #endif
