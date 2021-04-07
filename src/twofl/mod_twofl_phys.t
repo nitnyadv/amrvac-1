@@ -234,6 +234,7 @@ module mod_twofl_phys
   public :: twofl_to_primitive
   public :: get_divb
   public :: get_current
+  public :: twofl_get_pthermal_c
   public :: get_normalized_divb
   public :: b_from_vector_potential
   {^NOONED
@@ -803,10 +804,11 @@ contains
     end if
 
 
-    a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 
-    b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0
-    c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr
-    d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr
+    a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 !rho_c 
+    b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
+    c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr !rho_n
+    d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
+
 
     if(unit_velocity==0) then
       unit_density_c=a*mp*unit_numberdensity
@@ -848,16 +850,29 @@ contains
     logical, intent(inout) :: flag(ixI^S,1:nw)
 
     flag=.false.
+    !TODO 
+    return
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    where(w(ixO^S, rho_n_) < small_density) flag(ixO^S,rho_n_) = .true.
+        
+    call get_rhon_tot(w,ixI^L,ixO^L,tmp)
+    where(tmp(ixO^S) < small_density) flag(ixO^S,rho_n_) = .true.
 #endif
-    where(w(ixO^S, rho_c_) < small_density) flag(ixO^S,rho_c_) = .true.
+    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
+    where(tmp(ixO^S) < small_density) flag(ixO^S,rho_c_) = .true.
     if(phys_energy) then
       if(primitive) then
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-        where(w(ixO^S,e_n_) < small_pressure) flag(ixO^S,e_n_) = .true.
+        tmp(ixO^S) = w(ixO^S,e_n_)
+        if(has_equi_pe_n0) then
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_)*gamma_1
+        endif
+        where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_n_) = .true.
 #endif
-        where(w(ixO^S,e_c_) < small_pressure) flag(ixO^S,e_c_) = .true.
+        tmp(ixO^S) = w(ixO^S,e_c_)
+        if(has_equi_pe_c0) then
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_)*gamma_1
+        endif
+        where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_c_) = .true.
         if(twofl_eq_energy == EQ_ENERGY_TOT2) then 
           where(w(ixO^S,eaux_c_) < small_pressure) flag(ixO^S,e_c_) = .true.
         endif
@@ -959,6 +974,7 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     double precision                :: rhon(ixI^S)
 #endif
+
 
     if (fix_small_values) then
       call twofl_handle_small_values(.false., w, x, ixI^L, ixO^L, 'twofl_to_primitive')
@@ -1095,6 +1111,9 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     double precision :: rhon(ixI^S)
 #endif
+
+    !TODO 
+    return
 
     if(small_values_method == "ignore") return
 
@@ -1888,7 +1907,7 @@ contains
     double precision, intent(out)   :: csound2(ixI^S)
     double precision  :: csound1(ixI^S),rhon(ixI^S),rhoc(ixI^S)
 
-    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     if(has_equi_pe_n0) then
       csound1(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_)
     else
@@ -1901,7 +1920,7 @@ contains
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
-    csound2(ixO^S)=twofl_gamma*
+    csound2(ixO^S)=twofl_gamma*&
                      max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
                       csound1(ixO^S)/rhon(ixO^S),&
                       csound2(ixO^S)/rhoc(ixO^S)&
@@ -1961,6 +1980,16 @@ contains
     double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
     double precision, allocatable:: vHall(:^D&,:)
     integer                      :: idirmin, iw, idir, jdir, kdir
+
+!    print*, "IDM", idim
+!
+!    print*, "GETFLUX mom_c", w(ixOmin1:ixOmin1+5,mom_c(1))
+!    print*, "GETFLUX rho_c", w(ixOmin1:ixOmin1+5,rho_c_)
+!    print*, "GETFLUX e_c", w(ixOmin1:ixOmin1+5,e_c_)
+!    print*, "GETFLUX b", w(ixOmin1:ixOmin1+5,mag(1:3))
+!    print*, "GETFLUX mom_n", w(ixOmin1:ixOmin1+5,mom_n(1))
+!    print*, "GETFLUX rho_n", w(ixOmin1:ixOmin1+5,rho_n_)
+!    print*, "GETFLUX e_n", w(ixOmin1:ixOmin1+5,e_n_)
 
     !reuse tmp, used afterwards
     call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
@@ -2137,6 +2166,15 @@ contains
       !endif
     end if
 #endif
+!    print*, "2GETFLUX mom_c", f(ixOmin1:ixOmin1+5,mom_c(1))
+!    print*, "2GETFLUX mom_c2", f(ixOmin1:ixOmin1+5,mom_c(2))
+!    print*, "GETFLUX rho_c", f(ixOmin1:ixOmin1+5,rho_c_)
+!    print*, "GETFLUX e_c", f(ixOmin1:ixOmin1+5,e_c_)
+!    print*, "GETFLUX b", f(ixOmin1:ixOmin1+5,mag(1:3))
+!    print*, "2GETFLUX mom_n", f(ixOmin1:ixOmin1+5,mom_n(1))
+!    print*, "2GETFLUX mom_n2", f(ixOmin1:ixOmin1+5,mom_n(2))
+!    print*, "GETFLUX rho_n", f(ixOmin1:ixOmin1+5,rho_n_)
+!    print*, "GETFLUX e_n", f(ixOmin1:ixOmin1+5,e_n_)
 
   end subroutine twofl_get_flux
 
@@ -2559,7 +2597,7 @@ contains
     call twofl_get_v_n(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,e_n_)
 
-    if(fix_small_values) then
+    if(fix_small_values .and. .not. has_equi_pe_n0) then
       call twofl_handle_small_ei(w,x,ixI^L,ixO^L,e_n_,'internal_energy_add_source')
     end if
   end subroutine internal_energy_add_source_n
@@ -2630,7 +2668,7 @@ contains
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,ie)
 
-    if(fix_small_values) then
+    if(fix_small_values .and. .not. has_equi_pe_c0) then
       call twofl_handle_small_ei(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
     end if
   end subroutine internal_energy_add_source_c
@@ -2652,6 +2690,8 @@ contains
     double precision              :: rhon(ixI^S)
 #endif
 
+    !TODO
+    return
 
     flag=.false.
     where(w(ixO^S,ie)<small_e) flag(ixO^S,ie)=.true.
@@ -2718,7 +2758,7 @@ contains
       if(.not.B0field_forcefree) b(ixO^S,:)=b(ixO^S,:)+block%B0(ixO^S,:,0)
       ! store velocity in a
       do idir=1,ndir
-        a(ixO^S,idir)=wCT(ixO^S,mom_c(idir))/wCT(ixO^S,rho_c_)
+        call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idir,a(ixI^S,idir))
       end do
       call cross_product(ixI^L,ixO^L,a,b,axb)
       axb(ixO^S,:)=axb(ixO^S,:)*qdt
@@ -4917,6 +4957,9 @@ contains
       psb(igrid)%w(ixG^T,rho_n_) = psa(igrid)%w(ixG^T,rho_n_)
       psb(igrid)%w(ixG^T,rho_c_) = psa(igrid)%w(ixG^T,rho_c_)
 
+      !print*, "PSA momn", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_n(1))
+      !print*, "PSA momc", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_c(1))
+
       if(has_equi_rho_n0) then
         rhon(ixG^T) = psa(igrid)%w(ixG^T,rho_n_) + psa(igrid)%equi_vars(ixG^T,equi_rho_n0_)
       else  
@@ -4976,6 +5019,8 @@ contains
         psb(igrid)%w(ixG^T,e_c_) = psb(igrid)%w(ixG^T,e_c_) + tmp(ixG^T)
       endif
 
+      !print*, "PSB momn", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_n(1))
+      !print*, "PSB momc", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_c(1))
     end do
     !$OMP END PARALLEL DO
 
