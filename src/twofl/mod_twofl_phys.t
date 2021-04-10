@@ -152,6 +152,10 @@ module mod_twofl_phys
   !> Ratio of number He2+ / number He+ + He2+
   !> He_ion_fr2 = (He2+ + He+)/(He2+ + He+ + He)
   double precision, public, protected  :: He_ion_fr2=0
+  double precision, public, protected  :: Rc  ! defined for compat with the new eq of state, it is set to 1 for ONE_FLUID
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+  double precision, public, protected  :: Rn,rho_nc_fr
+#endif
   ! Eq of state end
 
   !> The adiabatic index
@@ -797,7 +801,6 @@ contains
 
   subroutine twofl_physical_units()
     use mod_global_parameters
-    use mod_twofl_units
     double precision :: mp,kB,miu0
     double precision :: a,b,c,d
     ! Derive scaling units
@@ -816,35 +819,39 @@ contains
     b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
     c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr !rho_n
     d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
-
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    Rc=b/a
+    Rn=d/c
+    rho_nc_fr = c/a
+    if(mype .eq.0) then
+      print*, "eq state Rn=", Rn, " Rc=",Rc
+    endif
+#else
+    Rc = 1d0 !for compatibility, eq of state defined by units
+#endif
 
     if(unit_velocity==0) then
-      unit_density_c=a*mp*unit_numberdensity
-      unit_pressure_c=b*unit_numberdensity*kB*unit_temperature
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      unit_density_n=c*mp*unit_numberdensity
-      unit_pressure_n=d*unit_numberdensity*kB*unit_temperature
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      unit_density=a*mp*unit_numberdensity
+      unit_pressure=b*unit_numberdensity*kB*unit_temperature
 #else
-      unit_pressure_n = 0d0
-      unit_density_n = 0d0
+      unit_density=mp*unit_numberdensity
+      unit_pressure=unit_numberdensity*kB*unit_temperature
 #endif
-      unit_velocity=sqrt((unit_pressure_n + unit_pressure_c)/(unit_density_n + unit_density_c))
-      unit_magneticfield=sqrt(miu0*(unit_pressure_c + unit_pressure_n))
-      unit_time=unit_length/unit_velocity
+      unit_velocity=sqrt(unit_pressure/unit_density)
     else
-      unit_density_c=a*mp*unit_numberdensity
-      unit_pressure_c=unit_density_n*unit_velocity**2
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      unit_density_n=c*mp*unit_numberdensity
-      unit_pressure_n = unit_pressure_c * d/b
+
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      unit_density=a*mp*unit_numberdensity
+      unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
 #else
-      unit_pressure_n = 0d0
-      unit_density_n = 0d0
+      unit_density=mp*unit_numberdensity
+      unit_temperature=unit_pressure/(unit_numberdensity*kB)
 #endif
-      unit_temperature=unit_pressure_c/(a*unit_numberdensity*kB)
-      unit_magneticfield=sqrt(miu0*(unit_pressure_c + unit_pressure_n))
-      unit_time=unit_length/unit_velocity
+      unit_pressure=unit_density*unit_velocity**2
     end if
+    unit_magneticfield=sqrt(miu0*unit_pressure)
+    unit_time=unit_length/unit_velocity
 
   end subroutine twofl_physical_units
 
@@ -960,6 +967,8 @@ contains
                    +half*sum(w(ixO^S,mom_c(:))**2,dim=ndim+1)*rhoc(ixO^S)
         endif
       end if
+      !print*, "TOCONS ec ", w(1:10,e_c_)
+      !print*, "TOCONS en ", w(1:10,e_n_)
     end if
 
     ! Convert velocity to momentum
@@ -1569,15 +1578,15 @@ contains
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma2(ixO^S)
-
-    !inv_rho=1.d0/(w(ixO^S,rho_n_) + w(ixO^S,rho_c_))
-    !TODO
-    if(has_equi_rho_c0) then
-      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_))
-    else  
-      inv_rho=1.d0/w(ixO^S,rho_c_)
-    end if
-
+    double precision :: rhon(ixI^S), rhoc(ixI^S)
+    !TODO csound
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhon)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
+#else
+    inv_rho=1.d0/rhoc(ixO^S)
+#endif
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
     else
@@ -1928,11 +1937,10 @@ contains
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
-    csound2(ixO^S)=twofl_gamma*&
-                     max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
-                      csound1(ixO^S)/rhon(ixO^S),&
-                      csound2(ixO^S)/rhoc(ixO^S)&
-                        )
+     !TODO csound 
+!    csound2(ixO^S)=twofl_gamma*(csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S))
+    csound2(ixO^S)=twofl_gamma*max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
+                      csound1(ixO^S)/rhon(ixO^S), csound2(ixO^S)/rhoc(ixO^S))
   end subroutine twofl_get_csound2_from_pe
 
 #else
@@ -4938,8 +4946,7 @@ contains
     !> Implicit solve of psb=psa+dtfactor*dt*F_im(psb)
   subroutine twofl_implicit_coll_terms_update(dtfactor,qdt,qtC,psb,psa)
     use mod_global_parameters
-    use mod_forest
-    use mod_multigrid_coupling
+    use mod_ghostcells_update
 
     type(state), target :: psa(max_blocks)
     type(state), target :: psb(max_blocks)
@@ -4947,15 +4954,15 @@ contains
     double precision, intent(in) :: qtC
     double precision, intent(in) :: dtfactor
 
-    double precision :: tmp(ixG^T),tmp1(ixG^T),tmp2(ixG^T),tmp3(ixG^T)
-    double precision :: vc(ixG^T,ndir), vn(ixG^T,ndir)
-    !TODO ? double precision, dimension(:^D&,:), allocatable :: vc, vn
+    double precision :: tmp(ixG^T),tmp1(ixG^T),tmp2(ixG^T),tmp3(ixG^T),tmp4(ixG^T),tmp5(ixG^T)
+    double precision :: v_c(ixG^T,ndir), v_n(ixG^T,ndir)
     integer :: idir
     integer :: iigrid, igrid
     double precision :: rhon(ixG^T), rhoc(ixG^T)
     !print*, "IMPL call ", it
 
     !$OMP PARALLEL DO PRIVATE(igrid)
+    call getbc(global_time,0.d0,psa,1,nw)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
 
       ! first copy psa into psb
@@ -4968,67 +4975,78 @@ contains
       !print*, "PSA momn", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_n(1))
       !print*, "PSA momc", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_c(1))
 
-      if(has_equi_rho_n0) then
-        rhon(ixG^T) = psa(igrid)%w(ixG^T,rho_n_) + psa(igrid)%equi_vars(ixG^T,equi_rho_n0_)
-      else  
-        rhon(ixG^T) = psa(igrid)%w(ixG^T,rho_n_) 
-      endif
-
-      if(has_equi_rho_c0) then
-        rhoc(ixG^T) = psa(igrid)%w(ixG^T,rho_c_) + psa(igrid)%equi_vars(ixG^T,equi_rho_c0_)
-      else  
-        rhoc(ixG^T) = psa(igrid)%w(ixG^T,rho_c_) 
-      endif
+      call get_rhon_tot(psa(igrid)%w,ixG^LL,ixG^LL,rhon)
+      call get_rhoc_tot(psa(igrid)%w,ixG^LL,ixG^LL,rhoc)
 
       tmp3(ixG^T) =  1d0 + dtfactor * dt * twofl_alpha_coll * (rhon(ixG^T) +  rhoc(ixG^T))     
       ! momentum update
       do idir=1,ndir
-        tmp(ixG^T) = psa(igrid)%w(ixG^T,mom_n(idir)) + psa(igrid)%w(ixG^T,mom_c(idir))
+        tmp(ixG^T) = twofl_alpha_coll * dtfactor * dt *(-rhoc(ixG^T) * psa(igrid)%w(ixG^T,mom_n(idir)) + &
+                                          rhon(ixG^T) * psa(igrid)%w(ixG^T,mom_c(idir)))/tmp3(ixG^T)
 
-        psb(igrid)%w(ixG^T,mom_n(idir)) = &
-            (psa(igrid)%w(ixG^T,mom_n(idir)) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
-        psb(igrid)%w(ixG^T,mom_c(idir)) = &
-            (psa(igrid)%w(ixG^T,mom_c(idir)) + dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
+        psb(igrid)%w(ixG^T,mom_n(idir)) = psa(igrid)%w(ixG^T,mom_n(idir)) + tmp(ixG^T)
+        psb(igrid)%w(ixG^T,mom_c(idir)) = psa(igrid)%w(ixG^T,mom_c(idir)) - tmp(ixG^T)
       enddo
-      ! energy update
-      if(twofl_coll_inc_te) then
-        tmp1(ixG^T) = psa(igrid)%w(ixG^T,e_n_)
-        tmp2(ixG^T) = psa(igrid)%w(ixG^T,e_c_)
-        tmp(ixG^T) = tmp1(ixG^T) + tmp2(ixG^T)
-        psb(igrid)%w(ixG^T,e_n_) = (tmp1(ixG^T) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
-        psb(igrid)%w(ixG^T,e_c_) = (tmp2(ixG^T) + dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * tmp(ixG^T))/tmp3(ixG^T)
-        if(twofl_eq_energy == EQ_ENERGY_TOT) then
-          psb(igrid)%w(ixG^T,e_c_) = psb(igrid)%w(ixG^T,e_c_) + dtfactor * dt * twofl_alpha_coll * rhon(ixG^T) * twofl_mag_en(psa(igrid)%w,ixG^LL,ixG^LL)
-        endif
-      else
-        if(phys_internal_e) then
-          psb(igrid)%w(ixG^T,e_n_) = 0d0
-          psb(igrid)%w(ixG^T,e_c_) = 0d0
-        else
-          ! calculate velocities, using the already updated variables
-          call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vc)
-          call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vn)
-          ! tmp = dtfactor * dt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in mom eq.
-          tmp(ixG^T) = 0.5d0*(sum(vc(ixG^T,1:ndir)**2, dim=ndim+1) - sum(vn(ixG^T,1:ndir)**2, dim=ndim+1))&
-                             * dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * rhon(ixG^T)
-          psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
-          psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) - tmp(ixG^T)
-        endif
-      endif
 
-      if(twofl_eq_energy == EQ_ENERGY_INT) then
+!      !print*, "ec ", psa(igrid)%w(1:10,e_c_) 
+!      !print*, "en ", psa(igrid)%w(1:10,e_n_) 
+!      !energy update
+!      ! tmp4 = e int n
+!      ! tmp5 = e int c
+!      ! contribution from velocity
+      if(.not. phys_internal_e) then
+        ! kinetic energy update
+        tmp1(ixG^T) =  twofl_kin_en_n(psa(igrid)%w,ixG^LL,ixG^LL) 
+        tmp2(ixG^T) =  twofl_kin_en_c(psa(igrid)%w,ixG^LL,ixG^LL) 
+        tmp4(ixG^T) = psa(igrid)%w(ixG^T,e_n_) - tmp1(ixG^T)
+        tmp5(ixG^T) = psa(igrid)%w(ixG^T,e_c_) - tmp2(ixG^T)
+      !print*, "ec int ", tmp4(1:10) 
+      !print*, "en int ", tmp5(1:10) 
+        if(phys_total_energy) then
+          tmp5(ixG^T) = tmp5(ixG^T) - twofl_mag_en(psa(igrid)%w,ixG^LL,ixG^LL)
+        endif
+
+        !!implicit update
+        tmp(ixG^T) = twofl_alpha_coll * dtfactor * dt * &
+                           (-rhoc(ixG^T) * tmp1(ixG^T) + rhon(ixG^T) * tmp2(ixG^T))/tmp3(ixG^T)
+        psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) - tmp(ixG^T)
+
+       !explicit update 
+!        ! calculate velocities, using the already updated variables
+!        call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,v_n)
+!        call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,v_c)
+!        tmp(ixG^T) = 0.5d0 * (sum(v_c(ixG^T,1:ndir), dim=ndim+1) - sum(v_n(ixG^T,1:ndir)**2, dim=ndim+1)) &
+!                     * dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * rhon(ixG^T)
+!        
+!        psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
+!        psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) - tmp(ixG^T)
+
+       else 
+        tmp4(ixG^T) = psa(igrid)%w(ixG^T,e_n_) 
+        tmp5(ixG^T) = psa(igrid)%w(ixG^T,e_c_) 
         ! calculate velocities, using the already updated variables
-        call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vc)
-        call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,vn)
-        ! tmp = dtfactor * dt * 1/2 * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING
-        tmp(ixG^T) = 0.5d0 * sum((vc(ixG^T,1:ndir) - vn(ixG^T,1:ndir))**2, dim=ndim+1) &
+        call twofl_get_v_n(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,v_n)
+        call twofl_get_v_c(psb(igrid)%w,psb(igrid)%x,ixG^LL,ixG^LL,v_c)
+        tmp(ixG^T) = 0.5d0 * sum((v_c(ixG^T,1:ndir) - v_n(ixG^T,1:ndir))**2, dim=ndim+1) &
                      * dtfactor * dt * twofl_alpha_coll * rhoc(ixG^T) * rhon(ixG^T)
-        psb(igrid)%w(ixG^T,e_n_) = psb(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
-        psb(igrid)%w(ixG^T,e_c_) = psb(igrid)%w(ixG^T,e_c_) + tmp(ixG^T)
-      endif
+        psb(igrid)%w(ixG^T,e_n_) = psa(igrid)%w(ixG^T,e_n_) + tmp(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = psa(igrid)%w(ixG^T,e_c_) + tmp(ixG^T)
+       endif
 
-      !print*, "PSB momn", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_n(1))
-      !print*, "PSB momc", psa(igrid)%w(ixGlo1:ixGlo1+5,mom_c(1))
+      !update internal energy
+      if(twofl_coll_inc_te) then
+!        if(has_equi_pe_n0) then
+!          tmp4(ixG^T) = tmp4(ixG^T) + psa(igrid)%equi_vars(ixG^T,equi_pe_n0_)*inv_gamma_1  
+!        endif
+!        if(has_equi_pe_c0) then
+!          tmp5(ixG^T) = tmp5(ixG^T) + psa(igrid)%equi_vars(ixG^T,equi_pe_c0_)*inv_gamma_1 
+!        endif
+        tmp3(ixG^T) =  1d0 + dtfactor * dt * twofl_alpha_coll * (rhon(ixG^T)/Rc +  rhoc(ixG^T)/Rn) !2 from braginskii    
+        tmp(ixG^T) = dtfactor * dt * twofl_alpha_coll *(-rhoc(ixG^T)/Rn * tmp4(ixG^T) + rhon(ixG^T)/Rc * tmp5(ixG^T))/tmp3(ixG^T)
+        psb(igrid)%w(ixG^T,e_n_) = psb(igrid)%w(ixG^T,e_n_)+tmp(ixG^T)
+        psb(igrid)%w(ixG^T,e_c_) = psb(igrid)%w(ixG^T,e_c_)-tmp(ixG^T)
+      endif
     end do
     !$OMP END PARALLEL DO
 
@@ -5056,67 +5074,71 @@ contains
 !    print*, " RHOC ", wCT(ixI^S,rho_c_) 
 !    print*, " RHON ", wCT(ixI^S,rho_n_) 
 !    print*, " MOM N ", wCT(ixI^S,mom_n(idir))
-!    print*, " MOM C ", wCT(ixI^S,mom_c(idir))
+!    print*, " MOM C ", wCT(ixO^S,mom_c(idir))
     if(has_equi_rho_n0) then
-      rhon(ixI^S) = wCT(ixI^S,rho_n_) + block%equi_vars(ixI^S,equi_rho_n0_)
+      rhon(ixO^S) = wCT(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_)
     else  
-      rhon(ixI^S) = wCT(ixI^S,rho_n_) 
+      rhon(ixO^S) = wCT(ixO^S,rho_n_) 
     endif
 
     if(has_equi_rho_c0) then
-      rhoc(ixI^S) = wCT(ixI^S,rho_c_) + block%equi_vars(ixI^S,equi_rho_c0_)
+      rhoc(ixO^S) = wCT(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
     else  
-      rhoc(ixI^S) = wCT(ixI^S,rho_c_) 
+      rhoc(ixO^S) = wCT(ixO^S,rho_c_) 
     endif
 
     ! momentum update
     do idir=1,ndir
       ! the coll. term in the neutrals momentum eq. multiplied by qdt
-      tmp(ixI^S) = qdt * twofl_alpha_coll * (-rhoc(ixI^S) * wCT(ixI^S,mom_n(idir)) + rhon(ixI^S) * wCT(ixI^S,mom_c(idir)))
-      w(ixI^S,mom_n(idir)) = w(ixI^S,mom_n(idir)) + tmp(ixI^S) 
-      w(ixI^S,mom_c(idir)) = w(ixI^S,mom_c(idir)) - tmp(ixI^S) 
+      tmp(ixO^S) = qdt * twofl_alpha_coll * (-rhoc(ixO^S) * wCT(ixO^S,mom_n(idir)) + rhon(ixO^S) * wCT(ixO^S,mom_c(idir)))
+      w(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S) 
+      w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S) 
 
     enddo
     ! energy update
     ! calculate velocities
-    allocate(vc(ixI^S,1:ndir),vn(ixI^S,1:ndir))
+    allocate(vc(ixO^S,1:ndir),vn(ixO^S,1:ndir))
 
     !use the updated vars
-    call twofl_get_v_c(w,x,ixI^L,ixI^L,vc)
-    call twofl_get_v_n(w,x,ixI^L,ixI^L,vn)
+    call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
+    call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
     if(twofl_eq_energy == EQ_ENERGY_INT) then
       ! tmp = qdt * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING multiplied by qdt
-      tmp(ixI^S) = 0.5d0 * sum((vc(ixI^S, 1:ndir) - vn(ixI^S, 1:ndir))**2, dim=ndim+1)&
-         * qdt * twofl_alpha_coll * rhoc(ixI^S) * rhon(ixI^S)
+      tmp(ixO^S) = 0.5d0 * sum((vc(ixO^S, 1:ndir) - vn(ixO^S, 1:ndir))**2, dim=ndim+1)&
+         * qdt * twofl_alpha_coll * rhoc(ixO^S) * rhon(ixO^S)
     endif
     if(.not. twofl_coll_inc_te) then
       if(phys_internal_e) then
-        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp(ixI^S)
-        w(ixI^S,e_c_) = w(ixI^S,e_c_) + tmp(ixI^S)
+        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
+        w(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)
       else  
         ! tmp = qdt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in NEUTRALS mom
         ! eq. MULTIPLIED by qdt
-        tmp(ixI^S) = 0.5d0*(sum(vc(ixI^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixI^S, 1:ndir)**2,dim=ndim+1))&
-                     * qdt * twofl_alpha_coll * rhoc(ixI^S) * rhon(ixI^S)
-        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp(ixI^S)
-        w(ixI^S,e_c_) = w(ixI^S,e_c_) - tmp(ixI^S)
+        tmp(ixO^S) = 0.5d0*(sum(vc(ixO^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixO^S, 1:ndir)**2,dim=ndim+1))&
+                     * qdt * twofl_alpha_coll * rhoc(ixO^S) * rhon(ixO^S)
+        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
+        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S)
       endif  
     else
       ! coll term THERMAL EXCHANGE in neutrals energy eq. multiplied by qdti
       if(phys_total_energy) then
-        tmp2(ixI^S) = qdt * twofl_alpha_coll * (-rhoc(ixI^S) * wCT(ixI^S,e_n_) +& 
-                    rhon(ixI^S) * (wCT(ixI^S,e_c_) - twofl_mag_en(wCT,ixI^L,ixO^L)) )
+        tmp2(ixO^S) = qdt * twofl_alpha_coll * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
+                    rhon(ixO^S) * (wCT(ixO^S,e_c_) - twofl_mag_en(wCT,ixO^L,ixO^L)) *2d0/Rc )
       else
-        tmp2(ixI^S) = qdt * twofl_alpha_coll * (-rhoc(ixI^S) * wCT(ixI^S,e_n_) +& 
-                    rhon(ixI^S) * wCT(ixI^S,e_c_) )
+        tmp2(ixO^S) = qdt * twofl_alpha_coll * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
+                    rhon(ixO^S) * wCT(ixO^S,e_c_)*2d0/Rc )
+      endif
+      if(.not. phys_internal_e) then
+          tmp2(ixO^S) = tmp2(ixO^S) + qdt * twofl_alpha_coll * (-rhoc(ixO^S) * twofl_kin_en_n(wCT,ixO^L,ixO^L)*(1d0 -2d0/Rn) +&
+                                                            rhon(ixO^S) * twofl_kin_en_c(wCT,ixO^L,ixO^L)*(1d0 - 2d0/Rc))           
       endif
       if(phys_internal_e) then
-        w(ixI^S,e_n_) = w(ixI^S,e_n_) + (tmp(ixI^S) + tmp2(ixI^S))
-        w(ixI^S,e_c_) = w(ixI^S,e_c_) + (tmp(ixI^S) - tmp2(ixI^S))
+        w(ixO^S,e_n_) = w(ixO^S,e_n_) + (tmp(ixO^S) + tmp2(ixO^S))
+        w(ixO^S,e_c_) = w(ixO^S,e_c_) + (tmp(ixO^S) - tmp2(ixO^S))
 
       else
-        w(ixI^S,e_n_) = w(ixI^S,e_n_) + tmp2(ixI^S)
-        w(ixI^S,e_c_) = w(ixI^S,e_c_) - tmp2(ixI^S)
+        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp2(ixO^S)
+        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp2(ixO^S)
       endif
     endif
     deallocate(vc,vn)
