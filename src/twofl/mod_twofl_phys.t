@@ -1275,7 +1275,6 @@ contains
 #endif
         +cmax(ixO^S)
 
-
   end subroutine twofl_get_cmax
 
   subroutine twofl_get_a2max(w,x,ixI^L,ixO^L,a2max)
@@ -1578,15 +1577,16 @@ contains
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma2(ixO^S)
-    double precision :: rhon(ixI^S), rhoc(ixI^S)
+    double precision :: rhoc(ixI^S)
+!    double precision :: rhon(ixI^S)
     !TODO csound
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhon)
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
-#else
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+!#if !defined(ONE_FLUID) || ONE_FLUID==0
+!    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+!    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
+!#else
     inv_rho=1.d0/rhoc(ixO^S)
-#endif
+!#endif
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
     else
