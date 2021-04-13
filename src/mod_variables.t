@@ -46,22 +46,22 @@ module mod_variables
   ! Global indices of variables that are often used
 
   !> Index of the (gas) density
-  integer, protected :: iw_rho = -1
+  integer :: iw_rho = -1
 
   !> Indices of the momentum density
-  integer, allocatable, protected :: iw_mom(:)
+  integer, allocatable :: iw_mom(:)
 
   !> Index of the energy density
-  integer, protected :: iw_e = -1
+  integer :: iw_e = -1
 
   !> Index of the internal energy density
-  integer, protected :: iw_eaux = -1
+  integer  :: iw_eaux = -1
 
   !> Indices of the magnetic field components
   integer, allocatable, protected :: iw_mag(:)
 
   !> Index of the cutoff temperature for the TRAC method
-  integer, protected :: iw_tcoff = -1
+  integer :: iw_tcoff = -1
 
 contains
 

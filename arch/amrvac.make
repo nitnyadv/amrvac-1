@@ -18,9 +18,9 @@ INC_DIRS := $(LIB_DIR)
 LIB_DIRS := $(LIB_DIR)
 LIBS := amrvac
 
-.PHONY: all clean allclean force
+.PHONY: all clean allclean force hdr
 
-all: amrvac
+all: hdr amrvac
 
 # Include architecture and compilation rules
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
@@ -55,5 +55,13 @@ allclean: clean
 
 # Dependencies
 amrvac: mod_usr.o amrvac.o
+
+# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl) if exists
+hdr:
+ifneq ("$(wildcard amrvac.h)","")
+	@mkdir -p $(LIB_DIR)	# Prevent error message
+	cp -u amrvac.h $(LIB_DIR)
+endif
+
 amrvac.o mod_usr.o: $(LIB_AMRVAC)
 amrvac.o: mod_usr.o

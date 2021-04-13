@@ -3,6 +3,15 @@ VACPP := $(AMRVAC_DIR)/src/vacpp.pl
 # Disable built-in make rules
 .SUFFIXES:
 
+
+#only this uses amrvac.h 
+ifneq ("$(wildcard amrvac.h)","")
+mod_twofl%.o: mod_twofl%.f amrvac.h
+	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
+else
+mod_twofl%.o: ;
+mod_twofl%.mod: ;
+endif
 # How to compile modules into object files
 mod_%.o: mod_%.f
 	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))

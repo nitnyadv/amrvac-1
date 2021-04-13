@@ -291,7 +291,6 @@ mod_twofl_phys.o: mod_radiative_cooling.mod
 mod_twofl_phys.o: mod_small_values.mod
 mod_twofl_phys.o: mod_supertimestepping.mod
 mod_twofl_phys.o: mod_thermal_conduction.mod
-mod_twofl_phys.o: mod_twofl_units.mod
 mod_twofl_phys.o: mod_viscosity.mod
 mod_usr_template.o: mod_mhd.mod
 mod_variables.o: mod_basic_types.mod
