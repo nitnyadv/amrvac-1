@@ -47,7 +47,19 @@ module mod_twofl_phys
 
   !> Whether Hall-MHD is used
   logical, public, protected              :: twofl_Hall = .false.
+#if defined(ONE_FLUID) && ONE_FLUID==1
+  !> Whether Ambipolar term is used
+  logical, public, protected              :: twofl_ambipolar = .false.
 
+  !> Whether Ambipolar term is implemented using supertimestepping
+  logical, public, protected              :: twofl_ambipolar_sts = .false.
+
+  !> Whether Ambipolar term is implemented explicitly
+  logical, public, protected              :: twofl_ambipolar_exp = .false.
+
+  !> The MHD ambipolar coefficient
+  double precision, public                :: twofl_eta_ambi = 0.0d0
+#endif
 
   !> Whether TRAC method is used
   logical, public, protected              :: twofl_trac = .false.
@@ -245,8 +257,24 @@ module mod_twofl_phys
   public :: twofl_clean_divb_multigrid
   }
 
+#if defined(ONE_FLUID) && ONE_FLUID==1
+  !define the subroutine interface for the ambipolar mask
+  abstract interface
 
+    subroutine mask_subroutine(ixI^L,ixO^L,w,x,res)
+       use mod_global_parameters
+      integer, intent(in) :: ixI^L, ixO^L
+      double precision, intent(in) :: x(ixI^S,1:ndim)
+      double precision, intent(in) :: w(ixI^S,1:nw)
+      double precision, intent(inout) :: res(ixI^S)
+    end subroutine mask_subroutine
 
+  end interface
+
+   procedure (mask_subroutine), pointer :: usr_mask_ambipolar => null()
+   public :: usr_mask_ambipolar 
+
+#endif
 contains
 
   !> Read this module"s parameters from a file
@@ -267,6 +295,8 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll, twofl_implicit_coll_terms, twofl_coll_inc_te, dtcollpar,&
+#else
+      twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
 #endif
       !added end
       has_equi_rho_c0, has_equi_pe_c0,&
@@ -460,29 +490,14 @@ contains
       call mpistop("Unknown twofl_boris_method (none, reduced_force, simplification)")
     end select
 
+    !allocate charges first and the same order as in mhd module
     
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-    if(.not. twofl_implicit_coll_terms .and. (dtcollpar .le. 0d0 .or. dtcollpar .ge. 1d0)) then
-      if (mype .eq. 0) print*, "Explicit update of coll terms requires 0<dtcollpar<1, dtcollpar set to 0.8."
-      dtcollpar = 0.8
-    endif 
-
-    ! Determine flux variables
-    rho_n_ = var_set_fluxvar("rho_n", "rho_n")
-#endif
     rho_c_ = var_set_fluxvar("rho_c", "rho_c")
-    !set variables from mo_variables to point to charges vars
+    !set variables from mod_variables to point to charges vars
     iw_rho = rho_c_
 
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-    allocate(mom_n(ndir))
-#endif
     allocate(mom_c(ndir))
-    ! no assuming about mom_n, mom_c all consecutive
     do idir=1,ndir
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      mom_n(idir) = var_set_fluxvar("m_n","v_n",idir)
-#endif
       mom_c(idir) = var_set_fluxvar("m_c","v_c",idir)
     enddo
 
@@ -491,21 +506,41 @@ contains
 
     ! Set index of energy variable
     if (phys_energy) then
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      e_n_ = var_set_fluxvar("e_n", "p_n")
-#endif
       e_c_ = var_set_fluxvar("e_c", "p_c")
       iw_e = e_c_
     else
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      e_n_     = -1
-#endif
       e_c_     = -1
     end if
 
 
     allocate(mag(ndir))
     mag(:) = var_set_bfield(ndir)
+
+  !now allocate neutrals
+  ! ambipolar sts assumes mag and energy charges are continuous
+
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+
+    ! Determine flux variables
+    rho_n_ = var_set_fluxvar("rho_n", "rho_n")
+    allocate(mom_n(ndir))
+    do idir=1,ndir
+      mom_n(idir) = var_set_fluxvar("m_n","v_n",idir)
+    enddo
+    if (phys_energy) then
+      e_n_ = var_set_fluxvar("e_n", "p_n")
+    else
+      e_n_     = -1
+    end if
+
+    ! check dtcoll par
+    if(.not. twofl_implicit_coll_terms .and. (dtcollpar .le. 0d0 .or. dtcollpar .ge. 1d0)) then
+      if (mype .eq. 0) print*, "Explicit update of coll terms requires 0<dtcollpar<1, dtcollpar set to 0.8."
+      dtcollpar = 0.8
+    endif 
+
+#endif
+
 
 
     if (twofl_glm) then
@@ -737,7 +772,31 @@ contains
        end if
     end if
 
-
+#if defined(ONE_FLUID) || ONE_FLUID==1
+    if(twofl_ambipolar) then
+      phys_req_diagonal = .true.
+      if(twofl_ambipolar_sts) then
+        call sts_init()
+        if(phys_internal_e) then
+          call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),&
+               ndir,mag(1),ndir,.true.)
+        else
+          call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mom_c(ndir)+1,&
+               mag(ndir)-mom_c(ndir),mag(1),ndir,.true.)
+        end if
+      else
+        twofl_ambipolar_exp=.true.
+        ! For flux ambipolar term, we need one more reconstructed layer since currents are computed
+        ! in mhd_get_flux: assuming one additional ghost layer (two for FOURTHORDER) was
+        ! added in nghostcells.
+        if(twofl_4th_order) then
+          phys_wider_stencil = 2
+        else
+          phys_wider_stencil = 1
+        end if
+      end if
+    end if
+#endif
   end subroutine twofl_phys_init
 
   !> sets the equilibrium variables
@@ -1391,16 +1450,18 @@ contains
       else
         bunitvec(ixO^S,:)=w(ixO^S,iw_mag(:))
       end if
-      ! B direction at cell center
-      Bdir=zero
-      {do ixA^D=0,1\}
-        ixB^D=(ixOmin^D+ixOmax^D-1)/2+ixA^D;
-        Bdir(1:ndim)=Bdir(1:ndim)+bunitvec(ixB^D,1:ndim)
-      {end do\}
-      if(sum(Bdir(:)**2) .gt. zero) then
-        Bdir(1:ndim)=Bdir(1:ndim)/dsqrt(sum(Bdir(:)**2))
+      if(mhd_trac_type>1) then
+        ! B direction at cell center
+        Bdir=zero
+        {do ixA^D=0,1\}
+          ixB^D=(ixOmin^D+ixOmax^D-1)/2+ixA^D;
+          Bdir(1:ndim)=Bdir(1:ndim)+bunitvec(ixB^D,1:ndim)
+        {end do\}
+        if(sum(Bdir(:)**2) .gt. zero) then
+          Bdir(1:ndim)=Bdir(1:ndim)/dsqrt(sum(Bdir(:)**2))
+        end if
+        block%special_values(3:ndim+2)=Bdir(1:ndim)
       end if
-      block%special_values(3:ndim+2)=Bdir(1:ndim)
       tmp1(ixO^S)=dsqrt(sum(bunitvec(ixO^S,:)**2,dim=ndim+1))
       where(tmp1(ixO^S)/=0.d0)
         tmp1(ixO^S)=1.d0/tmp1(ixO^S)
@@ -1414,7 +1475,11 @@ contains
       ! temperature length scale inversed
       lts(ixO^S)=abs(sum(gradT(ixO^S,1:ndim)*bunitvec(ixO^S,1:ndim),dim=ndim+1))/Te(ixO^S)
       ! fraction of cells size to temperature length scale
-      lts(ixO^S)=minval(dxlevel)*lts(ixO^S)
+      if(slab_uniform) then
+        lts(ixO^S)=minval(dxlevel)*lts(ixO^S)
+      else
+        lts(ixO^S)=minval(block%ds(ixO^S,:),dim=ndim+1)*lts(ixO^S)
+      end if
       lrlt=.false.
       where(lts(ixO^S) > trac_delta)
         lrlt(ixO^S)=.true.
@@ -1996,7 +2061,11 @@ contains
     double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
     double precision, allocatable:: vHall(:^D&,:)
     integer                      :: idirmin, iw, idir, jdir, kdir
-
+!ambipolar
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
+    double precision, allocatable, dimension(:^D&) :: tmp2, tmp3
+#endif
 !    print*, "IDM", idim
 !
 !    print*, "GETFLUX mom_c", w(ixOmin1:ixOmin1+5,mom_c(1))
@@ -2181,6 +2250,50 @@ contains
       !  call visc_get_flux_prim(w, x, ixI^L, ixO^L, idim, f, phys_energy)
       !endif
     end if
+#else
+    ! Contributions of ambipolar term in explicit scheme
+    if(twofl_ambipolar_exp.and. .not.stagger_grid) then
+      ! ambipolar electric field
+      ! E_ambi=-eta_ambi*JxBxB=-JaxBxB=B^2*Ja-(Ja dot B)*B
+      !Ja=eta_ambi*J=J * mhd_eta_ambi/rho**2
+      allocate(Jambi(ixI^S,1:3))
+      call twofl_get_Jambi(w,x,ixI^L,ixO^L,Jambi)
+      allocate(btot(ixO^S,1:3))
+      if(B0field) then
+        do idir=1,3
+          btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+        enddo
+      else
+        btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+      endif
+      allocate(tmp2(ixO^S),tmp3(ixO^S))
+      !tmp2 = Btot^2
+      tmp2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1)
+      !tmp3 = J_ambi dot Btot
+      tmp3(ixO^S) = sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+
+      select case(idim)
+        case(1)
+          tmp(ixO^S)=btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3)
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) - tmp2(ixO^S) * Jambi(ixO^S,3) + tmp3(ixO^S) * btot(ixO^S,3)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) + tmp2(ixO^S) * Jambi(ixO^S,2) - tmp3(ixO^S) * btot(ixO^S,2)
+        case(2)
+          tmp(ixO^S)=btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1)
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) + tmp2(ixO^S) * Jambi(ixO^S,3) - tmp3(ixO^S) * btot(ixO^S,3)
+          f(ixO^S,mag(3))= f(ixO^S,mag(3)) - tmp2(ixO^S) * Jambi(ixO^S,1) + tmp3(ixO^S) * btot(ixO^S,1)
+        case(3)
+          tmp(ixO^S)=btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2)
+          f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,2) + tmp3(ixO^S) * btot(ixO^S,2)
+          f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,1) - tmp3(ixO^S) * btot(ixO^S,1)
+      endselect
+
+      if(phys_energy .and. .not. phys_internal_e) then
+        f(ixO^S,e_c_) = f(ixO^S,e_c_) + tmp2(ixO^S) *  tmp(ixO^S)
+      endif
+
+      deallocate(Jambi,btot,tmp2,tmp3)
+    endif
+
 #endif
 !    print*, "2GETFLUX mom_c", f(ixOmin1:ixOmin1+5,mom_c(1))
 !    print*, "2GETFLUX mom_c2", f(ixOmin1:ixOmin1+5,mom_c(2))
@@ -2194,6 +2307,331 @@ contains
 
   end subroutine twofl_get_flux
 
+
+#if defined(ONE_FLUID) && ONE_FLUID==1
+  !> Source terms J.E in internal energy. 
+  !> For the ambipolar term E = ambiCoef * JxBxB=ambiCoef * B^2(-J_perpB) 
+  !=> the source term J.E = ambiCoef * B^2 * J_perpB^2 = ambiCoef * JxBxB^2/B^2
+  !> ambiCoef is calculated as mhd_ambi_coef/rho^2,  see also the subroutine mhd_get_Jambi
+  subroutine add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,ie)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L,ie
+    double precision, intent(in)    :: qdt
+    double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision :: tmp(ixI^S)
+    double precision :: jxbxb(ixI^S,1:3)
+
+    call twofl_get_jxbxb(wCT,x,ixI^L,ixO^L,jxbxb)
+    tmp(ixO^S) = sum(jxbxb(ixO^S,1:3)**2,dim=ndim+1) / twofl_mag_en_all(wCT, ixI^L, ixO^L)
+    call multiplyAmbiCoef(ixI^L,ixO^L,tmp,wCT,x)   
+    w(ixO^S,ie)=w(ixO^S,ie)+qdt * tmp
+
+  end subroutine add_source_ambipolar_internal_energy
+
+  subroutine twofl_get_jxbxb(w,x,ixI^L,ixO^L,res)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: res(:^D&,:)
+
+    double precision  :: btot(ixI^S,1:3)
+
+    integer          :: idir, idirmin
+    double precision :: current(ixI^S,7-2*ndir:3)
+    double precision :: tmp(ixI^S),b2(ixI^S)
+
+    res=0.d0
+    ! Calculate current density and idirmin
+    call get_current(w,ixI^L,ixO^L,idirmin,current)
+    !!!here we know that current has nonzero values only for components in the range idirmin, 3
+ 
+    if(B0field) then
+      do idir=1,3
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+      enddo
+    else
+      btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+    endif
+    tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
+    b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
+    do idir=1,idirmin-1
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S)
+    enddo
+    do idir=idirmin,3
+      res(ixO^S,idir) = btot(ixO^S,idir) * tmp(ixO^S) - current(ixO^S,idir) * b2(ixO^S)
+    enddo
+  end subroutine twofl_get_jxbxb
+
+  !> Sets the sources for the ambipolar
+  !> this is used for the STS method
+  ! The sources are added directly (instead of fluxes as in the explicit) 
+  !> at the corresponding indices
+  !>  store_flux_var is explicitly called for each of the fluxes one by one
+  subroutine sts_set_source_ambipolar(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+
+    integer, intent(in) :: ixI^L, ixO^L,igrid,nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+
+    double precision, dimension(ixI^S,1:3) :: tmp,ff
+    double precision, allocatable, dimension(:^D&,:,:) :: fluxall
+    double precision, allocatable :: fE(:^D&,:)
+    double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
+    integer :: i, ixA^L, ie_
+
+    ixA^L=ixO^L^LADD1;
+
+    call twofl_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
+    btot(ixA^S,1:3)=0.d0
+    if(B0field) then
+      do i=1,ndir
+        btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
+      enddo
+    else
+      btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
+    endif
+
+    !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
+    do i=1,3
+      !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
+      call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
+    enddo
+
+    if(fix_conserve_at_step) then
+      allocate(fluxall(ixI^S,1:nflux,1:ndim))
+      fluxall=0.d0
+    end if
+
+    if(phys_energy .and. .not.phys_internal_e) then
+      call cross_product(ixI^L,ixA^L,tmp,btot,ff)
+      call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+      if(fix_conserve_at_step) fluxall(ixI^S,1,1:ndim)=ff(ixI^S,1:ndim)
+      !- sign comes from the fact that the flux divergence is a source now
+      wres(ixO^S,e_c_)=-tmp2(ixO^S)
+    endif
+
+    if(stagger_grid) then
+      if(ndir>ndim) then
+        !!!Bz
+        ff(ixA^S,1) = tmp(ixA^S,2)
+        ff(ixA^S,2) = -tmp(ixA^S,1)
+        ff(ixA^S,3) = 0.d0
+        call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+        if(fix_conserve_at_step) fluxall(ixI^S,1+ndir,1:ndim)=ff(ixI^S,1:ndim)
+        wres(ixO^S,mag(ndir))=-tmp2(ixO^S)
+      end if
+      allocate(fE(ixI^S,7-2*ndim:3))
+      call update_faces_ambipolar(ixI^L,ixO^L,w,x,tmp,fE,btot)
+      ixAmax^D=ixOmax^D;
+      ixAmin^D=ixOmin^D-1;
+      wres(ixA^S,mag(1:ndim))=-btot(ixA^S,1:ndim)
+    else
+      !write curl(ele) as the divergence
+      !m1={0,ele[[3]],-ele[[2]]}
+      !m2={-ele[[3]],0,ele[[1]]}
+      !m3={ele[[2]],-ele[[1]],0}
+
+      !!!Bx
+      ff(ixA^S,1) = 0.d0
+      ff(ixA^S,2) = tmp(ixA^S,3)
+      ff(ixA^S,3) = -tmp(ixA^S,2)
+      call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+      if(fix_conserve_at_step) fluxall(ixI^S,2,1:ndim)=ff(ixI^S,1:ndim)
+      !flux divergence is a source now
+      wres(ixO^S,mag(1))=-tmp2(ixO^S)
+      !!!By
+      ff(ixA^S,1) = -tmp(ixA^S,3)
+      ff(ixA^S,2) = 0.d0
+      ff(ixA^S,3) = tmp(ixA^S,1)
+      call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+      if(fix_conserve_at_step) fluxall(ixI^S,3,1:ndim)=ff(ixI^S,1:ndim)
+      wres(ixO^S,mag(2))=-tmp2(ixO^S)
+
+      if(ndir==3) then
+        !!!Bz
+        ff(ixA^S,1) = tmp(ixA^S,2)
+        ff(ixA^S,2) = -tmp(ixA^S,1)
+        ff(ixA^S,3) = 0.d0
+        call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
+        if(fix_conserve_at_step) fluxall(ixI^S,1+ndir,1:ndim)=ff(ixI^S,1:ndim)
+        wres(ixO^S,mag(ndir))=-tmp2(ixO^S)
+      end if
+
+    end if
+
+    if(fix_conserve_at_step) then
+      fluxall=my_dt*fluxall
+      call store_flux(igrid,fluxall,1,ndim,nflux)
+      if(stagger_grid) then
+        call store_edge(igrid,ixI^L,my_dt*fE,1,ndim)
+        deallocate(fE)
+      end if
+      deallocate(fluxall)
+    end if
+
+  end subroutine sts_set_source_ambipolar
+
+  !> get ambipolar electric field and the integrals around cell faces
+  subroutine update_faces_ambipolar(ixI^L,ixO^L,w,x,ECC,fE,circ)
+    use mod_global_parameters
+
+    integer, intent(in)                :: ixI^L, ixO^L
+    double precision, intent(in)       :: w(ixI^S,1:nw)
+    double precision, intent(in)       :: x(ixI^S,1:ndim)
+    ! amibipolar electric field at cell centers
+    double precision, intent(in)       :: ECC(ixI^S,1:3)
+    double precision, intent(out)      :: fE(ixI^S,7-2*ndim:3)
+    double precision, intent(out)      :: circ(ixI^S,1:ndim)
+
+    integer                            :: hxC^L,ixC^L,ixA^L
+    integer                            :: idim1,idim2,idir,ix^D
+
+    fE=zero
+    ! calcuate ambipolar electric field on cell edges from cell centers
+    do idir=7-2*ndim,3
+      ixCmax^D=ixOmax^D;
+      ixCmin^D=ixOmin^D+kr(idir,^D)-1;
+     {do ix^DB=0,1\}
+        if({ ix^D==1 .and. ^D==idir | .or.}) cycle
+        ixAmin^D=ixCmin^D+ix^D;
+        ixAmax^D=ixCmax^D+ix^D;
+        fE(ixC^S,idir)=fE(ixC^S,idir)+ECC(ixA^S,idir)
+     {end do\}
+      fE(ixC^S,idir)=fE(ixC^S,idir)*0.25d0*block%dsC(ixC^S,idir)
+    end do
+
+    ! Calculate circulation on each face to get value of line integral of
+    ! electric field in the positive idir direction.
+    ixCmax^D=ixOmax^D;
+    ixCmin^D=ixOmin^D-1;
+
+    circ=zero
+
+    do idim1=1,ndim ! Coordinate perpendicular to face 
+      do idim2=1,ndim
+        do idir=7-2*ndim,3 ! Direction of line integral
+          ! Assemble indices
+          hxC^L=ixC^L-kr(idim2,^D);
+          ! Add line integrals in direction idir
+          circ(ixC^S,idim1)=circ(ixC^S,idim1)&
+                           +lvc(idim1,idim2,idir)&
+                           *(fE(ixC^S,idir)&
+                            -fE(hxC^S,idir))
+        end do
+      end do
+      circ(ixC^S,idim1)=circ(ixC^S,idim1)/block%surfaceC(ixC^S,idim1)
+    end do
+
+  end subroutine update_faces_ambipolar
+
+  !> use cell-center flux to get cell-face flux
+  !> and get the source term as the divergence of the flux
+  subroutine get_flux_on_cell_face(ixI^L,ixO^L,ff,src)
+    use mod_global_parameters
+
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, dimension(:^D&,:), intent(inout) :: ff
+    double precision, intent(out) :: src(ixI^S)
+
+    double precision :: ffc(ixI^S,1:ndim)
+    double precision :: dxinv(ndim)
+    integer :: idims, ix^D, ixA^L, ixB^L, ixC^L
+
+    ixA^L=ixO^L^LADD1;
+    dxinv=1.d0/dxlevel
+    ! cell corner flux in ffc
+    ffc=0.d0
+    ixCmax^D=ixOmax^D; ixCmin^D=ixOmin^D-1;
+    {do ix^DB=0,1\}
+      ixBmin^D=ixCmin^D+ix^D;
+      ixBmax^D=ixCmax^D+ix^D;
+      ffc(ixC^S,1:ndim)=ffc(ixC^S,1:ndim)+ff(ixB^S,1:ndim)
+    {end do\}
+    ffc(ixC^S,1:ndim)=0.5d0**ndim*ffc(ixC^S,1:ndim)
+    ! flux at cell face
+    ff(ixI^S,1:ndim)=0.d0
+    do idims=1,ndim
+      ixB^L=ixO^L-kr(idims,^D);
+      ixCmax^D=ixOmax^D; ixCmin^D=ixBmin^D;
+      {do ix^DB=0,1 \}
+         if({ ix^D==0 .and. ^D==idims | .or.}) then
+           ixBmin^D=ixCmin^D-ix^D;
+           ixBmax^D=ixCmax^D-ix^D;
+           ff(ixC^S,idims)=ff(ixC^S,idims)+ffc(ixB^S,idims)
+         end if
+      {end do\}
+      ff(ixC^S,idims)=ff(ixC^S,idims)*0.5d0**(ndim-1)
+    end do
+    src=0.d0
+    if(slab_uniform) then
+      do idims=1,ndim
+        ff(ixA^S,idims)=dxinv(idims)*ff(ixA^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        src(ixO^S)=src(ixO^S)+ff(ixO^S,idims)-ff(ixB^S,idims)
+      end do
+    else
+      do idims=1,ndim
+        ff(ixA^S,idims)=ff(ixA^S,idims)*block%surfaceC(ixA^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        src(ixO^S)=src(ixO^S)+ff(ixO^S,idims)-ff(ixB^S,idims)
+      end do
+      src(ixO^S)=src(ixO^S)/block%dvolume(ixO^S)
+    end if
+  end subroutine get_flux_on_cell_face
+  !> Calculates the explicit dt for the ambipokar term
+  !> This function is used by both explicit scheme and STS method
+  function get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
+    use mod_global_parameters
+
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    double precision              :: coef
+    double precision              :: dxarr(ndim)
+    double precision              :: tmp(ixI^S)
+    ^D&dxarr(^D)=dx^D;
+
+    tmp(ixO^S) = twofl_mag_en_all(w, ixI^L, ixO^L)
+    call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
+    coef = maxval(abs(tmp(ixO^S)))
+    if(slab_uniform) then
+      dtnew=minval(dxarr(1:ndim))**2.0d0/coef
+    else
+      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
+    end if
+
+  end function get_ambipolar_dt
+
+  !> multiply res by the ambipolar coefficient
+  !> The ambipolar coefficient is calculated as -mhd_eta_ambi/rho^2
+  !> The user may mask its value in the user file
+  !> by implemneting usr_mask_ambipolar subroutine
+  subroutine multiplyAmbiCoef(ixI^L,ixO^L,res,w,x)   
+    use mod_global_parameters
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
+    double precision, intent(inout) :: res(ixI^S)
+    double precision :: tmp(ixI^S)
+
+    ! pu density (split or not) in tmp
+    call get_rhoc_tot(w,ixI^L,ixI^L,tmp)
+    tmp(ixI^S) = -(twofl_eta_ambi/tmp(ixI^S)**2) 
+    if (associated(usr_mask_ambipolar)) then
+      call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
+    endif
+
+    res(ixO^S) = tmp(ixO^S) * res(ixO^S)
+  end subroutine multiplyAmbiCoef
+#endif
 
   !> w[iws]=w[iws]+qdt*S[iws,wCT] where S is the source based on wCT within ixO
   subroutine twofl_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)
@@ -2683,7 +3121,11 @@ contains
     endif
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,ie)
-
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    if(twofl_ambipolar)then
+       call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,ie)
+    end if
+#endif
     if(fix_small_values .and. .not. has_equi_pe_c0) then
       call twofl_handle_small_ei(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
     end if
@@ -3433,6 +3875,10 @@ contains
     if(dtcollpar>0d0 .and. twofl_alpha_coll >0d0) then
         call coll_get_dt(w,x,ixI^L,ixO^L,dtnew)
     endif
+#else
+    if(twofl_ambipolar_exp) then
+      dtnew=min(dtdiffpar*get_ambipolar_dt(w,ixI^L,ixO^L,dx^D,x),dtnew)
+    endif
 #endif
 
 !    if(twofl_radiative_cooling) then
@@ -3710,6 +4156,32 @@ contains
     end do
 
   end subroutine twofl_getv_Hall
+
+#if defined(ONE_FLUID) && ONE_FLUID == 1
+  subroutine twofl_get_Jambi(w,x,ixI^L,ixO^L,res)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, allocatable, intent(inout) :: res(:^D&,:)
+
+
+    integer          :: idir, idirmin
+    double precision :: current(ixI^S,7-2*ndir:3)
+
+    res = 0d0
+
+    ! Calculate current density and idirmin
+    call get_current(w,ixI^L,ixO^L,idirmin,current)
+ 
+    res(ixO^S,idirmin:3)=-current(ixO^S,idirmin:3)
+    do idir = idirmin, 3
+      call multiplyAmbiCoef(ixI^L,ixO^L,res(ixI^S,idir),w,x)   
+    enddo
+
+  end subroutine twofl_get_Jambi
+#endif
 
 ! the following not used
 !  subroutine twofl_getdt_Hall(w,x,ixI^L,ixO^L,dx^D,dthall)
@@ -4386,8 +4858,11 @@ contains
     integer                            :: hxC^L,ixC^L,jxC^L,ixCm^L
     integer                            :: idim1,idim2,idir,iwdim1,iwdim2
     double precision                   :: circ(ixI^S,1:ndim)
-    ! current on cell edges
-    double precision :: jce(ixI^S,7-2*ndim:3)
+    ! non-ideal electric field on cell edges
+    double precision, dimension(ixI^S,7-2*ndim:3) :: E_resi
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    double precision, dimension(ixI^S,7-2*ndim:3) :: E_ambi
+#endif
 
     associate(bfaces=>s%ws,x=>s%x)
 
@@ -4398,8 +4873,12 @@ contains
     ixCmin^D=ixOmin^D-1;
 
     ! if there is resistivity, get eta J
-    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,jce)
+    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,E_resi)
 
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    ! if there is ambipolar diffusion, get E_ambi
+    if(twofl_ambipolar_exp) call get_ambipolar_electric_field(ixI^L,ixO^L,sCT%w,x,E_ambi)
+#endif
     fE=zero
 
     do idim1=1,ndim 
@@ -4416,9 +4895,12 @@ contains
             fE(ixC^S,idir)=quarter*(fC(ixC^S,iwdim1,idim2)+fC(jxC^S,iwdim1,idim2)&
                                    -fC(ixC^S,iwdim2,idim1)-fC(hxC^S,iwdim2,idim1))
 
-            ! add current component of electric field at cell edges E=-vxB+eta J
-            if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+jce(ixC^S,idir)
-
+            ! add resistive electric field at cell edges E=-vxB+eta J
+            if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+E_resi(ixC^S,idir)
+#if defined(ONE_FLUID) && ONE_FLUID==1
+            ! add ambipolar electric field
+            if(twofl_ambipolar_exp) fE(ixC^S,idir)=fE(ixC^S,idir)+E_ambi(ixC^S,idir)
+#endif
             fE(ixC^S,idir)=qdt*s%dsC(ixC^S,idir)*fE(ixC^S,idir)
 
             if (.not.slab) then
@@ -4491,8 +4973,8 @@ contains
     double precision                   :: EL(ixI^S),ER(ixI^S)
     ! gradient of E at left and right side of a cell corner
     double precision                   :: ELC(ixI^S),ERC(ixI^S)
-    ! current on cell edges
-    double precision                   :: jce(ixI^S,7-2*ndim:3)
+    ! non-ideal electric field on cell edges
+    double precision, dimension(ixI^S,7-2*ndim:3) :: E_resi, E_ambi
     ! total magnetic field at cell centers
     double precision                   :: Btot(ixI^S,1:ndim)
     integer                            :: hxC^L,ixC^L,jxC^L,ixA^L,ixB^L
@@ -4516,8 +4998,10 @@ contains
     enddo; enddo; enddo
 
     ! if there is resistivity, get eta J
-    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,jce)
-
+    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,E_resi)
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    if(twofl_ambipolar_exp) call get_ambipolar_electric_field(ixI^L,ixO^L,sCT%w,x,E_ambi)
+#endif
     ! Calculate contribution to FEM of each edge,
     ! that is, estimate value of line integral of
     ! electric field in the positive idir direction.
@@ -4588,8 +5072,11 @@ contains
             fE(ixC^S,idir)=fE(ixC^S,idir)+0.25d0*(ELC(ixC^S)+ERC(ixC^S))
 
             ! add current component of electric field at cell edges E=-vxB+eta J
-            if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+jce(ixC^S,idir)
-
+            if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+E_resi(ixC^S,idir)
+#if defined(ONE_FLUID) && ONE_FLUID==1
+            ! add ambipolar electric field
+            if(twofl_ambipolar_exp) fE(ixC^S,idir)=fE(ixC^S,idir)+E_ambi(ixC^S,idir)
+#endif
             ! times time step and edge length 
             fE(ixC^S,idir)=fE(ixC^S,idir)*qdt*s%dsC(ixC^S,idir)
             if (.not.slab) then
@@ -4658,8 +5145,8 @@ contains
     double precision                   :: cp(ixI^S,2)
     double precision                   :: cm(ixI^S,2)
     double precision                   :: circ(ixI^S,1:ndim)
-    ! current on cell edges
-    double precision                   :: jce(ixI^S,7-2*ndim:3)
+    ! non-ideal electric field on cell edges
+    double precision, dimension(ixI^S,7-2*ndim:3) :: E_resi, E_ambi
     integer                            :: hxC^L,ixC^L,ixCp^L,jxC^L,ixCm^L
     integer                            :: idim1,idim2,idir
 
@@ -4677,8 +5164,11 @@ contains
     ! idim2: directions in which we perform the reconstruction
 
     ! if there is resistivity, get eta J
-    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,jce)
-
+    if(twofl_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,E_resi)
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    ! if there is ambipolar diffusion, get E_ambi
+    if(twofl_ambipolar_exp) call get_ambipolar_electric_field(ixI^L,ixO^L,sCT%w,x,E_ambi)
+#endif
     fE=zero
 
     do idir=7-2*ndim,3
@@ -4744,8 +5234,11 @@ contains
                      /(cp(ixC^S,2)+cm(ixC^S,2))
 
       ! add current component of electric field at cell edges E=-vxB+eta J
-      if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+jce(ixC^S,idir)
-
+      if(twofl_eta/=zero) fE(ixC^S,idir)=fE(ixC^S,idir)+E_resi(ixC^S,idir)
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      ! add ambipolar electric field
+      if(twofl_ambipolar_exp) fE(ixC^S,idir)=fE(ixC^S,idir)+E_ambi(ixC^S,idir)
+#endif
       fE(ixC^S,idir)=qdt*s%dsC(ixC^S,idir)*fE(ixC^S,idir)
 
       if (.not.slab) then
@@ -4864,6 +5357,41 @@ contains
 
     end associate
   end subroutine get_resistive_electric_field
+
+#if defined(ONE_FLUID) && ONE_FLUID==1
+  !> get ambipolar electric field on cell edges
+  subroutine get_ambipolar_electric_field(ixI^L,ixO^L,w,x,fE)
+    use mod_global_parameters
+
+    integer, intent(in)                :: ixI^L, ixO^L
+    double precision, intent(in)       :: w(ixI^S,1:nw)
+    double precision, intent(in)       :: x(ixI^S,1:ndim)
+    double precision, intent(out)      :: fE(ixI^S,7-2*ndim:3)
+
+    double precision :: jxbxb(ixI^S,1:3)
+    integer :: idir,ixA^L,ixC^L,ix^D
+
+    ixA^L=ixO^L^LADD1;
+    call twofl_get_jxbxb(w,x,ixI^L,ixA^L,jxbxb)
+    ! calcuate electric field on cell edges from cell centers
+    do idir=7-2*ndim,3
+      !set electric field in jxbxb: E=nuA * jxbxb, where nuA=-etaA/rho^2
+      !jxbxb(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * jxbxb(ixA^S,i)
+      call multiplyAmbiCoef(ixI^L,ixA^L,jxbxb(ixI^S,idir),w,x)   
+      ixCmax^D=ixOmax^D;
+      ixCmin^D=ixOmin^D+kr(idir,^D)-1;
+      fE(ixC^S,idir)=0.d0
+     {do ix^DB=0,1\}
+        if({ ix^D==1 .and. ^D==idir | .or.}) cycle
+        ixAmin^D=ixCmin^D+ix^D;
+        ixAmax^D=ixCmax^D+ix^D;
+        fE(ixC^S,idir)=fE(ixC^S,idir)+jxbxb(ixA^S,idir)
+     {end do\}
+      fE(ixC^S,idir)=fE(ixC^S,idir)*0.25d0
+    end do
+
+  end subroutine get_ambipolar_electric_field
+#endif
 
   !> calculate cell-center values from face-center values
   subroutine twofl_face_to_center(ixO^L,s)
