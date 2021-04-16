@@ -772,7 +772,7 @@ contains
        end if
     end if
 
-#if defined(ONE_FLUID) || ONE_FLUID==1
+#if defined(ONE_FLUID) && ONE_FLUID==1
     if(twofl_ambipolar) then
       phys_req_diagonal = .true.
       if(twofl_ambipolar_sts) then
@@ -2350,7 +2350,7 @@ contains
  
     if(B0field) then
       do idir=1,3
-        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,0)
       enddo
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
@@ -2621,10 +2621,13 @@ contains
     double precision, intent(in) :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: res(ixI^S)
     double precision :: tmp(ixI^S)
+    double precision :: rhoc(ixI^S)
 
     ! pu density (split or not) in tmp
-    call get_rhoc_tot(w,ixI^L,ixI^L,tmp)
-    tmp(ixI^S) = -(twofl_eta_ambi/tmp(ixI^S)**2) 
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    !print* , "MULTAMB TOTRHO ", tmp(ixOmin1:ixOmin1+10)
+    tmp(ixO^S) = -(twofl_eta_ambi/rhoc(ixO^S)**2) 
+    !print* , "MULTAMB NUA ", tmp(ixOmin1:ixOmin1+10)
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
     endif
@@ -2673,6 +2676,12 @@ contains
           call add_source_lorentz_work(qdt,ixI^L,ixO^L,w,wCT,x)
         endif
       endif
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      if((twofl_eq_energy == EQ_ENERGY_KI .or. twofl_eq_energy == EQ_ENERGY_INT)&
+           .and. twofl_ambipolar) then
+        call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,e_c_)
+      endif
+#endif
       
 
       ! Source for B0 splitting
@@ -3121,11 +3130,6 @@ contains
     endif
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,ie)
-#if defined(ONE_FLUID) && ONE_FLUID==1
-    if(twofl_ambipolar)then
-       call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,ie)
-    end if
-#endif
     if(fix_small_values .and. .not. has_equi_pe_c0) then
       call twofl_handle_small_ei(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
     end if
