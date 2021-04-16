@@ -1462,7 +1462,7 @@ contains
       else
         bunitvec(ixO^S,:)=w(ixO^S,iw_mag(:))
       end if
-      if(mhd_trac_type>1) then
+      if(twofl_trac_type>1) then
         ! B direction at cell center
         Bdir=zero
         {do ixA^D=0,1\}
