@@ -157,13 +157,13 @@ module mod_twofl_phys
   !> Ionization fraction of H
   !> H_ion_fr = H+/(H+ + H)
   !> H_ion_fr is not allowed to be 0
-  double precision, public, protected  :: H_ion_fr=1d-3
+  double precision, public, protected  :: H_ion_fr=1d0
   !> Ionization fraction of He
   !> He_ion_fr = (He2+ + He+)/(He2+ + He+ + He)
-  double precision, public, protected  :: He_ion_fr=1d-3
+  double precision, public, protected  :: He_ion_fr=1d0
   !> Ratio of number He2+ / number He+ + He2+
   !> He_ion_fr2 = (He2+ + He+)/(He2+ + He+ + He)
-  double precision, public, protected  :: He_ion_fr2=0
+  double precision, public, protected  :: He_ion_fr2=1d0
   double precision, public, protected  :: Rc  ! defined for compat with the new eq of state, it is set to 1 for ONE_FLUID
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   double precision, public, protected  :: Rn,rho_nc_fr
@@ -777,6 +777,13 @@ contains
       phys_req_diagonal = .true.
       if(twofl_ambipolar_sts) then
         call sts_init()
+        !!ADDED  
+        if(twofl_4th_order) then
+          phys_wider_stencil = 2
+        else
+          phys_wider_stencil = 1
+        end if
+        !!ADDED end 
         if(phys_internal_e) then
           call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),&
                ndir,mag(1),ndir,.true.)
@@ -874,11 +881,11 @@ contains
     end if
 
 
+#if !defined(ONE_FLUID) || ONE_FLUID==0
     a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 !rho_c 
     b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
     c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr !rho_n
     d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
-#if !defined(ONE_FLUID) || ONE_FLUID==0
     Rc=b/a
     Rn=d/c
     rho_nc_fr = c/a
@@ -886,7 +893,12 @@ contains
       print*, "eq state Rn=", Rn, " Rc=",Rc
     endif
 #else
-    Rc = 1d0 !for compatibility, eq of state defined by units
+    !a = a+c from above
+    !b = b+d
+    a = 1d0 + He_abundance*(1d0 + 3d0 * He_ion_fr)
+    b = 1d0 + H_ion_fr + He_abundance*(He_ion_fr*(He_ion_fr2 + 1d0)+1d0)
+    Rc = 1d0 !for compatibility between single fluid eq state defined by units only and  
+    ! twofl eq of state p = rho R T
 #endif
 
     if(unit_velocity==0) then
