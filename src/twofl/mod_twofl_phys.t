@@ -778,11 +778,11 @@ contains
       if(twofl_ambipolar_sts) then
         call sts_init()
         !!ADDED  
-        if(twofl_4th_order) then
-          phys_wider_stencil = 2
-        else
-          phys_wider_stencil = 1
-        end if
+!        if(twofl_4th_order) then
+!          phys_wider_stencil = 2
+!        else
+!          phys_wider_stencil = 1
+!        end if
         !!ADDED end 
         if(phys_internal_e) then
           call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),&
@@ -854,12 +854,12 @@ contains
       call mpistop("You have not specified twofl_boris_c")
     end if
 
-    if(H_ion_fr == 0d0 .and. He_ion_fr == 0d0) then
-      call mpistop("H_ion_fr or He_ion_fr must be > 0 or use hd module")
-    endif
-    if(H_ion_fr == 1d0 .and. He_ion_fr == 1d0) then
-      call mpistop("H_ion_fr or He_ion_fr must be < 1 or use mhd module")
-    endif
+!    if(H_ion_fr == 0d0 .and. He_ion_fr == 0d0) then
+!      call mpistop("H_ion_fr or He_ion_fr must be > 0 or use hd module")
+!    endif
+!    if(H_ion_fr == 1d0 .and. He_ion_fr == 1d0) then
+!      call mpistop("H_ion_fr or He_ion_fr must be < 1 or use mhd module")
+!    endif
     if (number_equi_vars > 0 .and. .not. associated(usr_set_equi_vars)) then
       call mpistop("usr_set_equi_vars has to be implemented in the user file")
     endif
@@ -2283,6 +2283,27 @@ contains
       tmp2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1)
       !tmp3 = J_ambi dot Btot
       tmp3(ixO^S) = sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
+      !TODO this is not correct
+
+
+
+
+      !v->Jambi
+      !Exb
+      !{
+      !bx*(by1*bz - by*bz1)*vx - (by*by1 + bz*bz1)*(-bz*vy + by*vz) + bx^2*(bz1*vy - by1*vz), 
+      !-bz^2*bz1*vx - bx1*by*bz*vy + bx^2*bx1*vz + by^2*(-bz1*vx + bx1*vz) + bx*(-bx1*bz*vx + by*bz1*vy + bz*bz1*vz), 
+      !bx*bx1*by*vx + by^2*by1*vx - bx^2*bx1*vy + bz^2*(by1*vx - bx1*vy) + bx1*by*bz*vz - bx*by1*(by*vy + bz*vz)
+      !}
+      !mag1
+      !{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy + bz*(-(bz*vy) + by*vz)}
+      !mag2
+      !{bz*(bx*vx + by*vy) - (bx^2 + by^2)*vz, 0, by^2*vx - bx*by*vy - bz*(-(bz*vx) + bx*vz)}
+      !mag3
+      !{-(bx*by*vx) + bx^2*vy - bz*(-(bz*vy) + by*vz), -(by^2*vx) + bx*by*vy + bz*(-(bz*vx) + bx*vz), 0}
+
+
+
 
       select case(idim)
         case(1)
@@ -2299,7 +2320,7 @@ contains
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,1) - tmp3(ixO^S) * btot(ixO^S,1)
       endselect
 
-      if(phys_energy .and. .not. phys_internal_e) then
+      if(phys_total_energy) then
         f(ixO^S,e_c_) = f(ixO^S,e_c_) + tmp2(ixO^S) *  tmp(ixO^S)
       endif
 
@@ -2402,13 +2423,14 @@ contains
 
     call twofl_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
     btot(ixA^S,1:3)=0.d0
-    if(B0field) then
-      do i=1,ndir
-        btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
-      enddo
-    else
+    !TODO this has to be mag pert only! CHECK!!!!
+    !if(B0field) then
+    !  do i=1,ndir
+    !    btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
+    !  enddo
+    !else
       btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
-    endif
+    !endif
 
     !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
     do i=1,3
@@ -2421,7 +2443,7 @@ contains
       fluxall=0.d0
     end if
 
-    if(phys_energy .and. .not.phys_internal_e) then
+    if(phys_total_energy ) then
       call cross_product(ixI^L,ixA^L,tmp,btot,ff)
       call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
       if(fix_conserve_at_step) fluxall(ixI^S,1,1:ndim)=ff(ixI^S,1:ndim)
