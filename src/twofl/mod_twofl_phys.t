@@ -3286,6 +3286,19 @@ contains
       do idir=7-2*ndir,3
         w(ixO^S,e_c_)=w(ixO^S,e_c_)-axb(ixO^S,idir)*block%J0(ixO^S,idir)
       end do
+#if defined(ONE_FLUID) && ONE_FLUID == 1
+      if(twofl_ambipolar) then
+        !reuse axb
+        call twofl_get_jxbxb(w,x,ixI^L,ixA^L,axb)
+        ! calcuate electric field on cell edges from cell centers
+        do idir=7-2*ndim,3
+          !set electric field in jxbxb: E=nuA * jxbxb, where nuA=-etaA/rho^2
+          !jxbxb(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * jxbxb(ixA^S,i)
+          call multiplyAmbiCoef(ixI^L,ixA^L,axb(ixI^S,idir),w,x)   
+          w(ixO^S,e_c_)=w(ixO^S,e_c_)+axb(ixO^S,idir)*block%J0(ixO^S,idir)
+        enddo
+      endif
+#endif
     end if
 
     if (fix_small_values) call twofl_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_B0')
