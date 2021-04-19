@@ -2076,7 +2076,7 @@ contains
 !ambipolar
 #if defined(ONE_FLUID) && ONE_FLUID==1
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
-    double precision, allocatable, dimension(:^D&) :: tmp2, tmp3
+    double precision, allocatable, dimension(:^D&) :: tmp2, tmp3, tmp4
 #endif
 !    print*, "IDM", idim
 !
@@ -2283,7 +2283,6 @@ contains
       tmp2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1)
       !tmp3 = J_ambi dot Btot
       tmp3(ixO^S) = sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
-      !TODO this is not correct
 
 
 
@@ -2295,6 +2294,26 @@ contains
       !-bz^2*bz1*vx - bx1*by*bz*vy + bx^2*bx1*vz + by^2*(-bz1*vx + bx1*vz) + bx*(-bx1*bz*vx + by*bz1*vy + bz*bz1*vz), 
       !bx*bx1*by*vx + by^2*by1*vx - bx^2*bx1*vy + bz^2*(by1*vx - bx1*vy) + bx1*by*bz*vz - bx*by1*(by*vy + bz*vz)
       !}
+
+      !b2 = bx^2 + by^2 + bz^2
+      !t1 = bz1 vy - by1 vz
+      !t2 = bx1 vz - bz1 vx
+      !t3 = by1 vx - bx1 vy
+      !
+      !Print["Energy x remainder"]
+      !Print[Simplify[exb[[1]] - b2 * t1  ]]
+      !Print["Energy y remainder"]
+      !Print[Simplify[exb[[2]] - b2 * t2  ]]
+      !Print["Energy z remainder"]
+      !Print[Simplify[exb[[3]] - b2 * t3  ]]
+      !Energy x remainder
+      !(by1*bz - by*bz1)*(bx*vx + by*vy + bz*vz)
+      !Energy y remainder
+      !(-(bx1*bz) + bx*bz1)*(bx*vx + by*vy + bz*vz)
+      !Energy z remainder
+      !(bx1*by - bx*by1)*(bx*vx + by*vy + bz*vz)
+
+
       !mag1
       !{0, -(bz*(bx*vx + by*vy)) + (bx^2 + by^2)*vz, bx*by*vx - bx^2*vy + bz*(-(bz*vy) + by*vz)}
       !mag2
@@ -2303,28 +2322,33 @@ contains
       !{-(bx*by*vx) + bx^2*vy - bz*(-(bz*vy) + by*vz), -(by^2*vx) + bx*by*vy + bz*(-(bz*vx) + bx*vz), 0}
 
 
-
+      if (B0field) allocate(tmp4(ixO^S))
 
       select case(idim)
         case(1)
-          tmp(ixO^S)=btot(ixO^S,3) *Jambi(ixO^S,2) - btot(ixO^S,2) * Jambi(ixO^S,3)
+          tmp(ixO^S)=w(ixO^S,mag(3)) *Jambi(ixO^S,2) - w(ixO^S,mag(2)) * Jambi(ixO^S,3)
+          if(B0field) tmp4(ixO^S) = w(ixO^S,mag(2)) * btot(ixO^S,3) - w(ixO^S,mag(3)) * btot(ixO^S,2)
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) - tmp2(ixO^S) * Jambi(ixO^S,3) + tmp3(ixO^S) * btot(ixO^S,3)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) + tmp2(ixO^S) * Jambi(ixO^S,2) - tmp3(ixO^S) * btot(ixO^S,2)
         case(2)
-          tmp(ixO^S)=btot(ixO^S,1) *Jambi(ixO^S,3) - btot(ixO^S,3) * Jambi(ixO^S,1)
+          tmp(ixO^S)=w(ixO^S,mag(1)) *Jambi(ixO^S,3) - w(ixO^S,mag(3)) * Jambi(ixO^S,1)
+          if(B0field) tmp4(ixO^S) = w(ixO^S,mag(3)) * btot(ixO^S,1) - w(ixO^S,mag(1)) * btot(ixO^S,3)
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) + tmp2(ixO^S) * Jambi(ixO^S,3) - tmp3(ixO^S) * btot(ixO^S,3)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) - tmp2(ixO^S) * Jambi(ixO^S,1) + tmp3(ixO^S) * btot(ixO^S,1)
         case(3)
-          tmp(ixO^S)=btot(ixO^S,2) *Jambi(ixO^S,1) - btot(ixO^S,1) * Jambi(ixO^S,2)
+          tmp(ixO^S)=w(ixO^S,mag(2)) *Jambi(ixO^S,1) - w(ixO^S,mag(1)) * Jambi(ixO^S,2)
+          if(B0field) tmp4(ixO^S) = w(ixO^S,mag(1)) * btot(ixO^S,2) - w(ixO^S,mag(2)) * btot(ixO^S,1)
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,2) + tmp3(ixO^S) * btot(ixO^S,2)
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,1) - tmp3(ixO^S) * btot(ixO^S,1)
       endselect
 
       if(phys_total_energy) then
         f(ixO^S,e_c_) = f(ixO^S,e_c_) + tmp2(ixO^S) *  tmp(ixO^S)
+        if(B0field) f(ixO^S,e_c_) = f(ixO^S,e_c_) +  tmp3(ixO^S) *  tmp4(ixO^S)
       endif
 
       deallocate(Jambi,btot,tmp2,tmp3)
+      if (B0field) deallocate(tmp4)
     endif
 
 #endif
