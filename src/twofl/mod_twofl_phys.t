@@ -807,12 +807,65 @@ contains
   end subroutine twofl_phys_init
 
   !> sets the equilibrium variables
+  subroutine set_equi_vars_grid_faces(igrid,x,ixI^L,ixO^L)
+    use mod_global_parameters
+    use mod_global_parameters
+    use mod_usr_methods
+    integer, intent(in) :: igrid, ixI^L, ixO^L
+    double precision, intent(in) :: x(ixI^S,1:ndim)
+
+    double precision :: delx(ixI^S,1:ndim)
+    double precision :: xC(ixI^S,1:ndim),xshift^D
+    integer :: idims, ixC^L, hxO^L, ix, idims2
+
+    if(slab_uniform)then
+      ^D&delx(ixI^S,^D)=rnode(rpdx^D_,igrid)\
+    else
+      ! for all non-cartesian and stretched cartesian coordinates
+      delx(ixI^S,1:ndim)=ps(igrid)%dx(ixI^S,1:ndim)
+    endif
+  
+  
+    do idims=1,ndim
+      hxO^L=ixO^L-kr(idims,^D);
+      if(stagger_grid) then
+        ! ct needs all transverse cells
+        ixCmax^D=ixOmax^D+nghostcells-nghostcells*kr(idims,^D); ixCmin^D=hxOmin^D-nghostcells+nghostcells*kr(idims,^D);
+      else
+        ! ixC is centered index in the idims direction from ixOmin-1/2 to ixOmax+1/2
+        ixCmax^D=ixOmax^D; ixCmin^D=hxOmin^D;
+      end if
+      ! always xshift=0 or 1/2
+      xshift^D=half*(one-kr(^D,idims));
+      do idims2=1,ndim
+        select case(idims2)
+        {case(^D)
+          do ix = ixC^LIM^D
+            ! xshift=half: this is the cell center coordinate
+            ! xshift=0: this is the cell edge i+1/2 coordinate
+            xC(ix^D%ixC^S,^D)=x(ix^D%ixC^S,^D)+(half-xshift^D)*delx(ix^D%ixC^S,^D)
+          end do\}
+        end select
+      end do
+      call usr_set_equi_vars(ixI^L,ixC^L,xC,ps(igrid)%equi_vars(ixI^S,1:number_equi_vars,idims))
+    end do
+
+  end subroutine set_equi_vars_grid_faces
+
+
+  !> sets the equilibrium variables
   subroutine set_equi_vars_grid(igrid)
     use mod_global_parameters
     use mod_usr_methods
   
     integer, intent(in) :: igrid
-    call usr_set_equi_vars(ixG^LL,ixG^LL,ps(igrid)%x,ps(igrid)%equi_vars(ixG^T,1:number_equi_vars))
+
+    !values at the center
+    call usr_set_equi_vars(ixG^LL,ixG^LL,ps(igrid)%x,ps(igrid)%equi_vars(ixG^T,1:number_equi_vars,0))
+
+    !values at the interfaces
+    call set_equi_vars_grid_faces(igrid,ps(igrid)%x,ixG^LL,ixM^LL)
+  
  
  end subroutine set_equi_vars_grid
 
@@ -950,13 +1003,13 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         tmp(ixO^S) = w(ixO^S,e_n_)
         if(has_equi_pe_n0) then
-          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_)*gamma_1
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_,0)*gamma_1
         endif
         where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_n_) = .true.
 #endif
         tmp(ixO^S) = w(ixO^S,e_c_)
         if(has_equi_pe_c0) then
-          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_)*gamma_1
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)*gamma_1
         endif
         where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_c_) = .true.
         if(twofl_eq_energy == EQ_ENERGY_TOT2) then 
@@ -1298,14 +1351,14 @@ contains
           ! Convert momentum to velocity
 #if !defined(ONE_FLUID) || ONE_FLUID==0
           if(has_equi_rho_n0) then
-            rhon(ixG^T) = w(ixG^T,rho_n_) + block%equi_vars(ixG^T,equi_rho_n0_)
+            rhon(ixG^T) = w(ixG^T,rho_n_) + block%equi_vars(ixG^T,equi_rho_n0_,0)
           else  
             rhon(ixG^T) = w(ixG^T,rho_n_) 
           endif
 #endif
     
           if(has_equi_rho_c0) then
-            rhoc(ixG^T) = w(ixG^T,rho_c_) + block%equi_vars(ixG^T,equi_rho_c0_)
+            rhoc(ixG^T) = w(ixG^T,rho_c_) + block%equi_vars(ixG^T,equi_rho_c0_,0)
           else  
             rhoc(ixG^T) = w(ixG^T,rho_c_) 
           endif
@@ -1713,7 +1766,7 @@ contains
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
 
     if(has_equi_rho_c0) then
-      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_))
+      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_,0))
     else  
       inv_rho=1.d0/w(ixO^S,rho_c_)
     end if
@@ -2003,14 +2056,14 @@ contains
 
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     if(has_equi_pe_n0) then
-      csound1(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_)
+      csound1(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,0)
     else
       csound1(ixO^S) = pe_n1(ixO^S) 
     endif
 
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     if(has_equi_pe_c0) then
-      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_)
+      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
@@ -2032,7 +2085,7 @@ contains
 
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     if(has_equi_pe_c0) then
-      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_)
+      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
@@ -2089,7 +2142,8 @@ contains
 !    print*, "GETFLUX e_n", w(ixOmin1:ixOmin1+5,e_n_)
 
     !reuse tmp, used afterwards
-    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
+    ! value at the interface 
+    call get_rhoc_tot_idim(w,ixI^L,ixO^L,tmp,idim)
     ! Get flux of density
     f(ixO^S,rho_c_)=w(ixO^S,mom_c(idim))*tmp(ixO^S)
 
@@ -2177,7 +2231,7 @@ contains
       ! add flux of equilibrium internal energy corresponding to pe_c0
       if(has_equi_pe_c0) then
         f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
-          + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_) * inv_gamma_1
+          + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * inv_gamma_1
       end if
     end if
 
@@ -2229,7 +2283,7 @@ contains
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     !!neutrals
-    call get_rhon_tot(w,ixI^L,ixO^L,tmp)
+    call get_rhon_tot_idim(w,ixI^L,ixO^L,tmp,idim)
     f(ixO^S,rho_n_)=w(ixO^S,mom_n(idim))*tmp(ixO^S)
     if(phys_energy) then
       pgas(ixO^S) = w(ixO^S, e_n_)
@@ -2252,7 +2306,7 @@ contains
       endif
       ! add flux of equilibrium internal energy corresponding to pe_n0
       if(has_equi_pe_n0) then
-        pgas(ixO^S) = pgas(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_) * inv_gamma_1
+        pgas(ixO^S) = pgas(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,idim) * inv_gamma_1
       endif
       ! add u_n * a in the flux
       f(ixO^S, e_n_) = w(ixO^S,mom_n(idim)) * pgas(ixO^S)
@@ -2878,7 +2932,7 @@ contains
     double precision                :: v(ixI^S,1:ndir)
 
     call twofl_get_v_n(wCT,x,ixI^L,ixI^L,v)
-    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_n0_),w,x,e_n_)
+    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_n0_,0),w,x,e_n_)
 
   end subroutine add_pe_n0_divv
 #endif
@@ -2894,7 +2948,7 @@ contains
     double precision                :: v(ixI^S,1:ndir)
 
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
-    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_c0_),w,x,e_c_)
+    call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-block%equi_vars(ixI^S,equi_pe_c0_,0),w,x,e_c_)
 
   end subroutine add_pe_c0_divv
 
@@ -3080,12 +3134,28 @@ contains
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhon(ixI^S)
     if(has_equi_rho_n0) then
-      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_)
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
     else  
       rhon(ixO^S) = w(ixO^S,rho_n_) 
     endif
 
   end subroutine get_rhon_tot
+
+
+  subroutine get_rhon_tot_idim(w,ixI^L,ixO^L,rhon,idim)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L,idim
+    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(out) :: rhon(ixI^S)
+    if(has_equi_rho_n0) then
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,idim)
+    else  
+      rhon(ixO^S) = w(ixO^S,rho_n_) 
+    endif
+
+  end subroutine get_rhon_tot_idim
+
+
 
   !> Calculate v component
   subroutine twofl_get_v_n_idim(w,x,ixI^L,ixO^L,idim,v)
@@ -3113,7 +3183,7 @@ contains
 
     call twofl_get_pthermal_n(wCT,x,ixI^L,ixO^L,pth)
     if(has_equi_pe_n0) then
-      pth(ixI^S) = pth(ixI^S) + block%equi_vars(ixI^S,equi_pe_n0_)
+      pth(ixI^S) = pth(ixI^S) + block%equi_vars(ixI^S,equi_pe_n0_,0)
     endif
     call twofl_get_v_n(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,e_n_)
@@ -3148,13 +3218,25 @@ contains
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhoc(ixI^S)
     if(has_equi_rho_c0) then
-      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
     else  
       rhoc(ixO^S) = w(ixO^S,rho_c_) 
     endif
 
   end subroutine get_rhoc_tot
 
+  subroutine get_rhoc_tot_idim(w,ixI^L,ixO^L,rhoc,idim)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L,idim
+    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(out) :: rhoc(ixI^S)
+    if(has_equi_rho_c0) then
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,idim)
+    else  
+      rhoc(ixO^S) = w(ixO^S,rho_c_) 
+    endif
+
+  end subroutine get_rhoc_tot_idim
 
   !> Calculate v_c component
   subroutine twofl_get_v_c_idim(w,x,ixI^L,ixO^L,idim,v)
@@ -3184,7 +3266,7 @@ contains
 
     call twofl_get_pthermal_c(wCT,x,ixI^L,ixO^L,pth)
     if(has_equi_pe_c0) then
-      pth(ixI^S) = pth(ixI^S) + block%equi_vars(ixI^S,equi_pe_c0_)
+      pth(ixI^S) = pth(ixI^S) + block%equi_vars(ixI^S,equi_pe_c0_,0)
     endif
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,ie)
@@ -4181,7 +4263,7 @@ contains
     double precision              :: ke(ixO^S)
 
     if(has_equi_rho_n0) then
-      ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / (w(ixO^S, rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_))
+      ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / (w(ixO^S, rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0))
     else
       ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / w(ixO^S, rho_n_)
     endif
@@ -4197,7 +4279,7 @@ contains
     double precision              :: ke(ixO^S)
 
     if(has_equi_rho_c0) then
-      ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / (w(ixO^S, rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_))
+      ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / (w(ixO^S, rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0))
     else
       ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / w(ixO^S, rho_c_)
     endif
@@ -4216,7 +4298,7 @@ contains
     double precision :: rho(ixI^S)
 
     if(has_equi_rho_c0) then
-      rho(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
+      rho(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
     else
       rho(ixO^S) = w(ixO^S,rho_c_) 
     endif
@@ -5679,7 +5761,7 @@ contains
 !    print*, " MOM N ", wCT(ixI^S,mom_n(idir))
 !    print*, " MOM C ", wCT(ixO^S,mom_c(idir))
     if(has_equi_rho_n0) then
-      rhon(ixO^S) = wCT(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_)
+      rhon(ixO^S) = wCT(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
     else  
       rhon(ixO^S) = wCT(ixO^S,rho_n_) 
     endif

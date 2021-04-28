@@ -585,7 +585,7 @@ subroutine alloc_state(igrid, s, ixG^L, ixGext^L, alloc_x)
       allocate(s%J0(ixG^S,7-2*ndir:3))
     end if
     if(number_equi_vars > 0) then
-      allocate(s%equi_vars(ixG^S,1:number_equi_vars))
+      allocate(s%equi_vars(ixG^S,1:number_equi_vars,0:ndim))
     endif
 
     ! allocate space for special values for each block state
