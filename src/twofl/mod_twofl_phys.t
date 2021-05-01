@@ -3940,11 +3940,11 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
           call twofl_get_v_n_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_n_)=w(ixO^S,e_n_) &
-              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_n)
+              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_n_)
 #endif
           call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_c_)=w(ixO^S,e_c_) &
-              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_c)
+              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_c_)
         end if
       end do
     end if
