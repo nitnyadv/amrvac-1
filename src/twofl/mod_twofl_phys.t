@@ -3913,6 +3913,7 @@ contains
     double precision, intent(inout) :: w(ixI^S,1:nw)
     logical, intent(in) :: energy,qsourcesplit
     logical, intent(inout) :: active
+    double precision       :: vel(ixI^S)
     integer                         :: idim
 
     double precision :: gravity_field(ixI^S,ndim)
@@ -3937,11 +3938,13 @@ contains
               + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,rho_c_)
         if(energy) then
 #if !defined(ONE_FLUID) || ONE_FLUID==0
+          call twofl_get_v_n_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_n_)=w(ixO^S,e_n_) &
-              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_n(idim))
+              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_n)
 #endif
+          call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_c_)=w(ixO^S,e_c_) &
-              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_c(idim))
+              + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_c)
         end if
       end do
     end if
