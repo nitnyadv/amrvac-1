@@ -212,6 +212,8 @@ module mod_twofl_phys
   !> clean initial divB
   logical, public :: clean_initial_divb     = .false.
 
+  !> Add divB wave in Roe solver
+  logical, public :: divbwave     = .true.
 
   !> To control divB=0 fix for boundary
   logical, public, protected :: boundary_divbfix(2*^ND)=.true.
@@ -251,6 +253,7 @@ module mod_twofl_phys
   public :: get_divb
   public :: get_current
   public :: twofl_get_pthermal_c
+  public :: twofl_get_csound2
   public :: get_normalized_divb
   public :: b_from_vector_potential
   {^NOONED
@@ -287,7 +290,7 @@ contains
       twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha,& 
       twofl_thermal_conduction_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
       twofl_viscosity, twofl_4th_order, typedivbfix, source_split_divb, divbdiff,&
-      typedivbdiff, type_ct, He_abundance, SI_unit, B0field,&
+      typedivbdiff, type_ct, divbwave,He_abundance, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
       !added:
       has_equi_rho_c0, has_equi_pe_c0,&
@@ -2056,14 +2059,14 @@ contains
 
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     if(has_equi_pe_n0) then
-      csound1(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,0)
+      csound1(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,block%iw0)
     else
       csound1(ixO^S) = pe_n1(ixO^S) 
     endif
 
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     if(has_equi_pe_c0) then
-      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)
+      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,block%iw0)
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
@@ -2085,7 +2088,7 @@ contains
 
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     if(has_equi_pe_c0) then
-      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)
+      csound2(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,block%iw0)
     else
       csound2(ixO^S) = pe_c1(ixO^S) 
     endif
@@ -2131,19 +2134,11 @@ contains
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
     double precision, allocatable, dimension(:^D&) :: tmp2, tmp3, tmp4
 #endif
-!    print*, "IDM", idim
-!
-!    print*, "GETFLUX mom_c", w(ixOmin1:ixOmin1+5,mom_c(1))
-!    print*, "GETFLUX rho_c", w(ixOmin1:ixOmin1+5,rho_c_)
-!    print*, "GETFLUX e_c", w(ixOmin1:ixOmin1+5,e_c_)
-!    print*, "GETFLUX b", w(ixOmin1:ixOmin1+5,mag(1:3))
-!    print*, "GETFLUX mom_n", w(ixOmin1:ixOmin1+5,mom_n(1))
-!    print*, "GETFLUX rho_n", w(ixOmin1:ixOmin1+5,rho_n_)
-!    print*, "GETFLUX e_n", w(ixOmin1:ixOmin1+5,e_n_)
 
-    !reuse tmp, used afterwards
-    ! value at the interface 
-    call get_rhoc_tot_idim(w,ixI^L,ixO^L,tmp,idim)
+    ! value at the interfaces, idim =  block%iw0 
+    ! reuse tmp, used afterwards
+    ! value at the interface so we can't put momentum
+    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
     ! Get flux of density
     f(ixO^S,rho_c_)=w(ixO^S,mom_c(idim))*tmp(ixO^S)
 
@@ -2203,6 +2198,9 @@ contains
          if (twofl_Hall) then
             call mpistop("solve internal energy not implemented for Hall MHD")
          endif
+      else if(twofl_eq_energy == EQ_ENERGY_KI) then
+
+        f(ixO^S,e_c_)=w(ixO^S,mom_c(idim))*(wC(ixO^S,e_c_)+pgas(ixO^S))
       else
         f(ixO^S,e_c_)=w(ixO^S,mom_c(idim))*(wC(ixO^S,e_c_)+ptotal(ixO^S))&
            -w(ixO^S,mag(idim))*sum(w(ixO^S,mag(:))*w(ixO^S,mom_c(:)),dim=ndim+1)
@@ -2227,11 +2225,16 @@ contains
               end if
            end if
         end if
-      end if
+      end if !total_energy
       ! add flux of equilibrium internal energy corresponding to pe_c0
       if(has_equi_pe_c0) then
+#if !defined(E_RM_W0) || E_RM_W0 == 1
         f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
           + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * inv_gamma_1
+#else
+        f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
+          + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * twofl_gamma * inv_gamma_1
+#endif
       end if
     end if
 
@@ -2283,7 +2286,7 @@ contains
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     !!neutrals
-    call get_rhon_tot_idim(w,ixI^L,ixO^L,tmp,idim)
+    call get_rhon_tot(w,ixI^L,ixO^L,tmp)
     f(ixO^S,rho_n_)=w(ixO^S,mom_n(idim))*tmp(ixO^S)
     if(phys_energy) then
       pgas(ixO^S) = w(ixO^S, e_n_)
@@ -2449,7 +2452,6 @@ contains
     double precision, intent(out)   :: res(:^D&,:)
 
     double precision  :: btot(ixI^S,1:3)
-
     integer          :: idir, idirmin
     double precision :: current(ixI^S,7-2*ndir:3)
     double precision :: tmp(ixI^S),b2(ixI^S)
@@ -2461,7 +2463,7 @@ contains
  
     if(B0field) then
       do idir=1,3
-        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,0)
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,block%iw0)
       enddo
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
@@ -2501,14 +2503,6 @@ contains
 
     call twofl_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
     btot(ixA^S,1:3)=0.d0
-    !TODO this has to be mag pert only! CHECK!!!!
-    !if(B0field) then
-    !  do i=1,ndir
-    !    btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
-    !  enddo
-    !else
-      btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
-    !endif
 
     !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
     do i=1,3
@@ -2522,6 +2516,14 @@ contains
     end if
 
     if(phys_total_energy ) then
+      !TODO this has to be mag pert only! CHECK!!!!
+      !if(B0field) then
+      !  do i=1,ndir
+      !    btot(ixA^S, i) = w(ixA^S,mag(i)) + block%B0(ixA^S,i,0)
+      !  enddo
+      !else
+        btot(ixA^S,1:ndir) = w(ixA^S,mag(1:ndir))
+      !endif
       call cross_product(ixI^L,ixA^L,tmp,btot,ff)
       call get_flux_on_cell_face(ixI^L,ixO^L,ff,tmp2)
       if(fix_conserve_at_step) fluxall(ixI^S,1,1:ndim)=ff(ixI^S,1:ndim)
@@ -2735,8 +2737,8 @@ contains
     double precision :: tmp(ixI^S)
     double precision :: rhoc(ixI^S)
 
-    ! pu density (split or not) in tmp
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    ! pu density (split or not) in tmp
     !print* , "MULTAMB TOTRHO ", tmp(ixOmin1:ixOmin1+10)
     tmp(ixO^S) = -(twofl_eta_ambi/rhoc(ixO^S)**2) 
     !print* , "MULTAMB NUA ", tmp(ixOmin1:ixOmin1+10)
@@ -2774,6 +2776,7 @@ contains
           call internal_energy_add_source_c(qdt,ixI^L,ixO^L,wCT,w,x,eaux_c_)
         endif
       else 
+#if !defined(E_RM_W0) || E_RM_W0==1
         ! add -p0 div v source terms when equi are present
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         if(has_equi_pe_n0) then
@@ -2783,6 +2786,7 @@ contains
         if(has_equi_pe_c0) then
           call add_pe_c0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
         endif
+#endif
         if(twofl_eq_energy == EQ_ENERGY_KI) then
           active = .true.
           call add_source_lorentz_work(qdt,ixI^L,ixO^L,w,wCT,x)
@@ -2959,7 +2963,7 @@ contains
 
     integer, intent(in)             :: ixI^L, ixO^L,ind
     double precision, intent(in)    :: qdt
-    double precision, intent(in)    :: p(ixI^S), v(ixI^S), x(ixI^S,1:ndim)
+    double precision, intent(in)    :: p(ixI^S), v(ixI^S,1:ndir), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision                :: divv(ixI^S)
 
@@ -3134,26 +3138,12 @@ contains
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhon(ixI^S)
     if(has_equi_rho_n0) then
-      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,block%iw0)
     else  
       rhon(ixO^S) = w(ixO^S,rho_n_) 
     endif
 
   end subroutine get_rhon_tot
-
-
-  subroutine get_rhon_tot_idim(w,ixI^L,ixO^L,rhon,idim)
-    use mod_global_parameters
-    integer, intent(in)           :: ixI^L, ixO^L,idim
-    double precision, intent(in)  :: w(ixI^S,1:nw)
-    double precision, intent(out) :: rhon(ixI^S)
-    if(has_equi_rho_n0) then
-      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,idim)
-    else  
-      rhon(ixO^S) = w(ixO^S,rho_n_) 
-    endif
-
-  end subroutine get_rhon_tot_idim
 
 
 
@@ -3183,6 +3173,8 @@ contains
 
     call twofl_get_pthermal_n(wCT,x,ixI^L,ixO^L,pth)
     if(has_equi_pe_n0) then
+      ! usually block%iw0 should be used
+      ! here for sure it is the value at the center
       pth(ixI^S) = pth(ixI^S) + block%equi_vars(ixI^S,equi_pe_n0_,0)
     endif
     call twofl_get_v_n(wCT,x,ixI^L,ixI^L,v)
@@ -3218,25 +3210,13 @@ contains
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhoc(ixI^S)
     if(has_equi_rho_c0) then
-      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,block%iw0)
     else  
       rhoc(ixO^S) = w(ixO^S,rho_c_) 
     endif
 
   end subroutine get_rhoc_tot
 
-  subroutine get_rhoc_tot_idim(w,ixI^L,ixO^L,rhoc,idim)
-    use mod_global_parameters
-    integer, intent(in)           :: ixI^L, ixO^L,idim
-    double precision, intent(in)  :: w(ixI^S,1:nw)
-    double precision, intent(out) :: rhoc(ixI^S)
-    if(has_equi_rho_c0) then
-      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,idim)
-    else  
-      rhoc(ixO^S) = w(ixO^S,rho_c_) 
-    endif
-
-  end subroutine get_rhoc_tot_idim
 
   !> Calculate v_c component
   subroutine twofl_get_v_c_idim(w,x,ixI^L,ixO^L,idim,v)
@@ -3937,6 +3917,7 @@ contains
         w(ixO^S,mom_c(idim)) = w(ixO^S,mom_c(idim)) &
               + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,rho_c_)
         if(energy) then
+#if !defined(E_RM_W0) || E_RM_W0 == 1
 #if !defined(ONE_FLUID) || ONE_FLUID==0
           call twofl_get_v_n_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_n_)=w(ixO^S,e_n_) &
@@ -3945,6 +3926,18 @@ contains
           call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_c_)=w(ixO^S,e_c_) &
               + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_c_)
+#else
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+          call twofl_get_v_n_idim(wCT,x,ixI^L,ixO^L,idim,vel)
+          w(ixO^S,e_n_)=w(ixO^S,e_n_) &
+              + qdt * gravity_field(ixO^S,idim) *  wCT(ixO^S,mom_n(idim))
+#endif
+          call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idim,vel)
+          w(ixO^S,e_c_)=w(ixO^S,e_c_) &
+              + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_c(idim))
+#endif
+
+
         end if
       end do
     end if
@@ -4249,7 +4242,7 @@ contains
 
   !> Compute evolving magnetic energy
   function twofl_mag_en(w, ixI^L, ixO^L) result(mge)
-    use mod_global_parameters, only: nw, ndim,block,B0field
+    use mod_global_parameters, only: nw, ndim
     integer, intent(in)           :: ixI^L, ixO^L
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: mge(ixO^S)
@@ -4275,6 +4268,7 @@ contains
 #endif
 
   !> compute kinetic energy of charges
+  !> w are conserved variables
   function twofl_kin_en_c(w, ixI^L, ixO^L) result(ke)
     use mod_global_parameters, only: nw, ndim,block
     integer, intent(in)           :: ixI^L, ixO^L
