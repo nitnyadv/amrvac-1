@@ -2330,7 +2330,7 @@ contains
       allocate(btot(ixO^S,1:3))
       if(B0field) then
         do idir=1,3
-          btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idir)
+          btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idim)
         enddo
       else
         btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
@@ -2417,7 +2417,6 @@ contains
 !    print*, "2GETFLUX mom_n", f(ixOmin1:ixOmin1+5,mom_n(1))
 !    print*, "2GETFLUX mom_n2", f(ixOmin1:ixOmin1+5,mom_n(2))
 !    print*, "GETFLUX rho_n", f(ixOmin1:ixOmin1+5,rho_n_)
-!    print*, "GETFLUX e_n", f(ixOmin1:ixOmin1+5,e_n_)
 
   end subroutine twofl_get_flux
 
