@@ -37,6 +37,7 @@ mod_multigrid_coupling.o: m_octree_mg_$(NDIM)d.mod
 
 amr_neighbors.o: mod_geometry.mod
 amr_solution_node.o: mod_geometry.mod
+amr_solution_node.o: mod_physics.mod
 amrgrid.o: mod_advance.mod
 amrgrid.o: mod_amr_fct.mod
 amrgrid.o: mod_coarsen_refine.mod
@@ -281,10 +282,16 @@ mod_trace_Bfield.o: mod_particle_base.mod
 mod_tvd.o: mod_limiter.mod
 mod_tvd.o: mod_physics_roe.mod
 mod_twofl.o: mod_amrvac.mod
+mod_twofl.o: mod_twofl_hllc.mod
 mod_twofl.o: mod_twofl_phys.mod
+mod_twofl.o: mod_twofl_ppm.mod
+mod_twofl.o: mod_twofl_roe.mod
+mod_twofl_hllc.o: mod_physics_hllc.mod
+mod_twofl_hllc.o: mod_twofl_phys.mod
 mod_twofl_phys.o: mod_constrained_transport.mod
+mod_twofl_phys.o: mod_fix_conserve.mod
 mod_twofl_phys.o: mod_geometry.mod
-mod_twofl_phys.o: mod_gravity.mod
+mod_twofl_phys.o: mod_ghostcells_update.mod
 mod_twofl_phys.o: mod_multigrid_coupling.mod
 mod_twofl_phys.o: mod_physics.mod
 mod_twofl_phys.o: mod_radiative_cooling.mod
@@ -292,6 +299,12 @@ mod_twofl_phys.o: mod_small_values.mod
 mod_twofl_phys.o: mod_supertimestepping.mod
 mod_twofl_phys.o: mod_thermal_conduction.mod
 mod_twofl_phys.o: mod_viscosity.mod
+mod_twofl_ppm.o: mod_geometry.mod
+mod_twofl_ppm.o: mod_physics_ppm.mod
+mod_twofl_ppm.o: mod_twofl_phys.mod
+mod_twofl_roe.o: mod_physics_roe.mod
+mod_twofl_roe.o: mod_tvd.mod
+mod_twofl_roe.o: mod_twofl_phys.mod
 mod_usr_template.o: mod_mhd.mod
 mod_variables.o: mod_basic_types.mod
 mod_viscosity.o: mod_geometry.mod
