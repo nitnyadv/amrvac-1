@@ -56,12 +56,13 @@ allclean: clean
 # Dependencies
 amrvac: mod_usr.o amrvac.o
 
-# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl) if exists
+# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl); create the file if it does not exist
 hdr:
-ifneq ("$(wildcard amrvac.h)","")
-	@mkdir -p $(LIB_DIR)	# Prevent error message
-	cp -u amrvac.h $(LIB_DIR)
+ifeq ("$(wildcard amrvac.h)","")
+  touch amrvac.h
 endif
+@mkdir -p $(LIB_DIR)	# Prevent error message
+cp -u amrvac.h $(LIB_DIR)
 
 amrvac.o mod_usr.o: $(LIB_AMRVAC)
 amrvac.o: mod_usr.o
