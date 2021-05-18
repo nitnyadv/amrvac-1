@@ -251,6 +251,10 @@ module mod_twofl_phys
   public :: twofl_to_conserved
   public :: twofl_to_primitive
   public :: get_divb
+  public :: get_rhoc_tot
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+  public :: get_rhon_tot
+#endif
   public :: get_current
   public :: twofl_get_pthermal_c
   public :: twofl_get_csound2
@@ -2501,11 +2505,9 @@ contains
     ixA^L=ixO^L^LADD1;
 
     call twofl_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
-    btot(ixA^S,1:3)=0.d0
 
-    !set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
+    ! set electric field in tmp: E=nuA * jxbxb, where nuA=-etaA/rho^2
     do i=1,3
-      !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
     enddo
 
@@ -2515,6 +2517,10 @@ contains
     end if
 
     if(phys_total_energy ) then
+      ! tmp is E
+      ! btot is B1
+      ! energy term is  -div(ExB1) 
+      btot(ixA^S,1:3)=0.d0
       !TODO this has to be mag pert only! CHECK!!!!
       !if(B0field) then
       !  do i=1,ndir
