@@ -374,10 +374,22 @@ contains
     end subroutine get_Riemann_flux_hll
 
     subroutine get_Riemann_flux_hllc()
-      use mod_mhd_phys
+      !modify to use mod_variables instead of specific mod_mhd_phys 
+      !use mod_mhd_phys
+      use mod_variables
+      use mod_physics
       implicit none
       double precision, dimension(ixI^S,1:nwflux)     :: whll, Fhll, fCD
       double precision, dimension(ixI^S)              :: lambdaCD
+
+      integer  :: rho_, p_, e_, eaux_, mom(1:ndir), mag(1:ndir)
+
+      rho_ = iw_rho
+      mom(:) = iw_mom(:)
+      mag(:) = iw_mag(:) 
+      p_ = iw_e
+      e_ = iw_e 
+      eaux_ = iw_eaux
 
       patchf(ixC^S) =  1
       where(cminC(ixC^S) >= zero)
@@ -402,7 +414,7 @@ contains
       endif ! Calculate the CD flux
 
       ! use hll flux for the auxiliary internal e
-      if(mhd_energy.and.mhd_solve_eaux) then
+      if(phys_energy.and.phys_solve_eaux) then
         iw=eaux_
         fCD(ixC^S, iw) = (cmaxC(ixC^S)*fLC(ixC^S, iw)-cminC(ixC^S) * fRC(ixC^S, iw) &
              +cminC(ixC^S)*cmaxC(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(cmaxC(ixC^S)-cminC(ixC^S))
@@ -438,7 +450,9 @@ contains
 
     !> HLLD Riemann flux from Miyoshi 2005 JCP, 208, 315 and Guo 2016 JCP, 327, 543
     subroutine get_Riemann_flux_hlld()
-      use mod_mhd_phys
+      !use mod_mhd_phys
+      use mod_variables
+      use mod_physics
       implicit none
       double precision, dimension(ixI^S,1:nwflux) :: w1R,w1L,f1R,f1L,f2R,f2L
       double precision, dimension(ixI^S,1:nwflux) :: w2R,w2L
@@ -449,6 +463,15 @@ contains
       ! magnetic field from the right and the left reconstruction
       double precision, dimension(ixI^S,ndir) :: BR, BL
       integer :: ip1,ip2,ip3,idir,ix^D
+
+      integer  :: rho_, p_, e_, eaux_, mom(1:ndir), mag(1:ndir)
+
+      rho_ = iw_rho
+      mom(:) = iw_mom(:)
+      mag(:) = iw_mag(:) 
+      p_ = iw_e
+      e_ = iw_e 
+      eaux_ = iw_eaux 
 
       associate (sR=>cmaxC,sL=>cminC)
 
@@ -531,7 +554,7 @@ contains
         w1L(ixC^S,mag(:))=w1L(ixC^S,mag(:))-block%B0(ixC^S,:,ip1)
       end if
       ! equation (48)
-      if(mhd_energy) then
+      if(phys_energy) then
         ! Guo equation (25) equivalent to Miyoshi equation (41)
         w1R(ixC^S,p_)=suR(ixC^S)*(sm(ixC^S)-vRC(ixC^S,ip1))+ptR(ixC^S)
         w1L(ixC^S,p_)=suL(ixC^S)*(sm(ixC^S)-vLC(ixC^S,ip1))+ptL(ixC^S)
@@ -588,7 +611,7 @@ contains
         w2L(ixC^S,mag(ip3))=w2R(ixC^S,mag(ip3))
       end if
       ! Miyoshi equation (63) and Guo equation (45)
-      if(mhd_energy) then
+      if(phys_energy) then
         w2R(ixC^S,e_)=w1R(ixC^S,e_)+r1R(ixC^S)*(sum(w1R(ixC^S,mom(:))*w1R(ixC^S,mag(:)),dim=ndim+1)-&
           sum(w2R(ixC^S,mom(:))*w2R(ixC^S,mag(:)),dim=ndim+1))*signBx(ixC^S)
         w2L(ixC^S,e_)=w1L(ixC^S,e_)-r1L(ixC^S)*(sum(w1L(ixC^S,mom(:))*w1L(ixC^S,mag(:)),dim=ndim+1)-&
@@ -631,7 +654,7 @@ contains
       end do
 
       ! use hll flux for the auxiliary internal e
-      if(mhd_energy.and.mhd_solve_eaux) then
+      if(phys_energy.and.phys_solve_eaux) then
         iw=eaux_
         f1L(ixC^S,iw)=(sR(ixC^S)*fLC(ixC^S, iw)-sL(ixC^S)*fRC(ixC^S, iw) &
                   +sR(ixC^S)*sL(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(sR(ixC^S)-sL(ixC^S))

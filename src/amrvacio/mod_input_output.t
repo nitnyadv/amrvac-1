@@ -682,8 +682,8 @@ contains
                'Warning: setting dimsplit=T for tvd, as used for level=',level
           dimsplit=.true.
        endif
-       if(flux_scheme(level)=='hlld'.and.physics_type/='mhd') &
-          call mpistop("Cannot use hlld flux if not using MHD physics!")
+       if(flux_scheme(level)=='hlld'.and.physics_type/='mhd' .and. physics_type/='twofl_one') &
+          call mpistop("Cannot use hlld flux if not using MHD or 2FL only charges physics!")
 
        if(flux_scheme(level)=='hllc'.and.physics_type=='mf') &
           call mpistop("Cannot use hllc flux if using magnetofriction physics!")
