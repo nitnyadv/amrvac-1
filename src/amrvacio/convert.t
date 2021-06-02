@@ -35,6 +35,12 @@ select case(convert_type)
    call onegrid(unitconvert)
   case('oneblock','oneblockB')
    call oneblock(unitconvert)
+  case('dat_generic_mpi_splitting')
+    ! put above all the convert methods implemented by the phys module
+    ! it is mpi parallelized (so it has to contain mpi in the name)
+    ! the phys module should implement phys_convert_vars
+    ! for the moment only time-dep vars -> full vars related to splitting of equilibrium is implemented in the twofl module 
+    call convert_dat_generic()
   case('user','usermpi')
      if (.not. associated(usr_special_convert)) then
         call mpistop("usr_special_convert not defined")
@@ -360,6 +366,204 @@ endif
 if(mype==0) close(qunit)
 end subroutine onegrid 
 !============================================================================
+
+subroutine convert_dat_generic()
+
+
+    use mod_forest
+    use mod_global_parameters
+    use mod_physics
+    use mod_input_output, only: count_ix, create_output_file, snapshot_write_header, block_shape_io
+
+    integer                       :: file_handle, igrid, Morton_no, iwrite
+    integer                       :: ipe, ix_buffer(2*ndim+1), n_values
+    integer                       :: ixO^L, n_ghost(2*ndim)
+    integer                       :: ixOs^L,n_values_stagger
+    integer                       :: iorecvstatus(MPI_STATUS_SIZE)
+    integer                       :: ioastatus(MPI_STATUS_SIZE)
+    integer                       :: igrecvstatus(MPI_STATUS_SIZE)
+    integer                       :: istatus(MPI_STATUS_SIZE)
+    type(tree_node), pointer      :: pnode
+    integer(kind=MPI_OFFSET_KIND) :: offset_tree_info
+    integer(kind=MPI_OFFSET_KIND) :: offset_block_data
+    integer(kind=MPI_OFFSET_KIND) :: offset_offsets
+    double precision, allocatable :: w_buffer(:)
+    double precision, allocatable:: converted_vars(:^D&,:)
+
+    integer, allocatable                       :: block_ig(:, :)
+    integer, allocatable                       :: block_lvl(:)
+    integer(kind=MPI_OFFSET_KIND), allocatable :: block_offset(:)
+
+    call MPI_BARRIER(icomm, ierrmpi)
+
+    ! Allocate send/receive buffer
+    n_values = count_ix(ixG^LL) * nw
+    if(stagger_grid) then
+      n_values = n_values + count_ix(ixGs^LL) * nws
+    end if
+    allocate(w_buffer(n_values))
+
+    ! Allocate arrays with information about grid blocks
+    allocate(block_ig(ndim, nleafs))
+    allocate(block_lvl(nleafs))
+    allocate(block_offset(nleafs+1))
+
+    ! master processor
+    if (mype==0) then
+      ! snapshotnext-1 is the correct number
+      call create_output_file(file_handle, snapshotnext-1, ".dat", "new")
+
+      ! Don't know offsets yet, we will write header again later
+      offset_tree_info = -1
+      offset_block_data = -1
+      call snapshot_write_header(file_handle, offset_tree_info, &
+           offset_block_data)
+
+      call MPI_File_get_position(file_handle, offset_tree_info, ierrmpi)
+
+      call write_forest(file_handle)
+
+      ! Collect information about the spatial index (ig^D) and refinement level
+      ! of leaves
+      do Morton_no = Morton_start(0), Morton_stop(npe-1)
+         igrid = sfc(1, Morton_no)
+         ipe = sfc(2, Morton_no)
+         pnode => igrid_to_node(igrid, ipe)%node
+
+         block_ig(:, Morton_no) = [ pnode%ig^D ]
+         block_lvl(Morton_no) = pnode%level
+         block_offset(Morton_no) = 0 ! Will be determined later
+      end do
+
+      call MPI_FILE_WRITE(file_handle, block_lvl, size(block_lvl), &
+           MPI_INTEGER, istatus, ierrmpi)
+
+      call MPI_FILE_WRITE(file_handle, block_ig, size(block_ig), &
+           MPI_INTEGER, istatus, ierrmpi)
+
+      ! Block offsets are currently unknown, but will be overwritten later
+      call MPI_File_get_position(file_handle, offset_offsets, ierrmpi)
+      call MPI_FILE_WRITE(file_handle, block_offset(1:nleafs), nleafs, &
+           MPI_OFFSET, istatus, ierrmpi)
+
+      call MPI_File_get_position(file_handle, offset_block_data, ierrmpi)
+
+      ! Check whether data was written as expected
+      if (offset_block_data - offset_tree_info /= &
+           (nleafs + nparents) * size_logical + &
+           nleafs * ((1+ndim) * size_int + 2 * size_int)) then
+        if (mype == 0) then
+          print *, "Warning: MPI_OFFSET type /= 8 bytes"
+          print *, "This *could* cause problems when reading .dat files"
+        end if
+      end if
+
+      block_offset(1) = offset_block_data
+      iwrite = 0
+    end if
+
+    do Morton_no=Morton_start(mype), Morton_stop(mype)
+      igrid  = sfc_to_igrid(Morton_no)
+      itag   = Morton_no
+      !set block global var, it is used in phys_convert_vars, and phys_get_aux?
+      block=>ps(igrid)
+
+      if (nwaux>0) then
+        ! extra layer around mesh only for later averaging in convert
+        ! set dxlevel value for use in gradient subroutine,
+        ! which might be used in getaux
+        saveigrid=igrid
+        ^D&dxlevel(^D)=rnode(rpdx^D_, igrid);
+        call phys_get_aux(.true., ps(igrid)%w, ps(igrid)%x, ixG^LL, &
+             ixM^LL^LADD1, "write_snapshot")
+      endif
+
+      call block_shape_io(igrid, n_ghost, ixO^L, n_values)
+      if(stagger_grid) then
+        w_buffer(1:n_values) = pack(ps(igrid)%w(ixO^S, 1:nw), .true.)
+        {ixOsmin^D = ixOmin^D -1\}
+        {ixOsmax^D = ixOmax^D \}
+        n_values_stagger= count_ix(ixOs^L)*nws
+        !TODO nothing for staggered yet?
+        w_buffer(n_values+1:n_values+n_values_stagger) = pack(ps(igrid)%ws(ixOs^S, 1:nws), .true.)
+        n_values=n_values+n_values_stagger
+      else
+        allocate(converted_vars(ixO^S, 1:nw))
+        if(associated(phys_convert_vars)) then
+          call phys_convert_vars(ixO^L, ps(igrid)%w(ixO^S, 1:nw), converted_vars(ixO^S, 1:nw))
+        else
+          converted_vars(ixO^S, 1:nw) = ps(igrid)%w(ixO^S, 1:nw) 
+        endif
+        w_buffer(1:n_values) = pack(converted_vars(ixO^S, 1:nw), .true.)
+        deallocate(converted_vars)
+      end if
+      ix_buffer(1) = n_values
+      ix_buffer(2:) = n_ghost
+
+      if (mype /= 0) then
+        call MPI_SEND(ix_buffer, 2*ndim+1, &
+             MPI_INTEGER, 0, itag, icomm, ierrmpi)
+        call MPI_SEND(w_buffer, n_values, &
+             MPI_DOUBLE_PRECISION, 0, itag, icomm, ierrmpi)
+      else
+        iwrite = iwrite+1
+        call MPI_FILE_WRITE(file_handle, ix_buffer(2:), &
+             2*ndim, MPI_INTEGER, istatus, ierrmpi)
+        call MPI_FILE_WRITE(file_handle, w_buffer, &
+             n_values, MPI_DOUBLE_PRECISION, istatus, ierrmpi)
+
+        ! Set offset of next block
+        block_offset(iwrite+1) = block_offset(iwrite) + &
+             int(n_values, MPI_OFFSET_KIND) * size_double + &
+             2 * ndim * size_int
+      end if
+    end do
+
+    ! Write data communicated from other processors
+    if (mype == 0) then
+      do ipe = 1, npe-1
+        do Morton_no=Morton_start(ipe), Morton_stop(ipe)
+          iwrite=iwrite+1
+          itag=Morton_no
+
+          call MPI_RECV(ix_buffer, 2*ndim+1, MPI_INTEGER, ipe, itag, icomm,&
+               igrecvstatus, ierrmpi)
+          n_values = ix_buffer(1)
+
+          call MPI_RECV(w_buffer, n_values, MPI_DOUBLE_PRECISION,&
+               ipe, itag, icomm, iorecvstatus, ierrmpi)
+
+          call MPI_FILE_WRITE(file_handle, ix_buffer(2:), &
+             2*ndim, MPI_INTEGER, istatus, ierrmpi)
+          call MPI_FILE_WRITE(file_handle, w_buffer, &
+             n_values, MPI_DOUBLE_PRECISION, istatus, ierrmpi)
+
+          ! Set offset of next block
+          block_offset(iwrite+1) = block_offset(iwrite) + &
+               int(n_values, MPI_OFFSET_KIND) * size_double + &
+               2 * ndim * size_int
+        end do
+      end do
+
+      ! Write block offsets (now we know them)
+      call MPI_FILE_SEEK(file_handle, offset_offsets, MPI_SEEK_SET, ierrmpi)
+      call MPI_FILE_WRITE(file_handle, block_offset(1:nleafs), nleafs, &
+           MPI_OFFSET, istatus, ierrmpi)
+
+      ! Write header again, now with correct offsets
+      call MPI_FILE_SEEK(file_handle, 0_MPI_OFFSET_KIND, MPI_SEEK_SET, ierrmpi)
+      call snapshot_write_header(file_handle, offset_tree_info, &
+           offset_block_data)
+
+      call MPI_FILE_CLOSE(file_handle, ierrmpi)
+    end if
+
+    call MPI_BARRIER(icomm, ierrmpi)
+
+
+end subroutine convert_dat_generic
+
+
 subroutine tecplot(qunit)
 
 ! output for tecplot (ASCII format)

@@ -21,6 +21,13 @@ module mod_input_output
   character(len=*), parameter :: fmt_r2 = 'es10.2' ! Two digits
   character(len=*), parameter :: fmt_i  = 'i8'     ! Integer format
 
+  ! public methods
+  public :: count_ix
+  public :: create_output_file
+  public :: snapshot_write_header
+  public :: block_shape_io
+  
+
 contains
 
   !> Read the command line arguments passed to amrvac
@@ -112,7 +119,7 @@ contains
            !if(mype==0)print *,'resume specified: resume_previous_run=T'
          case("-convert")
            convert=.true.
-           !if(mype==0)print *,'convert specified: convert=T'
+           if(mype==0)print *,'convert specified: convert=T'
          case("--help","-help")
            help=.true.
            EXIT
