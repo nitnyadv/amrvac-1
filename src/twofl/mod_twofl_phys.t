@@ -372,7 +372,11 @@ contains
       print*, "TWO FLUID VERSION"
 #endif
     endif
+#if defined(ONE_FLUID) && ONE_FLUID==1
+    physics_type = "twofl_one"
+#else
     physics_type = "twofl"
+#endif
     phys_energy=.true.
   !> Solve total energy equation or not
   ! for the two fluid the true value means 
@@ -683,7 +687,7 @@ contains
     if(number_equi_vars>0) then
       phys_set_equi_vars => set_equi_vars_grid
     endif
-
+    ! convert_type is not known here, so associate the corresp. subroutine in check_params
     if(type_divb==divb_glm) then
       phys_modify_wLR => twofl_modify_wLR
     end if
@@ -877,6 +881,46 @@ contains
  end subroutine set_equi_vars_grid
 
 
+ ! w, wnew conserved
+subroutine convert_vars_splitting(ixO^L,  w, wnew)
+  use mod_global_parameters
+  integer, intent(in)             :: ixO^L
+  double precision, intent(in)    :: w(ixO^S, 1:nw)
+  double precision, intent(out)    :: wnew(ixO^S, 1:nw)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+  call  get_rhon_tot(w,ixO^L,ixO^L,wnew(ixO^S,rho_n_))
+  wnew(ixO^S,mom_n(:)) =  w(ixO^S,mom_n(:))
+#endif
+  call  get_rhoc_tot(w,ixO^L,ixO^L,wnew(ixO^S,rho_c_))
+  wnew(ixO^S,mom_c(:)) =  w(ixO^S,mom_c(:))
+
+  if (B0field) then
+    ! add background magnetic field B0 to B
+    wnew(ixO^S,mag(:))=w(ixO^S,mag(:))+block%B0(ixO^S,:,0)
+  else 
+    wnew(ixO^S,mag(:))=w(ixO^S,mag(:))
+  end if
+
+  if(phys_energy) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    wnew(ixO^S,e_n_) = w(ixO^S,e_n_)
+    if(has_equi_pe_n0) then
+      wnew(ixO^S,e_n_) = wnew(ixO^S,e_n_) + block%equi_vars(ixO^S,equi_pe_n0_,0)* inv_gamma_1  
+    endif
+#endif
+    wnew(ixO^S,e_c_) = w(ixO^S,e_c_)
+    if(has_equi_pe_c0) then
+      wnew(ixO^S,e_c_) = wnew(ixO^S,e_c_) + block%equi_vars(ixO^S,equi_pe_c0_,0)* inv_gamma_1  
+    endif
+    if(B0field .and. phys_total_energy) then
+        wnew(ixO^S,e_c_)=wnew(ixO^S,e_c_)+0.5d0*sum(block%B0(ixO^S,:,0)**2,dim=ndim+1) &
+            + sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,0),dim=ndim+1)
+    endif
+  endif
+
+ end subroutine convert_vars_splitting
+
+
   !> copied from mod_gravity
   subroutine grav_params_read(files)
     use mod_global_parameters, only: unitpar
@@ -922,6 +966,12 @@ contains
 !    endif
     if (number_equi_vars > 0 .and. .not. associated(usr_set_equi_vars)) then
       call mpistop("usr_set_equi_vars has to be implemented in the user file")
+    endif
+    if(convert) then
+      if(convert_type .eq. 'dat_generic_mpi_splitting') then
+        if(mype .eq. 0) print*, " set conversion to split -> full "
+        phys_convert_vars => convert_vars_splitting
+      endif
     endif
   end subroutine twofl_check_params
 
