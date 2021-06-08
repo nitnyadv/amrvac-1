@@ -5698,8 +5698,8 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     double precision :: rhon(ixG^T), rhoc(ixG^T)
     !print*, "IMPL call ", it
 
-    !$OMP PARALLEL DO PRIVATE(igrid)
     call getbc(global_time,0.d0,psa,1,nw)
+    !$OMP PARALLEL DO PRIVATE(igrid,idir)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
 
       ! first copy psa into psb
@@ -5819,7 +5819,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     endif
 
     if(has_equi_rho_c0) then
-      rhoc(ixO^S) = wCT(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_)
+      rhoc(ixO^S) = wCT(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
     else  
       rhoc(ixO^S) = wCT(ixO^S,rho_c_) 
     endif
