@@ -103,6 +103,7 @@ module mod_physicaldata
    end type grid_field
    !> Block pointer for using one block and its previous state
    type(state), pointer :: block, block0
+   !$OMP THREADPRIVATE(block)
    !> buffer for pole boundary
    type(state) :: pole_buf
 
