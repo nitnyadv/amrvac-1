@@ -65,6 +65,7 @@ coarsen.o: mod_physics.mod
 connectivity.o: mod_ghostcells_update.mod
 convert.o: mod_calculate_xw.mod
 convert.o: mod_ghostcells_update.mod
+convert.o: mod_input_output.mod
 convert.o: mod_physics.mod
 convert.o: mod_thermal_emission.mod
 errest.o: mod_physics.mod
@@ -104,7 +105,6 @@ mod_finite_difference.o: mod_mp5.mod
 mod_finite_difference.o: mod_physics.mod
 mod_finite_difference.o: mod_source.mod
 mod_finite_volume.o: mod_limiter.mod
-mod_finite_volume.o: mod_mhd_phys.mod
 mod_finite_volume.o: mod_physics.mod
 mod_finite_volume.o: mod_source.mod
 mod_finite_volume.o: mod_tvd.mod
@@ -288,6 +288,7 @@ mod_twofl.o: mod_twofl_hllc.mod
 mod_twofl.o: mod_twofl_phys.mod
 mod_twofl.o: mod_twofl_ppm.mod
 mod_twofl.o: mod_twofl_roe.mod
+mod_twofl_hllc.o: mod_physics.mod
 mod_twofl_hllc.o: mod_physics_hllc.mod
 mod_twofl_hllc.o: mod_twofl_phys.mod
 mod_twofl_phys.o: mod_constrained_transport.mod
@@ -302,8 +303,10 @@ mod_twofl_phys.o: mod_supertimestepping.mod
 mod_twofl_phys.o: mod_thermal_conduction.mod
 mod_twofl_phys.o: mod_viscosity.mod
 mod_twofl_ppm.o: mod_geometry.mod
+mod_twofl_ppm.o: mod_physics.mod
 mod_twofl_ppm.o: mod_physics_ppm.mod
 mod_twofl_ppm.o: mod_twofl_phys.mod
+mod_twofl_roe.o: mod_physics.mod
 mod_twofl_roe.o: mod_physics_roe.mod
 mod_twofl_roe.o: mod_tvd.mod
 mod_twofl_roe.o: mod_twofl_phys.mod
