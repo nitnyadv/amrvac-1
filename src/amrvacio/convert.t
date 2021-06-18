@@ -410,8 +410,7 @@ subroutine convert_dat_generic()
 
     ! master processor
     if (mype==0) then
-      ! snapshotnext-1 is the correct number
-      call create_output_file(file_handle, snapshotnext-1, ".dat", "new")
+      call create_output_file(file_handle, snapshotnext, ".dat", "new")
 
       ! Don't know offsets yet, we will write header again later
       offset_tree_info = -1

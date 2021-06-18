@@ -886,6 +886,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
   integer, intent(in)             :: ixO^L
   double precision, intent(in)    :: w(ixO^S, 1:nw)
   double precision, intent(out)    :: wnew(ixO^S, 1:nw)
+
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   call  get_rhon_tot(w,ixO^L,ixO^L,wnew(ixO^S,rho_n_))
   wnew(ixO^S,mom_n(:)) =  w(ixO^S,mom_n(:))
@@ -966,7 +967,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     if (number_equi_vars > 0 .and. .not. associated(usr_set_equi_vars)) then
       call mpistop("usr_set_equi_vars has to be implemented in the user file")
     endif
-    if(convert) then
+    if(convert .or. autoconvert) then
       if(convert_type .eq. 'dat_generic_mpi_splitting') then
         if(mype .eq. 0) print*, " set conversion to split -> full "
         phys_convert_vars => convert_vars_splitting

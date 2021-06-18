@@ -96,7 +96,8 @@ program amrvac
              associated(usr_process_global)) then
            call process(it,global_time)
         end if
-
+        ! here requires -1 snapshot
+        snapshotnext = snapshotnext - 1
         call generate_plotfile
         call comm_finalize
         stop
