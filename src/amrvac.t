@@ -85,6 +85,8 @@ program amrvac
        end if
      end if
 
+     if (use_multigrid) call mg_setup_multigrid()
+
      if (convert) then
         if (npe/=1.and.(.not.(index(convert_type,'mpi')>=1)) &
              .and. convert_type .ne. 'user')  &
@@ -102,8 +104,6 @@ program amrvac
         call comm_finalize
         stop
      end if
-
-     if (use_multigrid) call mg_setup_multigrid()
 
   else
 
@@ -155,12 +155,12 @@ contains
     use mod_advance, only: advance, process, process_advanced
     use mod_forest, only: nleafs_active
     use mod_global_parameters
-    use mod_input_output, only: saveamrfile
+    use mod_input_output, only: saveamrfile, save_now
     use mod_ghostcells_update
 
     integer :: level, ifile, fixcount, ncells_block, igrid, iigrid
     integer(kind=8) ncells_update
-    logical :: save_now, crashall
+    logical :: crashall
     double precision :: time_last_print, time_write0, time_write, time_before_advance, dt_loop
 
     time_in=MPI_WTIME()
