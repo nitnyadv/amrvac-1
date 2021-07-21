@@ -978,7 +978,8 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
   subroutine twofl_physical_units()
     use mod_global_parameters
     double precision :: mp,kB,miu0
-    double precision :: a,b,c,d
+    !double precision :: a,b,c,d
+    double precision :: a,b
     ! Derive scaling units
     if(SI_unit) then
       mp=mp_SI
@@ -991,44 +992,37 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     end if
 
 
+    !a = a+c from below multiplied by H_ion_fr
+    !b = b+d
+    a = 1d0 + 4d0 * He_abundance
+    b = 1d0 + H_ion_fr + He_abundance*(He_ion_fr*(He_ion_fr2 + 1d0)+1d0)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 !rho_c 
-    b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
-    c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr !rho_n
-    d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
-    Rc=b/a
-    Rn=d/c
-    rho_nc_fr = c/a
+    !a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 !rho_c 
+    !b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
+    !c = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/H_ion_fr !rho_n
+    !d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
+    !Rn=d/c * (a+c)/(b+d)
+    !Rc=b/a * (a+c)/(b+d)
+    Rc=((2d0 + He_ion_fr2) * He_abundance * He_ion_fr + 2d0 * H_ion_fr)/(4d0  * He_abundance * He_ion_fr + H_ion_fr) * a/b
+    Rn = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/(1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr)) * a/b 
+    !rho_nc_fr = c/a
+    rho_nc_fr = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/(4d0  * He_abundance * He_ion_fr + H_ion_fr) 
     if(mype .eq.0) then
       print*, "eq state Rn=", Rn, " Rc=",Rc
     endif
 #else
-    !a = a+c from above
-    !b = b+d
-    a = 1d0 + He_abundance*(1d0 + 3d0 * He_ion_fr)
-    b = 1d0 + H_ion_fr + He_abundance*(He_ion_fr*(He_ion_fr2 + 1d0)+1d0)
     Rc = 1d0 !for compatibility between single fluid eq state defined by units only and  
     ! twofl eq of state p = rho R T
 #endif
 
     if(unit_velocity==0) then
-#if defined(ONE_FLUID) && ONE_FLUID==1
       unit_density=a*mp*unit_numberdensity
       unit_pressure=b*unit_numberdensity*kB*unit_temperature
-#else
-      unit_density=mp*unit_numberdensity
-      unit_pressure=unit_numberdensity*kB*unit_temperature
-#endif
       unit_velocity=sqrt(unit_pressure/unit_density)
     else
 
-#if defined(ONE_FLUID) && ONE_FLUID==1
       unit_density=a*mp*unit_numberdensity
       unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
-#else
-      unit_density=mp*unit_numberdensity
-      unit_temperature=unit_pressure/(unit_numberdensity*kB)
-#endif
       unit_pressure=unit_density*unit_velocity**2
     end if
     unit_magneticfield=sqrt(miu0*unit_pressure)
@@ -1822,12 +1816,17 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
-
-    if(has_equi_rho_c0) then
-      inv_rho=1.d0/(w(ixO^S,rho_c_)+block%equi_vars(ixO^S,equi_rho_c0_,0))
-    else  
-      inv_rho=1.d0/w(ixO^S,rho_c_)
-    end if
+    double precision :: rhoc(ixI^S)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    double precision :: rhon(ixI^S)
+#endif
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
+#else
+    inv_rho=1.d0/rhoc(ixO^S)
+#endif
 
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
@@ -2292,7 +2291,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
           + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * twofl_gamma * inv_gamma_1
 #endif
       end if
-    end if
+    end if !phys_energy
 
     ! compute flux of magnetic field
     ! f_i[b_k]=v_i*b_k-v_k*b_i
@@ -2351,6 +2350,12 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     endif
     ! Momentum flux is v_i*m_i, +p in direction idim
     do idir = 1, ndir
+        !if(idim==idir) then
+        !  f(ixO^S,mom_c(idir)) = pgas(ixO^S)
+        !else
+        !  f(ixO^S,mom_c(idir)) = 0.0d0
+        !end if
+        !f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+w(ixO^S,mom_c(idim))*wC(ixO^S,mom_c(idir))
        f(ixO^S, mom_n(idir)) = w(ixO^S,mom_n(idim)) * wC(ixO^S, mom_n(idir))
     end do
 
@@ -3989,11 +3994,9 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
               + qdt * gravity_field(ixO^S,idim) * vel(ixO^S) * wCT(ixO^S,rho_c_)
 #else
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-          call twofl_get_v_n_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_n_)=w(ixO^S,e_n_) &
               + qdt * gravity_field(ixO^S,idim) *  wCT(ixO^S,mom_n(idim))
 #endif
-          call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idim,vel)
           w(ixO^S,e_c_)=w(ixO^S,e_c_) &
               + qdt * gravity_field(ixO^S,idim) * wCT(ixO^S,mom_c(idim))
 #endif
@@ -5731,7 +5734,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
       ! kinetic energy update
       tmp1(ixO^S) = twofl_kin_en_n(w,ixI^L,ixO^L) 
       tmp2(ixO^S) = twofl_kin_en_c(w,ixI^L,ixO^L) 
-      tmp4(ixO^S) = w(ixO^S,e_n_) - tmp1(ixO^S)
+      tmp4(ixO^S) = w(ixO^S,e_n_) - tmp1(ixO^S) !E_tot - E_kin
       tmp5(ixO^S) = w(ixO^S,e_c_) - tmp2(ixO^S)
     !print*, "ec int ", tmp4(1:10) 
     !print*, "en int ", tmp5(1:10) 
