@@ -5,6 +5,7 @@ endif
 
 # Can be needed to compile the compare_log utility
 ARCH ?= defaultOpenmp
+#ARCH ?= default
 export ARCH
 
 # Location of setup script
@@ -22,7 +23,6 @@ NUM_PROCS ?= 2
 # force is a dummy to force re-running tests
 .PHONY: all clean force
 
-all: $(TESTS)
 
 clean:
 	$(RM) $(TESTS) amrvac makefile *.vtu *.dat *.log *.f *.mod
@@ -30,6 +30,8 @@ clean:
 # Include architecture and compilation rules for the compare_log utility
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
 include $(AMRVAC_DIR)/arch/rules.make
+
+all: hdr $(TESTS) 
 
 %.log: $(LOG_CMP) amrvac force
 	@$(RM) $@		# Remove log to prevent pass when aborted

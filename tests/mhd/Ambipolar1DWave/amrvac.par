@@ -13,7 +13,8 @@
  /
 
  &stoplist
-        time_max      = 1d-3
+        !time_max      = 1d-3
+        time_max      = 1d0
  /
 
  &methodlist
@@ -51,7 +52,7 @@
         SI_unit       =  .true.
         He_abundance  =  0d0
         mhd_ambipolar =  .true.
-        mhd_eta_ambi=1d-4
+        mhd_eta_ambi=1d-3
         mhd_ambipolar_sts = .true.
  /
 

@@ -51,6 +51,7 @@ rd: $(RD_DIRS)
 mf: $(MF_DIRS)
 
 $(TEST_DIRS):
+	@echo $(TEST_DIRS)
 	@$(MAKE) -C $@ -f test.make
 
 clean:	$(CLEAN_TEST)

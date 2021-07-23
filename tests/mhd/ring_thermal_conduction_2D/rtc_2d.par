@@ -49,7 +49,6 @@
   Busr=1.d-5
   typedivbfix='none'
   mhd_internal_e=T  
-  use_new_mhd_tc = .true. 
  /
 
  &tc_list
@@ -59,7 +58,7 @@
  /
 
  &sts_list
-        method_sts=1
+        sts_method=1
         sourcetype_sts=2
  /
 

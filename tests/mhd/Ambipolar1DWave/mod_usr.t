@@ -166,7 +166,7 @@ contains
 
   !!this has been obtained from the two-fluid model
   !by adding neutrals and charges
-  subroutine set_equi_vars(xnorm, pe, rho, bx0)
+  subroutine set_equi_vars_valc(xnorm, pe, rho, bx0)
     use mod_interpolation
     double precision, intent(in) :: xnorm(:)
     double precision, dimension(:) :: pe,rho,bx0
@@ -187,16 +187,14 @@ contains
     double precision, parameter ::  MU0=4.0e-7*dpi
     !!constants end 
 
-    double precision :: B00, nn00, nc00, pe_c00, pe_n00, sumTemp, expArg,dz,const
+    double precision :: B00, nn00, nc00, pe_c00, pe_n00, pe00, sumTemp, expArg,dz,const
     integer :: nz,k, eqP
 
     double precision, allocatable, dimension(:) :: zzValc
     double precision, allocatable, dimension(:) :: tempValc
     integer, allocatable, dimension(:) :: ind
 
-    double precision, allocatable :: te(:),pmag(:)
-    double precision, allocatable :: pe_n0(:),pe_c0(:)
-    double precision, allocatable :: rho_n0(:),rho_c0(:)
+    double precision, allocatable :: te(:)
 
   
     if(size(xnorm)<2) return
@@ -208,7 +206,6 @@ contains
     nz = size(xnorm)
     allocate(xx(nz))
     xx = xnorm * unit_length !convert normalized x to SI units (in m)
-    dz=xx(2)-xx(1)
 
     allocate(valcData(nrows,ncols))
     call read_formatted_file(VALCfilename,nrows,ncols,valcData)
@@ -216,8 +213,7 @@ contains
     allocate(ind(nrows))
     allocate(tempValc(nrows))
 
-    allocate(te(nz),pmag(nz))
-    allocate(pe_n0(nz),rho_n0(nz),pe_c0(nz),rho_c0(nz))
+    allocate(te(nz))
     zzValc=valcData(:,zz_)*1e3 !zz in the data in valc is km (transform to SI units: m)
  
     ind = rargsort(zzValc)
@@ -233,37 +229,26 @@ contains
     nc00 = 2*pe(1) * 1e6!!VALC norm
 
 
-    B00 = 1e-4
 
     pe_n00 = nn00 * BK * te(1)
     pe_c00 = nc00 *  BK * te(1)
-
+    pe00 = pe_n00 + pe_c00
+    pe00 = pe00/unit_pressure 
+    te=te/unit_temperature
+    dz=xnorm(2)-xnorm(1)
     sumTemp = 0d0
     do k=1,nz
-      expArg = (MH * G * dz * sumTemp * pe_c00)/(2.0 * BK * (2 * pe_c00 + B00**2/MU0))
-      pe_n0(k)=pe_n00*exp(-(MH * G * dz * sumTemp)/BK)
-      pe_c0(k)=pe_c00*exp(-2*expArg)
-      bx0(k)=B00*exp(-expArg)
-      rho_n0(k) = pe_n0(k) * MH / (BK * te(k))
-      rho_c0(k) = pe_c0(k) * MH / (2.0 * BK * te(k))
+      pe(k)=pe00*exp(usr_grav * dz * sumTemp)
+      rho(k) = pe(k)/ te(k)
       sumTemp = sumTemp + 1.0/ te(k)
     enddo
 
-    eqP = int(nz/2)
-    pmag = 0.5 * bx0 ** 2/MU0
-    const = pe_n0(eqP) - pmag(eqP)
-    bx0 = sqrt(2 * MU0 * (pmag + const))
-    pe = pe_n0 + pe_c0
-    rho = rho_n0 + rho_c0
-
-    pe = pe/unit_pressure
-    rho=rho/unit_density
-    bx0=bx0/unit_magneticfield
+    eqP = 1+int((nz-1)/2)
+    bx0(:) = sqrt(2 * pe(eqP) )
   
     deallocate(valcData,zzValc,ind, tempValc)
-    deallocate(te,pmag)
-    deallocate(pe_n0,rho_n0,pe_c0,rho_c0)
-  end subroutine set_equi_vars
+    deallocate(te)
+  end subroutine set_equi_vars_valc
 
   subroutine set_equi_vars2(xnorm, pe, rho, bx0)
     use mod_interpolation
@@ -298,7 +283,7 @@ contains
     nz= size(xnorm)
 
     allocate(pe(nz),rho(nz),bx0(nz))
-    call set_equi_vars(xnorm,pe,rho,bx0)
+    call set_equi_vars_valc(xnorm,pe,rho,bx0)
 
     write_vars(equi_zz)%namevar = "z"
     write_vars(equi_pe)%namevar  = "pe"

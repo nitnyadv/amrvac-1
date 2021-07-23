@@ -18,9 +18,19 @@ INC_DIRS := $(LIB_DIR)
 LIB_DIRS := $(LIB_DIR)
 LIBS := amrvac
 
+
+
 .PHONY: all clean allclean force hdr
 
-all: hdr amrvac
+all: amrvac hdr
+
+# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl); create the file if it does not exist
+hdr:
+ifeq ("$(wildcard amrvac.h)","")
+	touch amrvac.h
+endif
+	@mkdir -p $(LIB_DIR)	# Prevent error message
+	cp -u amrvac.h $(LIB_DIR)
 
 # Include architecture and compilation rules
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
@@ -56,13 +66,6 @@ allclean: clean
 # Dependencies
 amrvac: mod_usr.o amrvac.o
 
-# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl); create the file if it does not exist
-hdr:
-ifeq ("$(wildcard amrvac.h)","")
-  touch amrvac.h
-endif
-@mkdir -p $(LIB_DIR)	# Prevent error message
-cp -u amrvac.h $(LIB_DIR)
 
 amrvac.o mod_usr.o: $(LIB_AMRVAC)
 amrvac.o: mod_usr.o

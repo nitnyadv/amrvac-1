@@ -63,7 +63,7 @@
  /
 
  &sts_list
-        method_sts=1
+        sts_method=1
         sourcetype_sts=2
  /
 
