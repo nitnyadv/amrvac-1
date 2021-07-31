@@ -13,8 +13,8 @@
  /
 
  &stoplist
-        !time_max      = 1d-3
-        time_max      = 1d0
+        time_max      = 1d-3
+        !time_max      = 1d0
  /
 
  &methodlist
