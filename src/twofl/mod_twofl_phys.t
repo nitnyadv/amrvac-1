@@ -257,6 +257,8 @@ module mod_twofl_phys
   public :: get_rhoc_tot
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   public :: get_rhon_tot
+  public :: get_alpha_coll_plasma
+  public :: get_gamma_ion_rec
 #endif
   public :: get_current
   public :: twofl_get_pthermal_c
@@ -5811,11 +5813,16 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     ! copy vars at the indices which are not updated here: mag. field
     wout(ixO^S,mag(:)) = w(ixO^S,mag(:))
 
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     !update density
     if(twofl_coll_inc_ionrec) then
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
        tmp3(ixO^S) =  1d0 + dtfactor * dt * (gamma_rec(ixO^S) +  gamma_ion(ixO^S))     
+       ! assume equi density does not evolve 
+       !tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+       !                                 gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
        tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
        wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S)
@@ -5825,8 +5832,6 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_)
     endif
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
     
  
@@ -5896,10 +5901,10 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     if(twofl_coll_inc_te) then
 !The evolution though equi is NOT consiederd as it is assumed that equi does not evolve in time
 !        if(has_equi_pe_n0) then
-!          tmp4(ixO^S) = tmp4(ixO^S) + psa(igrid)%equi_vars(ixO^S,equi_pe_n0_)*inv_gamma_1  
+!          tmp4(ixO^S) = tmp4(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_)*inv_gamma_1  
 !        endif
 !        if(has_equi_pe_c0) then
-!          tmp5(ixO^S) = tmp5(ixO^S) + psa(igrid)%equi_vars(ixO^S,equi_pe_c0_)*inv_gamma_1 
+!          tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_)*inv_gamma_1 
 !        endif
       tmp3(ixO^S) =  1d0 + dtfactor * dt * alpha(ixO^S) * (rhon(ixO^S)/Rc +  rhoc(ixO^S)/Rn)  
 
@@ -5938,6 +5943,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     call getbc(global_time,0.d0,psa,1,nw)
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
+      block=>psa(igrid)
       call advance_implicit_grid(ixG^LL, ixG^LL, psa(igrid)%w, psb(igrid)%w, psa(igrid)%x, dtfactor,qdt)
     end do
     !$OMP END PARALLEL DO
