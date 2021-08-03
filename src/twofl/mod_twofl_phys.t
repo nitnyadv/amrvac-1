@@ -5788,7 +5788,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
     call get_pen_tot(w,ixI^L,ixO^L,pe,tmp2)
     call get_rhon_tot(w,ixI^L,ixO^L,rho)
     tmp2(ixO^S) = tmp2(ixO^S)/(Rn * rho(ixO^S))
-    alpha(ixO^S) = (2d0/(mp_SI**(3d0/2) * sqrt(dpi))*sqrt(0.5*(tmp+tmp2)*unit_temperature*kB_SI) * sigma_in)*unit_time * unit_density
+    alpha(ixO^S) = (2d0/(mp_SI**(3d0/2) * sqrt(dpi))*sqrt(0.5*(tmp(ixO^S)+tmp2(ixO^S))*unit_temperature*kB_SI) * sigma_in)*unit_time * unit_density
     if(.not. SI_unit) then
       alpha(ixO^S) = alpha(ixO^S) * 1d3 ! this comes from unit_density: g/cm^3 = 1e-3 kg/m^3
     endif
