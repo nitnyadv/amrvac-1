@@ -148,6 +148,7 @@ module mod_twofl_phys
   logical, public                         :: twofl_coll_inc_te = .true.
   !> whether include ionization/recombination inelastic collisional terms
   logical, public                         :: twofl_coll_inc_ionrec = .false.
+  logical, public                         :: twofl_equi_thermal = .true.
   logical, public                         :: twofl_implicit_coll_terms = .true.
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
 
@@ -306,12 +307,11 @@ contains
       H_ion_fr, He_ion_fr, He_ion_fr2,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
-      twofl_alpha_coll, twofl_alpha_coll_constant, twofl_implicit_coll_terms,&
-      twofl_coll_inc_te, twofl_coll_inc_ionrec, dtcollpar,&
+      twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
+      twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,dtcollpar,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
 #endif
-      !added end
       boundary_divbfix, boundary_divbfix_skip, twofl_divb_4thorder, &
       twofl_boris_method, twofl_boris_c, clean_initial_divb,  &
       twofl_trac, twofl_trac_type, twofl_trac_mask
@@ -5820,11 +5820,11 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
        tmp3(ixO^S) =  1d0 + dtfactor * dt * (gamma_rec(ixO^S) +  gamma_ion(ixO^S))     
+       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
        ! assume equi density does not evolve 
-       !tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
-       !                                 gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
-                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
+       !tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+       !                                 gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
        wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S)
        wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S)
     else
@@ -5899,13 +5899,14 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
 
     !update internal energy
     if(twofl_coll_inc_te) then
-!The evolution though equi is NOT consiederd as it is assumed that equi does not evolve in time
-!        if(has_equi_pe_n0) then
-!          tmp4(ixO^S) = tmp4(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_)*inv_gamma_1  
-!        endif
-!        if(has_equi_pe_c0) then
-!          tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_)*inv_gamma_1 
-!        endif
+     if(.not. twofl_equi_thermal) then   
+        if(has_equi_pe_n0) then
+          tmp4(ixO^S) = tmp4(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1  
+        endif
+        if(has_equi_pe_c0) then
+          tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
+        endif
+      endif
       tmp3(ixO^S) =  1d0 + dtfactor * dt * alpha(ixO^S) * (rhon(ixO^S)/Rc +  rhoc(ixO^S)/Rn)  
 
       tmp(ixO^S) = alpha(ixO^S) *(-rhoc(ixO^S)/Rn * tmp4(ixO^S) + rhon(ixO^S)/Rc * tmp5(ixO^S))
