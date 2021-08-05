@@ -27,7 +27,7 @@ module mod_input_output
   ! public methods
   public :: count_ix
   public :: create_output_file
-  public :: snapshot_write_header
+  public :: snapshot_write_header, snapshot_write_header1
   public :: block_shape_io
   
 
@@ -1611,11 +1611,12 @@ contains
     read(filename(i:i+3), '(I4)') get_snapshot_index
   end function get_snapshot_index
 
-  !> Write header for a snapshot
+
+  !> Write header for a snapshot, generalize cons_wnames and nw
   !>
   !> If you edit the header, don't forget to update: snapshot_write_header(),
   !> snapshot_read_header(), doc/fileformat.md, tools/python/dat_reader.py
-  subroutine snapshot_write_header(fh, offset_tree, offset_block)
+  subroutine snapshot_write_header1(fh, offset_tree, offset_block, dataset_names, nw_vars)
     use mod_forest
     use mod_physics
     use mod_global_parameters
@@ -1623,13 +1624,17 @@ contains
     integer, intent(in)                       :: fh           !< File handle
     integer(kind=MPI_OFFSET_KIND), intent(in) :: offset_tree  !< Offset of tree info
     integer(kind=MPI_OFFSET_KIND), intent(in) :: offset_block !< Offset of block data
+    character(len=*), intent(in) :: dataset_names(:)
+    integer, intent(in) :: nw_vars
     integer, dimension(MPI_STATUS_SIZE)       :: st
     integer                                   :: iw, er
+
+    character(len=name_len) :: dname
 
     call MPI_FILE_WRITE(fh, version_number, 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, int(offset_tree), 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, int(offset_block), 1, MPI_INTEGER, st, er)
-    call MPI_FILE_WRITE(fh, nw, 1, MPI_INTEGER, st, er)
+    call MPI_FILE_WRITE(fh, nw_vars, 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, ndir, 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, ndim, 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, levmax, 1, MPI_INTEGER, st, er)
@@ -1659,8 +1664,11 @@ contains
     ! Write stagger grid mark
     call MPI_FILE_WRITE(fh, stagger_grid, 1, MPI_LOGICAL, st, er)
 
-    do iw = 1, nw
-      call MPI_FILE_WRITE(fh, cons_wnames(iw), name_len, MPI_CHARACTER, st, er)
+    do iw = 1, nw_vars
+      ! using directly trim(adjustl((dataset_names(iw)))) in MPI_FILE_WRITE call 
+      ! does not work, there will be trailing characters
+      dname = trim(adjustl((dataset_names(iw))))
+      call MPI_FILE_WRITE(fh, dname, name_len, MPI_CHARACTER, st, er)
     end do
 
     ! Physics related information
@@ -1682,6 +1690,21 @@ contains
     call MPI_FILE_WRITE(fh, slicenext, 1, MPI_INTEGER, st, er)
     call MPI_FILE_WRITE(fh, collapsenext, 1, MPI_INTEGER, st, er)
 
+  end subroutine snapshot_write_header1
+
+  !> Write header for a snapshot
+  !>
+  !> If you edit the header, don't forget to update: snapshot_write_header(),
+  !> snapshot_read_header(), doc/fileformat.md, tools/python/dat_reader.py
+  subroutine snapshot_write_header(fh, offset_tree, offset_block)
+    use mod_forest
+    use mod_physics
+    use mod_global_parameters
+    use mod_slice, only: slicenext
+    integer, intent(in)                       :: fh           !< File handle
+    integer(kind=MPI_OFFSET_KIND), intent(in) :: offset_tree  !< Offset of tree info
+    integer(kind=MPI_OFFSET_KIND), intent(in) :: offset_block !< Offset of block data
+    call snapshot_write_header1(fh, offset_tree, offset_block, cons_wnames, nw)
   end subroutine snapshot_write_header
 
   !> Read header for a snapshot
