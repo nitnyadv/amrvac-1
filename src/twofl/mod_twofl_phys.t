@@ -45,6 +45,9 @@ module mod_twofl_phys
   !> Whether gravity is added: common flag for charges and neutrals
   logical, public, protected              :: twofl_gravity = .false.
 
+  !> whether dump full variables (when splitting is used) in a separate dat file
+  logical, public, protected              :: twofl_dump_full_vars = .false.
+
   !> Whether Hall-MHD is used
   logical, public, protected              :: twofl_Hall = .false.
 #if defined(ONE_FLUID) && ONE_FLUID==1
@@ -151,7 +154,8 @@ module mod_twofl_phys
   logical, public                         :: twofl_equi_thermal = .true.
   logical, public                         :: twofl_implicit_coll_terms = .true.
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
-
+  !> whether dump collisional terms in a separte dat file
+  logical, public, protected              :: twofl_dump_coll_terms = .false.
 #endif
 
   ! Eq of state:
@@ -303,12 +307,13 @@ contains
       typedivbdiff, type_ct, divbwave,He_abundance, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
       !added:
-      has_equi_rho_c0, has_equi_pe_c0,&
+      twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0,&
       H_ion_fr, He_ion_fr, He_ion_fr2,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
       twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,dtcollpar,&
+      twofl_dump_coll_terms,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
 #endif
@@ -887,11 +892,12 @@ contains
 
 
  ! w, wnew conserved
-subroutine convert_vars_splitting(ixO^L,  w, wnew)
+subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   use mod_global_parameters
-  integer, intent(in)             :: ixO^L
+  integer, intent(in)             :: ixO^L, nwc
   double precision, intent(in)    :: w(ixO^S, 1:nw)
-  double precision, intent(out)    :: wnew(ixO^S, 1:nw)
+  double precision, intent(in)    :: x(ixO^S,1:ndim) 
+  double precision, intent(out)   :: wnew(ixO^S, 1:nwc)
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   call  get_rhon_tot(w,ixO^L,ixO^L,wnew(ixO^S,rho_n_))
@@ -927,6 +933,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
  end subroutine convert_vars_splitting
 
 
+
   !> copied from mod_gravity
   subroutine grav_params_read(files)
     use mod_global_parameters, only: unitpar
@@ -946,6 +953,7 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
   subroutine twofl_check_params
     use mod_global_parameters
     use mod_usr_methods
+    use mod_convert, only: add_convert_method
 
     ! after user parameter setting
     gamma_1=twofl_gamma-1.d0
@@ -974,9 +982,17 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
       call mpistop("usr_set_equi_vars has to be implemented in the user file")
     endif
     if(convert .or. autoconvert) then
-      if(convert_type .eq. 'dat_generic_mpi_splitting') then
-        if(mype .eq. 0) print*, " set conversion to split -> full "
-        phys_convert_vars => convert_vars_splitting
+      if(convert_type .eq. 'dat_generic_mpi') then
+        if(twofl_dump_full_vars) then
+          if(mype .eq. 0) print*, " add conversion method: split -> full "
+          call add_convert_method(convert_vars_splitting, nw, cons_wnames, "new")
+        endif
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        if(twofl_dump_coll_terms) then
+          if(mype .eq. 0) print*, " add conversion method: dump coll terms "
+          call add_convert_method(dump_coll_terms, 3, (/"alpha    ", "gamma_rec", "gamma_ion"/), "_coll")
+        endif
+#endif
       endif
     endif
   end subroutine twofl_check_params
@@ -5718,6 +5734,16 @@ subroutine convert_vars_splitting(ixO^L,  w, wnew)
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
 
+  subroutine dump_coll_terms(ixO^L, w, x, wnew, nwc)
+   use mod_global_parameters
+   integer, intent(in)             :: ixO^L, nwc
+   double precision, intent(in)    :: w(ixO^S, 1:nw)
+   double precision, intent(in)    :: x(ixO^S,1:ndim) 
+   double precision, intent(out)   :: wnew(ixO^S, 1:nwc)
+ 
+   call get_alpha_coll(ixO^L, ixO^L, w, x, wnew(ixO^S,1))
+   call get_gamma_ion_rec(ixO^L, ixO^L, w, x, wnew(ixO^S,2), wnew(ixO^S,3))
+  end subroutine dump_coll_terms
 
 
   subroutine get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)

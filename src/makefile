@@ -64,8 +64,8 @@ boundary_conditions.o: mod_physics.mod
 coarsen.o: mod_physics.mod
 connectivity.o: mod_ghostcells_update.mod
 convert.o: mod_calculate_xw.mod
+convert.o: mod_convert.mod
 convert.o: mod_ghostcells_update.mod
-convert.o: mod_input_output.mod
 convert.o: mod_physics.mod
 convert.o: mod_thermal_emission.mod
 errest.o: mod_physics.mod
@@ -97,6 +97,7 @@ mod_constrained_transport.o: mod_fix_conserve.mod
 mod_constrained_transport.o: mod_ghostcells_update.mod
 mod_constrained_transport.o: mod_limiter.mod
 mod_constrained_transport.o: mod_physics.mod
+mod_convert.o: mod_input_output.mod
 mod_dust.o: mod_geometry.mod
 mod_dust.o: mod_physics.mod
 mod_finite_difference.o: mod_finite_volume.mod
@@ -139,6 +140,7 @@ mod_hd_roe.o: mod_tvd.mod
 mod_init_datafromfile.o: mod_lookup_table.mod
 mod_initialize.o: mod_amr_fct.mod
 mod_initialize.o: mod_bc_data.mod
+mod_initialize.o: mod_convert.mod
 mod_initialize.o: mod_fix_conserve.mod
 mod_initialize.o: mod_geometry.mod
 mod_initialize.o: mod_ghostcells_update.mod
@@ -292,6 +294,7 @@ mod_twofl_hllc.o: mod_physics.mod
 mod_twofl_hllc.o: mod_physics_hllc.mod
 mod_twofl_hllc.o: mod_twofl_phys.mod
 mod_twofl_phys.o: mod_constrained_transport.mod
+mod_twofl_phys.o: mod_convert.mod
 mod_twofl_phys.o: mod_fix_conserve.mod
 mod_twofl_phys.o: mod_geometry.mod
 mod_twofl_phys.o: mod_ghostcells_update.mod

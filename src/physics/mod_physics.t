@@ -90,7 +90,6 @@ module mod_physics
   ! set the equilibrium variables
   procedure(sub_set_equi_vars), pointer   :: phys_set_equi_vars          => null()
   ! convert variables (used for converting dat files)
-  procedure(sub_convert_vars), pointer   :: phys_convert_vars          => null()
 
   abstract interface
 
@@ -212,12 +211,6 @@ module mod_physics
        integer, intent(in) :: igrid
      end subroutine sub_set_equi_vars
 
-     subroutine sub_convert_vars(ixO^L,  w, wnew)
-       use mod_global_parameters
-       integer, intent(in)             :: ixO^L
-       double precision, intent(in)    :: w(ixO^S, 1:nw)
-       double precision, intent(out)    :: wnew(ixO^S, 1:nw)
-     end subroutine sub_convert_vars
 
      !> Add special advance in each advect step
      subroutine sub_special_advance(qdt, qt, psa)
@@ -322,6 +315,7 @@ module mod_physics
      end subroutine sub_implicit_update
 
    end interface
+
 
 contains
 
@@ -562,5 +556,7 @@ contains
     !$OMP END PARALLEL DO
 
   end subroutine dummy_implicit_update
+
+
 
 end module mod_physics
