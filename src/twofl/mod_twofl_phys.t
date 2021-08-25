@@ -5846,11 +5846,14 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
        tmp3(ixO^S) =  1d0 + dtfactor * dt * (gamma_rec(ixO^S) +  gamma_ion(ixO^S))     
+#if !defined(EQUI_IONREC) || EQUI_IONREC==0
        tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
                                         gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-       ! assume equi density does not evolve 
-       !tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
-       !                                 gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
+#else
+       ! equilibrium density does not evolve through ion/rec 
+       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
+#endif
        wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S)
        wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S)
     else
