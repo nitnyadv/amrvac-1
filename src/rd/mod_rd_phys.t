@@ -208,7 +208,7 @@ contains
     use mod_global_parameters
     integer :: n, i, iw, species_list(number_of_species)
 
-    if (any(flux_scheme /= "source")) then
+    if (any(flux_method /= fs_source)) then
        ! there are no fluxes, only source terms in reaction-diffusion
        call mpistop("mod_rd requires flux_scheme = source")
     end if
@@ -353,6 +353,7 @@ contains
        ! det(J) = sigma(b(r-1) + x*(x*+y*))
        maxrate = max(lor_sigma, 1.0d0, lor_b)
     case default
+       maxrate = one
        call mpistop("Unknown equation type")
     end select
 

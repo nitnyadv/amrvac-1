@@ -40,6 +40,9 @@ contains
     integer :: nx^D, nxC^D, ix^D, ix, iw, level, idir
     logical, save :: subfirst=.true.
 
+    ! initialize w
+    w=0.d0
+
     ixCmin^D=ixMlo^D-1; ixCmax^D=ixMhi^D; ! Corner indices
     ixCCmin^D=ixMlo^D; ixCCmax^D=ixMhi^D; ! Center indices
 
@@ -74,8 +77,6 @@ contains
 
     ! next lines needed when usr_aux_output uses gradients
     ! and later on when dwlimiter2 is used
-    typelimiter=type_limiter(node(plevel_,igrid))
-    typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
     ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
     if(nwauxio>0)then
       ! auxiliary io variables can be computed and added by user

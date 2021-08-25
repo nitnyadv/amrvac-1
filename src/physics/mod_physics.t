@@ -45,6 +45,8 @@ module mod_physics
   integer, parameter   :: flux_no_dissipation = 2
   !> Indicates the flux should be specially treated
   integer, parameter   :: flux_special        = 3
+  !> Indicates the flux should be treated with hll
+  integer, parameter   :: flux_hll        = 4
 
   !> Type for special methods defined per variable
   type iw_methods
@@ -72,7 +74,6 @@ module mod_physics
   procedure(sub_get_dt), pointer          :: phys_get_dt                 => null()
   procedure(sub_add_source_geom), pointer :: phys_add_source_geom        => null()
   procedure(sub_add_source), pointer      :: phys_add_source             => null()
-  procedure(sub_global_source), pointer   :: phys_global_source_before   => null()
   procedure(sub_global_source), pointer   :: phys_global_source_after    => null()
   procedure(sub_special_advance), pointer :: phys_special_advance        => null()
   procedure(sub_get_aux), pointer         :: phys_get_aux                => null()
@@ -82,6 +83,7 @@ module mod_physics
   procedure(sub_write_info), pointer      :: phys_write_info             => null()
   procedure(sub_angmomfix), pointer       :: phys_angmomfix              => null()
   procedure(sub_small_values), pointer    :: phys_handle_small_values    => null()
+  procedure(sub_get_ct_velocity), pointer :: phys_get_ct_velocity        => null()
   procedure(sub_update_faces), pointer    :: phys_update_faces           => null()
   procedure(sub_face_to_center), pointer  :: phys_face_to_center         => null()
   procedure(sub_implicit_update), pointer :: phys_implicit_update        => null()
@@ -133,7 +135,8 @@ module mod_physics
      subroutine sub_get_tcutoff(ixI^L,ixO^L,w,x,tco_local,Tmax_local)
        use mod_global_parameters
        integer, intent(in)             :: ixI^L, ixO^L
-       double precision, intent(in)    :: w(ixI^S, nw), x(ixI^S, 1:^ND)
+       double precision, intent(inout)    :: w(ixI^S, nw)
+       double precision, intent(in)    :: x(ixI^S, 1:^ND)
        double precision, intent(out) :: tco_local, Tmax_local
      end subroutine sub_get_tcutoff
 
@@ -213,9 +216,8 @@ module mod_physics
 
 
      !> Add special advance in each advect step
-     subroutine sub_special_advance(qdt, qt, psa)
+     subroutine sub_special_advance(qt, psa)
        use mod_global_parameters
-       double precision, intent(in) :: qdt    !< Current time step
        double precision, intent(in) :: qt     !< Current time
        type(state), target :: psa(max_blocks) !< Compute based on this state
      end subroutine sub_special_advance
@@ -281,7 +283,17 @@ module mod_physics
        double precision, intent(out) :: out(ixO^S)
      end subroutine sub_get_var
 
-     subroutine sub_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+     subroutine sub_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixO^L,idim,cmax,cmin)
+       use mod_global_parameters
+
+       integer, intent(in)             :: ixI^L, ixO^L, idim
+       double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
+       double precision, intent(in)    :: cmax(ixI^S)
+       double precision, intent(in), optional :: cmin(ixI^S)
+       type(ct_velocity), intent(inout):: vcts
+     end subroutine sub_get_ct_velocity
+
+     subroutine sub_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
        use mod_global_parameters
        integer, intent(in)                :: ixI^L, ixO^L
        double precision, intent(in)       :: qt, qdt
@@ -289,6 +301,7 @@ module mod_physics
        double precision, intent(in)       :: wprim(ixI^S,1:nw)
        ! velocity structure
        type(state)                        :: sCT, s
+       type(ct_velocity)                  :: vcts
        double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
        double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
      end subroutine sub_update_faces
@@ -386,6 +399,9 @@ contains
 
     if (.not. associated(phys_handle_small_values)) &
          phys_handle_small_values => dummy_small_values
+
+    if (.not. associated(phys_get_ct_velocity)) &
+         phys_get_ct_velocity => dummy_get_ct_velocity
 
     if (.not. associated(phys_update_faces)) &
          phys_update_faces => dummy_update_faces
@@ -505,13 +521,24 @@ contains
     character(len=*), intent(in)    :: subname
   end subroutine dummy_small_values
 
-  subroutine dummy_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+  subroutine dummy_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixO^L,idim,cmax,cmin)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
+    double precision, intent(in)    :: cmax(ixI^S)
+    double precision, intent(in), optional :: cmin(ixI^S)
+    type(ct_velocity), intent(inout):: vcts
+  end subroutine dummy_get_ct_velocity
+
+  subroutine dummy_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
     use mod_global_parameters
     integer, intent(in)                :: ixI^L, ixO^L
     double precision, intent(in)       :: qt, qdt
     ! cell-center primitive variables
     double precision, intent(in)       :: wprim(ixI^S,1:nw)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
     double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
   end subroutine dummy_update_faces

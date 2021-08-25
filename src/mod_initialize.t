@@ -44,31 +44,6 @@ contains
     call init_convert()
     call phys_check_params()
 
-    if(phys_trac) then
-      if(phys_trac_type .eq. 2) then
-        if(mype .eq. 0) write(*,*) 'Using TRACL(ine) global method'
-        if(mype .eq. 0) write(*,*) 'By default, magnetic field lines are traced every 4 grid cells'
-        call init_trac_line(.false.)
-      end if
-      if(phys_trac_type .eq. 3) then
-        if(mype .eq. 0) write(*,*) 'Using TRACB(lock) global method'
-        if(mype .eq. 0) write(*,*) 'Currently, only valid in Cartesian uniform settings'
-        if(mype .eq. 0) write(*,*) 'By default, magnetic field lines are traced every 4 grid cells'
-        call init_trac_block(.false.)
-      end if
-      if(phys_trac_type .eq. 4) then
-        if(mype .eq. 0) write(*,*) 'Using TRACL(ine) method with a mask'
-        if(mype .eq. 0) write(*,*) 'By default, magnetic field lines are traced every 4 grid cells'
-        call init_trac_line(.true.)
-      end if
-      if(phys_trac_type .eq. 5) then
-        if(mype .eq. 0) write(*,*) 'Using TRACB(lock) method with a mask'
-        if(mype .eq. 0) write(*,*) 'Currently, only valid in Cartesian uniform settings'
-        if(mype .eq. 0) write(*,*) 'By default, magnetic field lines are traced every 4 grid cells'
-        call init_trac_block(.true.)
-      end if
-    end if
-
     initialized_already = .true.
   end subroutine initialize_amrvac
 
@@ -97,7 +72,7 @@ contains
     allocate(neighbor_type(-1:1^D&,max_blocks),neighbor_active(-1:1^D&,max_blocks))
     allocate(neighbor_pole(-1:1^D&,max_blocks))
     allocate(igrids(max_blocks),igrids_active(max_blocks),igrids_passive(max_blocks))
-    allocate(rnode(rnodehi,max_blocks),rnode_sub(rnodehi,max_blocks),dt_grid(max_blocks))
+    allocate(rnode(rnodehi,max_blocks),rnode_sub(rnodehi,max_blocks))
     allocate(node(nodehi,max_blocks),node_sub(nodehi,max_blocks),phyboundblock(max_blocks))
     allocate(pflux(2,^ND,max_blocks))
     ! allocate mesh for particles
@@ -111,9 +86,6 @@ contains
     global_time=time_init
 
     dt=zero
-
-    ! set all dt to zero
-    dt_grid(1:max_blocks)=zero
 
     ! no poles initially
     neighbor_pole=0

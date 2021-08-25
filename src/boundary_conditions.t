@@ -22,7 +22,7 @@ subroutine bc_phys(iside,idims,time,qdt,s,ixG^L,ixB^L)
   {case (^D)
      if (iside==2) then
         ! maximal boundary
-        iB=ismax^D
+        iB=2*^D
         ixOmin^DD=ixBmax^D+1-nghostcells^D%ixOmin^DD=ixBmin^DD;
         ixOmax^DD=ixBmax^DD;
         ! cont/symm/asymm types
@@ -129,7 +129,7 @@ subroutine bc_phys(iside,idims,time,qdt,s,ixG^L,ixB^L)
         end if
      else
         ! minimal boundary
-        iB=ismin^D
+        iB=2*^D-1
         ixOmin^DD=ixBmin^DD;
         ixOmax^DD=ixBmin^D-1+nghostcells^D%ixOmax^DD=ixBmax^DD;
         ! cont/symm/asymm types
@@ -347,8 +347,6 @@ subroutine getintbc(time,ixG^L)
   !do iigrid=1,igridstail; igrid=igrids(iigrid);
      ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
      block=>ps(igrid)
-     typelimiter=type_limiter(node(plevel_,igrid))
-     typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
      level=node(plevel_,igrid)
      saveigrid=igrid
 

@@ -358,12 +358,12 @@ contains
     phys_total_energy=total_energy
 
     {^IFONED
-      if(mhd_trac .and. mhd_trac_type .gt. 1) then
+      if(mhd_trac .and. mhd_trac_type .gt. 2) then
         mhd_trac_type=1
-        if(mype==0) write(*,*) 'WARNING: set mhd_trac_type=1 for 1D simulation'
+        if(mype==0) write(*,*) 'WARNING: reset mhd_trac_type=1 for 1D simulation'
       end if
     }
-    if(mhd_trac .and. mhd_trac_type .le. 3) then
+    if(mhd_trac .and. mhd_trac_type .le. 4) then
       mhd_trac_mask=bigdouble
       if(mype==0) write(*,*) 'WARNING: set mhd_trac_mask==bigdouble for global TRAC method'
     end if
@@ -466,7 +466,7 @@ contains
     Tweight_ = -1
     if(mhd_trac) then
       Tcoff_ = var_set_tcoff()
-      if(mhd_trac_type .ge. 2) then
+      if(mhd_trac_type .ge. 3) then
         Tweight_ = var_set_extravar('Tweight', 'Tweight')
       endif
     else
@@ -490,6 +490,11 @@ contains
        flux_type = flux_default
     else if (any(shape(flux_type) /= [ndir, nwflux])) then
        call mpistop("phys_check error: flux_type has wrong shape")
+    end if
+
+    if(nwflux>mag(ndir)) then
+      ! for flux of eaux and tracers, using hll flux
+      flux_type(:,mag(ndir)+1:nwflux)=flux_hll
     end if
 
     if(ndim>1) then
@@ -551,6 +556,7 @@ contains
 
     ! if using ct stagger grid, boundary divb=0 is not done here
     if(stagger_grid) then
+      phys_get_ct_velocity => mhd_get_ct_velocity
       phys_update_faces => mhd_update_faces
       phys_face_to_center => mhd_face_to_center
       phys_modify_wLR => mhd_modify_wLR
@@ -575,6 +581,9 @@ contains
     if(.not. mhd_energy .and. mhd_radiative_cooling) then
       call mpistop("radiative cooling needs mhd_energy=T")
     end if
+
+    ! resistive MHD needs diagonal ghost cells
+    if(mhd_eta/=0.d0) phys_req_diagonal = .true.
 
     ! initialize thermal conduction module
     if (mhd_thermal_conduction) then
@@ -705,7 +714,7 @@ contains
     else
       mp=mp_cgs
       kB=kB_cgs
-      miu0=4.d0*dpi
+      miu0=4.d0*dpi ! N A^-2
       c_lightspeed=const_c
     end if
     if(unit_velocity==0) then
@@ -1095,7 +1104,8 @@ contains
     use mod_global_parameters
     use mod_geometry
     integer, intent(in) :: ixI^L,ixO^L
-    double precision, intent(in) :: x(ixI^S,1:ndim),w(ixI^S,1:nw)
+    double precision, intent(in) :: x(ixI^S,1:ndim)
+    double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision, intent(out) :: Tco_local,Tmax_local
 
     double precision, parameter :: trac_delta=0.25d0
@@ -1103,7 +1113,9 @@ contains
     double precision, dimension(ixI^S,1:ndir) :: bunitvec
     double precision, dimension(ixI^S,1:ndim) :: gradT
     double precision :: Bdir(ndim)
+    double precision :: ltr(ixI^S),ltrc,ltrp,altr(ixI^S)
     integer :: idims,jxO^L,hxO^L,ixA^D,ixB^D
+    integer :: jxP^L,hxP^L,ixP^L
     logical :: lrlt(ixI^S)
 
     if(mhd_internal_e) then
@@ -1113,25 +1125,48 @@ contains
                        w(ixI^S,rho_)+sum(w(ixI^S,iw_mag(:))**2,dim=ndim+1))
     end if
     Te(ixI^S)=tmp1(ixI^S)/w(ixI^S,rho_)*(mhd_gamma-1.d0)
+    Tco_local=zero
     Tmax_local=maxval(Te(ixO^S))
 
     {^IFONED
-    hxO^L=ixO^L-1;
-    jxO^L=ixO^L+1;
-    lts(ixO^S)=0.5d0*abs(Te(jxO^S)-Te(hxO^S))/Te(ixO^S)
-    lrlt=.false.
-    where(lts(ixO^S) > trac_delta)
-      lrlt(ixO^S)=.true.
-    end where
-    Tco_local=zero
-    block%special_values(1)=zero
-    if(any(lrlt(ixO^S))) then
-      Tco_local=zero
-      block%special_values(1)=maxval(Te(ixO^S), mask=lrlt(ixO^S))
-    end if
+    select case(mhd_trac_type)
+    case(0)
+      !> test case, fixed cutoff temperature
+      w(ixI^S,Tcoff_)=2.5d5/unit_temperature
+    case(1)
+      hxO^L=ixO^L-1;
+      jxO^L=ixO^L+1;
+      lts(ixO^S)=0.5d0*abs(Te(jxO^S)-Te(hxO^S))/Te(ixO^S)
+      lrlt=.false.
+      where(lts(ixO^S) > trac_delta)
+        lrlt(ixO^S)=.true.
+      end where
+      if(any(lrlt(ixO^S))) then
+        Tco_local=maxval(Te(ixO^S), mask=lrlt(ixO^S))
+      end if
+    case(2)
+      !> iijima et al. 2021, LTRAC method
+      ltrc=1.5d0
+      ltrp=2.5d0
+      ixP^L=ixO^L^LADD1;
+      hxO^L=ixO^L-1;
+      jxO^L=ixO^L+1;
+      hxP^L=ixP^L-1;
+      jxP^L=ixP^L+1;
+      lts(ixP^S)=0.5d0*abs(Te(jxP^S)-Te(hxP^S))/Te(ixP^S)
+      ltr(ixP^S)=max(one, (exp(lts(ixP^S))/ltrc)**ltrp)
+      w(ixO^S,Tcoff_)=Te(ixO^S)*&
+        (0.25*(ltr(jxO^S)+two*ltr(ixO^S)+ltr(hxO^S)))**0.4d0
+    case default
+      call mpistop("mhd_trac_type not allowed for 1D simulation")
+    end select
     }
     {^NOONED
-    if(mod(mhd_trac_type,2) .eq. 1) then
+    select case(mhd_trac_type)
+    case(0)
+      !> test case, fixed cutoff temperature
+      w(ixI^S,Tcoff_)=2.5d5/unit_temperature
+    case(1,4,6)
       ! temperature gradient at cell centers
       do idims=1,ndim
         call gradient(Te,ixI^L,ixO^L,idims,tmp1)
@@ -1143,7 +1178,7 @@ contains
       else
         bunitvec(ixO^S,:)=w(ixO^S,iw_mag(:))
       end if
-      if(mhd_trac_type>1) then
+      if(mhd_trac_type .gt. 1) then
         ! B direction at cell center
         Bdir=zero
         {do ixA^D=0,1\}
@@ -1183,14 +1218,61 @@ contains
         block%special_values(1)=zero
       end if
       block%special_values(2)=Tmax_local
-    end if
+    case(2)
+      !> iijima et al. 2021, LTRAC method
+      ltrc=1.5d0
+      ltrp=2.5d0
+      ixP^L=ixO^L^LADD1;
+      ! temperature gradient at cell centers
+      do idims=1,ndim
+        call gradient(Te,ixI^L,ixP^L,idims,tmp1)
+        gradT(ixP^S,idims)=tmp1(ixP^S)
+      end do
+      ! B vector
+      if(B0field) then
+        bunitvec(ixP^S,:)=w(ixP^S,iw_mag(:))+block%B0(ixP^S,:,0)
+      else
+        bunitvec(ixP^S,:)=w(ixP^S,iw_mag(:))
+      end if
+      tmp1(ixP^S)=dsqrt(sum(bunitvec(ixP^S,:)**2,dim=ndim+1))
+      where(tmp1(ixP^S)/=0.d0)
+        tmp1(ixP^S)=1.d0/tmp1(ixP^S)
+      elsewhere
+        tmp1(ixP^S)=bigdouble
+      end where
+      ! b unit vector: magnetic field direction vector
+      do idims=1,ndim
+        bunitvec(ixP^S,idims)=bunitvec(ixP^S,idims)*tmp1(ixP^S)
+      end do
+      ! temperature length scale inversed
+      lts(ixP^S)=abs(sum(gradT(ixP^S,1:ndim)*bunitvec(ixP^S,1:ndim),dim=ndim+1))/Te(ixP^S)
+      ! fraction of cells size to temperature length scale
+      if(slab_uniform) then
+        lts(ixP^S)=minval(dxlevel)*lts(ixP^S)
+      else
+        lts(ixP^S)=minval(block%ds(ixP^S,:),dim=ndim+1)*lts(ixP^S)
+      end if
+      ltr(ixP^S)=max(one, (exp(lts(ixP^S))/ltrc)**ltrp)
+  
+      altr(ixI^S)=zero  
+      do idims=1,ndim 
+        hxO^L=ixO^L-kr(idims,^D);
+        jxO^L=ixO^L+kr(idims,^D);
+        altr(ixO^S)=altr(ixO^S) &
+          +0.25*(ltr(hxO^S)+two*ltr(ixO^S)+ltr(jxO^S))*bunitvec(ixO^S,idims)**2
+        w(ixO^S,Tcoff_)=Te(ixO^S)*altr(ixO^S)**(0.4*ltrp)
+      end do
+    case(3,5)
+      !> do nothing here
+    case default
+      call mpistop("unknown mhd_trac_type")
+    end select 
     }
   end subroutine mhd_get_tcutoff
 
   !> Estimating bounds for the minimum and maximum signal velocities
   subroutine mhd_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
     use mod_global_parameters
-    use mod_constrained_transport
 
     integer, intent(in)             :: ixI^L, ixO^L, idim
     double precision, intent(in)    :: wLC(ixI^S, nw), wRC(ixI^S, nw)
@@ -1201,19 +1283,8 @@ contains
 
     double precision :: wmean(ixI^S,nw)
     double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
-    integer                            :: idimE,idimN
 
-    if (typeboundspeed=='cmaxmean') then
-      wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
-      tmp1(ixO^S)=wmean(ixO^S,mom(idim))/wmean(ixO^S,rho_)
-      call mhd_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
-      if(present(cmin)) then
-        cmax(ixO^S)=max(tmp1(ixO^S)+csoundR(ixO^S),zero)
-        cmin(ixO^S)=min(tmp1(ixO^S)-csoundR(ixO^S),zero)
-      else
-        cmax(ixO^S)=abs(tmp1(ixO^S))+csoundR(ixO^S)
-      end if
-    else
+    if (boundspeedEinfeldt) then
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
       ! Methods for Fluid Dynamics" by Toro.
       tmp1(ixO^S)=sqrt(abs(wLp(ixO^S,rho_)))
@@ -1232,50 +1303,72 @@ contains
       else
         cmax(ixO^S)=abs(umean(ixO^S))+dmean(ixO^S)
       end if
-    end if
-
-    if(stagger_grid) then
-      ! calculate velocities related to different UCT schemes
-      select case(type_ct)
-      case('average')
-      case('uct_contact')
-        if(.not.allocated(vcts%vnorm)) allocate(vcts%vnorm(ixI^S,1:ndim))
-        ! get average normal velocity at cell faces
-        vcts%vnorm(ixO^S,idim)=0.5d0*(wLp(ixO^S,mom(idim))+wRp(ixO^S,mom(idim)))
-      case('uct_hll')
-        if(.not.allocated(vcts%vbarC)) then
-          allocate(vcts%vbarC(ixI^S,1:ndir,2),vcts%vbarLC(ixI^S,1:ndir,2),vcts%vbarRC(ixI^S,1:ndir,2))
-          allocate(vcts%cbarmin(ixI^S,1:ndim),vcts%cbarmax(ixI^S,1:ndim)) 
-        end if
-        ! Store magnitude of characteristics
-        if(present(cmin)) then
-          vcts%cbarmin(ixO^S,idim)=max(-cmin(ixO^S),zero)
-          vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
-        else
-          vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
-          vcts%cbarmin(ixO^S,idim)=vcts%cbarmax(ixO^S,idim)
-        end if
-
-        idimN=mod(idim,ndir)+1 ! 'Next' direction
-        idimE=mod(idim+1,ndir)+1 ! Electric field direction
-        ! Store velocities
-        vcts%vbarLC(ixO^S,idim,1)=wLp(ixO^S,mom(idimN))
-        vcts%vbarRC(ixO^S,idim,1)=wRp(ixO^S,mom(idimN))
-        vcts%vbarC(ixO^S,idim,1)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,1) &
-             +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
-            /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
-
-        vcts%vbarLC(ixO^S,idim,2)=wLp(ixO^S,mom(idimE))
-        vcts%vbarRC(ixO^S,idim,2)=wRp(ixO^S,mom(idimE))
-        vcts%vbarC(ixO^S,idim,2)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,2) &
-             +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
-            /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
-      case default
-        call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
-      end select
+    else
+      wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
+      tmp1(ixO^S)=wmean(ixO^S,mom(idim))/wmean(ixO^S,rho_)
+      call mhd_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
+      if(present(cmin)) then
+        cmax(ixO^S)=max(tmp1(ixO^S)+csoundR(ixO^S),zero)
+        cmin(ixO^S)=min(tmp1(ixO^S)-csoundR(ixO^S),zero)
+      else
+        cmax(ixO^S)=abs(tmp1(ixO^S))+csoundR(ixO^S)
+      end if
     end if
 
   end subroutine mhd_get_cbounds
+
+  !> prepare velocities for ct methods
+  subroutine mhd_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixO^L,idim,cmax,cmin)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
+    double precision, intent(in)    :: cmax(ixI^S)
+    double precision, intent(in), optional :: cmin(ixI^S)
+    type(ct_velocity), intent(inout):: vcts
+
+    integer                         :: idimE,idimN
+
+    ! calculate velocities related to different UCT schemes
+    select case(type_ct)
+    case('average')
+    case('uct_contact')
+      if(.not.allocated(vcts%vnorm)) allocate(vcts%vnorm(ixI^S,1:ndim))
+      ! get average normal velocity at cell faces
+      vcts%vnorm(ixO^S,idim)=0.5d0*(wLp(ixO^S,mom(idim))+wRp(ixO^S,mom(idim)))
+    case('uct_hll')
+      if(.not.allocated(vcts%vbarC)) then
+        allocate(vcts%vbarC(ixI^S,1:ndir,2),vcts%vbarLC(ixI^S,1:ndir,2),vcts%vbarRC(ixI^S,1:ndir,2))
+        allocate(vcts%cbarmin(ixI^S,1:ndim),vcts%cbarmax(ixI^S,1:ndim)) 
+      end if
+      ! Store magnitude of characteristics
+      if(present(cmin)) then
+        vcts%cbarmin(ixO^S,idim)=max(-cmin(ixO^S),zero)
+        vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
+      else
+        vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
+        vcts%cbarmin(ixO^S,idim)=vcts%cbarmax(ixO^S,idim)
+      end if
+
+      idimN=mod(idim,ndir)+1 ! 'Next' direction
+      idimE=mod(idim+1,ndir)+1 ! Electric field direction
+      ! Store velocities
+      vcts%vbarLC(ixO^S,idim,1)=wLp(ixO^S,mom(idimN))
+      vcts%vbarRC(ixO^S,idim,1)=wRp(ixO^S,mom(idimN))
+      vcts%vbarC(ixO^S,idim,1)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,1) &
+           +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
+          /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
+
+      vcts%vbarLC(ixO^S,idim,2)=wLp(ixO^S,mom(idimE))
+      vcts%vbarRC(ixO^S,idim,2)=wRp(ixO^S,mom(idimE))
+      vcts%vbarC(ixO^S,idim,2)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,2) &
+           +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
+          /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
+    case default
+      call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
+    end select
+
+  end subroutine mhd_get_ct_velocity
 
   !> Calculate fast magnetosonic wave speed
   subroutine mhd_get_csound(w,x,ixI^L,ixO^L,idim,csound)
@@ -1502,14 +1595,14 @@ contains
     double precision,intent(out) :: f(ixI^S,nwflux)
 
     double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
-    double precision, allocatable:: vHall(:^D&,:)
+    double precision             :: vHall(ixI^S,1:ndir)
     integer                      :: idirmin, iw, idir, jdir, kdir
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
-    double precision, allocatable, dimension(:^D&) :: tmp2, tmp3, tmp4
+    double precision, allocatable, dimension(:^D&) :: tmp2, tmp3
+    double precision :: tmp4(ixO^S)
 
 
     if (mhd_Hall) then
-      allocate(vHall(ixI^S,1:ndir))
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
 
@@ -1637,10 +1730,6 @@ contains
       f(ixO^S,psi_)  = cmax_global**2*w(ixO^S,mag(idim))
     end if
 
-    if (mhd_Hall) then
-      deallocate(vHall)
-    end if
-
     ! Contributions of ambipolar term in explicit scheme
     if(mhd_ambipolar_exp.and. .not.stagger_grid) then
       ! ambipolar electric field
@@ -1662,7 +1751,6 @@ contains
       !tmp3 = J_ambi dot Btot
       tmp3(ixO^S) = sum(Jambi(ixO^S,:)*btot(ixO^S,:),dim=ndim+1)
 
-      if (B0field) allocate(tmp4(ixO^S))
       select case(idim)
         case(1)
           tmp(ixO^S)=w(ixO^S,mag(3)) *Jambi(ixO^S,2) - w(ixO^S,mag(2)) * Jambi(ixO^S,3)
@@ -1687,7 +1775,6 @@ contains
       endif
 
       deallocate(Jambi,btot,tmp2,tmp3)
-      if (B0field) deallocate(tmp4)
     endif
 
   end subroutine mhd_get_flux
@@ -1732,7 +1819,7 @@ contains
  
     if(B0field) then
       do idir=1,3
-        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,block%iw0)
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,b0i)
       enddo
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
@@ -1763,12 +1850,14 @@ contains
     logical, intent(in) :: fix_conserve_at_step
 
     double precision, dimension(ixI^S,1:3) :: tmp,ff
-    double precision, allocatable, dimension(:^D&,:,:) :: fluxall
-    double precision, allocatable :: fE(:^D&,:)
+    double precision :: fluxall(ixI^S,1:nflux,1:ndim)
+    double precision :: fE(ixI^S,7-2*ndim:3)
     double precision  :: btot(ixI^S,1:3),tmp2(ixI^S)
     integer :: i, ixA^L, ie_
 
     ixA^L=ixO^L^LADD1;
+
+    fluxall=zero
 
     call mhd_get_jxbxb(w,x,ixI^L,ixA^L,tmp)
 
@@ -1777,11 +1866,6 @@ contains
       !tmp(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * tmp(ixA^S,i)
       call multiplyAmbiCoef(ixI^L,ixA^L,tmp(ixI^S,i),w,x)   
     enddo
-
-    if(fix_conserve_at_step) then
-      allocate(fluxall(ixI^S,1:nflux,1:ndim))
-      fluxall=0.d0
-    end if
 
     if(mhd_energy .and. .not.mhd_internal_e) then
       !btot should be only mag. pert.
@@ -1810,7 +1894,7 @@ contains
         if(fix_conserve_at_step) fluxall(ixI^S,1+ndir,1:ndim)=ff(ixI^S,1:ndim)
         wres(ixO^S,mag(ndir))=-tmp2(ixO^S)
       end if
-      allocate(fE(ixI^S,7-2*ndim:3))
+      fE=0.d0
       call update_faces_ambipolar(ixI^L,ixO^L,w,x,tmp,fE,btot)
       ixAmax^D=ixOmax^D;
       ixAmin^D=ixOmin^D-1;
@@ -1854,9 +1938,7 @@ contains
       call store_flux(igrid,fluxall,1,ndim,nflux)
       if(stagger_grid) then
         call store_edge(igrid,ixI^L,my_dt*fE,1,ndim)
-        deallocate(fE)
       end if
-      deallocate(fluxall)
     end if
 
   end subroutine sts_set_source_ambipolar
@@ -1982,15 +2064,20 @@ contains
     double precision              :: coef
     double precision              :: dxarr(ndim)
     double precision              :: tmp(ixI^S)
-    ^D&dxarr(^D)=dx^D;
 
+    ^D&dxarr(^D)=dx^D;
     tmp(ixO^S) = mhd_mag_en_all(w, ixI^L, ixO^L)
     call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
     coef = maxval(abs(tmp(ixO^S)))
-    if(slab_uniform) then
-      dtnew=minval(dxarr(1:ndim))**2.0d0/coef
+    if(coef/=0.d0) then
+      coef=1.d0/coef
     else
-      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
+      coef=bigdouble
+    end if
+    if(slab_uniform) then
+      dtnew=minval(dxarr(1:ndim))**2.0d0*coef
+    else
+      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0*coef
     end if
 
   end function get_ambipolar_dt
@@ -2006,11 +2093,11 @@ contains
     double precision, intent(inout) :: res(ixI^S)
     double precision :: tmp(ixI^S)
 
-  
-    tmp(ixI^S) = -(mhd_eta_ambi/w(ixI^S, rho_)**2) 
+    tmp=0.d0
+    tmp(ixO^S)=-mhd_eta_ambi/w(ixO^S, rho_)**2
     if (associated(usr_mask_ambipolar)) then
       call usr_mask_ambipolar(ixI^L,ixO^L,w,x,tmp)
-    endif
+    end if
 
     res(ixO^S) = tmp(ixO^S) * res(ixO^S)
   end subroutine multiplyAmbiCoef
@@ -2819,11 +2906,16 @@ contains
     double precision, intent(in)       :: w(ixI^S,1:nw)
     double precision                   :: divb(ixI^S), dsurface(ixI^S)
 
+    double precision :: invB(ixO^S)
     integer :: ixA^L,idims
 
     call get_divb(w,ixI^L,ixO^L,divb)
+    invB(ixO^S)=sqrt(mhd_mag_en_all(w,ixI^L,ixO^L))
+    where(invB(ixO^S)/=0.d0)
+      invB(ixO^S)=1.d0/invB(ixO^S)
+    end where
     if(slab_uniform) then
-      divb(ixO^S)=0.5d0*abs(divb(ixO^S))/sqrt(mhd_mag_en_all(w,ixI^L,ixO^L))/sum(1.d0/dxlevel(:))
+      divb(ixO^S)=0.5d0*abs(divb(ixO^S))*invB(ixO^S)/sum(1.d0/dxlevel(:))
     else
       ixAmin^D=ixOmin^D-1;
       ixAmax^D=ixOmax^D-1;
@@ -2832,7 +2924,7 @@ contains
         ixA^L=ixO^L-kr(idims,^D);
         dsurface(ixO^S)=dsurface(ixO^S)+block%surfaceC(ixA^S,idims)
       end do
-      divb(ixO^S)=abs(divb(ixO^S))/sqrt(mhd_mag_en_all(w,ixI^L,ixO^L))*&
+      divb(ixO^S)=abs(divb(ixO^S))*invB(ixO^S)*&
       block%dvolume(ixO^S)/dsurface(ixO^S)
     end if
 
@@ -3078,7 +3170,7 @@ contains
     double precision              :: mge(ixO^S)
 
     if (B0field) then
-      mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,block%iw0))**2, dim=ndim+1)
+      mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,b0i))**2, dim=ndim+1)
     else
       mge = sum(w(ixO^S, mag(:))**2, dim=ndim+1)
     end if
@@ -3092,7 +3184,7 @@ contains
     double precision              :: mgf(ixO^S)
 
     if (B0field) then
-      mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,block%iw0)
+      mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,b0i)
     else
       mgf = w(ixO^S, mag(idir))
     end if
@@ -3189,7 +3281,7 @@ contains
 
     if (.not. B0field) then
        bmag(ixO^S)=sqrt(sum(w(ixO^S,mag(:))**2, dim=ndim+1))
-       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2))
+       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,b0i))**2))
     end if
 
     if(slab_uniform) then
@@ -3232,10 +3324,20 @@ contains
 
       wRp(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wRp(ixO^S,psi_) = wLp(ixO^S,psi_)
+
+      if(total_energy) then
+        wRC(ixO^S,e_)=wRC(ixO^S,e_)-half*wRC(ixO^S,mag(idir))**2
+        wLC(ixO^S,e_)=wLC(ixO^S,e_)-half*wLC(ixO^S,mag(idir))**2
+      end if
       wRC(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wRC(ixO^S,psi_) = wLp(ixO^S,psi_)
       wLC(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wLC(ixO^S,psi_) = wLp(ixO^S,psi_)
+      ! modify total energy according to the change of magnetic field
+      if(total_energy) then
+        wRC(ixO^S,e_)=wRC(ixO^S,e_)+half*wRC(ixO^S,mag(idir))**2
+        wLC(ixO^S,e_)=wLC(ixO^S,e_)+half*wLC(ixO^S,mag(idir))**2
+      end if
     end if
 
     if(associated(usr_set_wLR)) call usr_set_wLR(ixI^L,ixO^L,qt,wLC,wRC,wLp,wRp,s,idir)
@@ -3815,7 +3917,7 @@ contains
   end subroutine mhd_clean_divb_multigrid
   }
 
-  subroutine mhd_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+  subroutine mhd_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
     use mod_global_parameters
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -3823,6 +3925,7 @@ contains
     ! cell-center primitive variables
     double precision, intent(in)       :: wprim(ixI^S,1:nw)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
     double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
 
@@ -3830,9 +3933,9 @@ contains
     case('average')
       call update_faces_average(ixI^L,ixO^L,qt,qdt,fC,fE,sCT,s)
     case('uct_contact')
-      call update_faces_contact(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+      call update_faces_contact(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
     case('uct_hll')
-      call update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s)
+      call update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s,vcts)
     case default
       call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
     end select
@@ -3842,7 +3945,6 @@ contains
   !> get electric field though averaging neighors to update faces in CT
   subroutine update_faces_average(ixI^L,ixO^L,qt,qdt,fC,fE,sCT,s)
     use mod_global_parameters
-    use mod_constrained_transport
     use mod_usr_methods
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -3944,9 +4046,8 @@ contains
   end subroutine update_faces_average
 
   !> update faces using UCT contact mode by Gardiner and Stone 2005 JCP 205, 509
-  subroutine update_faces_contact(ixI^L,ixO^L,qt,qdt,wp,fC,fE,sCT,s)
+  subroutine update_faces_contact(ixI^L,ixO^L,qt,qdt,wp,fC,fE,sCT,s,vcts)
     use mod_global_parameters
-    use mod_constrained_transport
     use mod_usr_methods
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -3954,6 +4055,7 @@ contains
     ! cell-center primitive variables
     double precision, intent(in)       :: wp(ixI^S,1:nw)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
     double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
 
@@ -4118,7 +4220,7 @@ contains
   end subroutine update_faces_contact
 
   !> update faces
-  subroutine update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s)
+  subroutine update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s,vcts)
     use mod_global_parameters
     use mod_constrained_transport
     use mod_usr_methods
@@ -4127,6 +4229,7 @@ contains
     double precision, intent(in)       :: qt, qdt
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
 
     double precision                   :: vtilL(ixI^S,2)
     double precision                   :: vtilR(ixI^S,2)

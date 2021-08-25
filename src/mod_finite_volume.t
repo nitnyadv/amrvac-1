@@ -47,7 +47,7 @@ contains
     ^D&dxinv(^D)=-qdt/dx^D;
     ^D&dxdim(^D)=dx^D;
     do idims= idims^LIM
-      block%iw0=idims
+      b0i=idims
       ! Calculate w_j+g_j/2 and w_j-g_j/2
       ! First copy all variables, then upwind wLC and wRC.
       ! wLC is to the left of ixO, wRC is to the right of wCT.
@@ -88,7 +88,7 @@ contains
         end if
       end do
     end do ! next idims
-    block%iw0=0
+    b0i=0
 
     do iw = 1, nwflux
       if (associated(phys_iw_methods(iw)%inv_capacity)) then
@@ -127,10 +127,10 @@ contains
     use mod_source, only: addsource2
     use mod_usr_methods
 
-    character(len=*), intent(in)                          :: method
+    integer, intent(in)                                   :: method
     double precision, intent(in)                          :: qdt, qtC, qt, dx^D
     integer, intent(in)                                   :: ixI^L, ixO^L, idims^LIM
-    double precision, dimension(ixI^S,1:ndim), intent(in) ::  x
+    double precision, dimension(ixI^S,1:ndim), intent(in) :: x
     type(state)                                           :: sCT, snew, sold
     double precision, dimension(ixI^S,1:nwflux,1:ndim)    :: fC
     double precision, dimension(ixI^S,7-2*ndim:3)         :: fE
@@ -150,10 +150,13 @@ contains
     double precision, dimension(ixI^S,1:ndim) :: xi
     integer, dimension(ixI^S)               :: patchf
     integer :: idims, iw, ix^L, hxO^L, ixC^L, ixCR^L, kxC^L, kxR^L
+    type(ct_velocity) :: vcts
 
     associate(wCT=>sCT%w, wnew=>snew%w, wold=>sold%w)
 
     fC=0.d0
+    fLC=0.d0
+    fRC=0.d0
 
     ! The flux calculation contracts by one in the idims direction it is applied.
     ! The limiter contracts the same directions by one more, so expand ixO by 2.
@@ -171,7 +174,7 @@ contains
     ^D&dxdim(^D)=dx^D;
     do idims= idims^LIM
        ! use interface value of w0 at idims
-       block%iw0=idims
+       b0i=idims
 
        hxO^L=ixO^L-kr(idims,^D);
 
@@ -212,34 +215,37 @@ contains
        call phys_get_flux(wRC,wRp,xi,ixI^L,ixC^L,idims,fRC)
 
        ! estimating bounds for the minimum and maximum signal velocities
-       if(method=='tvdlf'.or.method=='tvdmu') then
+       if(method==fs_tvdlf.or.method==fs_tvdmu) then
          call phys_get_cbounds(wLC,wRC,wLp,wRp,xi,ixI^L,ixC^L,idims,cmaxC)
+         if(stagger_grid) call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC)
        else
          call phys_get_cbounds(wLC,wRC,wLp,wRp,xi,ixI^L,ixC^L,idims,cmaxC,cminC)
+         if(stagger_grid) call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC,cminC)
        end if
+
 
        ! use approximate Riemann solver to get flux at interfaces
        select case(method)
-       case('tvdmu')
-         call get_Riemann_flux_tvdmu()
-       case('tvdlf')
-         call get_Riemann_flux_tvdlf()
-       case('hll')
+       case(fs_hll)
          call get_Riemann_flux_hll()
-       case('hllc','hllcd')
+       case(fs_hllc,fs_hllcd)
          call get_Riemann_flux_hllc()
-       case('hlld')
+       case(fs_hlld)
          call get_Riemann_flux_hlld()
+       case(fs_tvdlf)
+         call get_Riemann_flux_tvdlf()
+       case(fs_tvdmu)
+         call get_Riemann_flux_tvdmu()
        case default
-         call mpistop('unkown Riemann flux')
+         call mpistop('unkown Riemann flux in finite volume')
        end select
 
        if(associated(usr_set_flux)) call usr_set_flux(ixI^L,ixC^L,qt,wLC,wRC,wLp,wRp,sCT,idims,fC)
 
     end do ! Next idims
-    block%iw0=0
+    b0i=0
 
-    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,snew)
+    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,snew,vcts)
 
     do idims= idims^LIM
        hxO^L=ixO^L-kr(idims,^D);
@@ -280,7 +286,7 @@ contains
        end if
 
        ! For the MUSCL scheme apply the characteristic based limiter
-       if (method=='tvdmu') &
+       if (method==fs_tvdmu) &
             call tvdlimit2(method,qdt,ixI^L,ixC^L,ixO^L,idims,wLC,wRC,wnew,x,fC,dx^D)
 
     end do ! Next idims
@@ -402,7 +408,7 @@ contains
          patchf(ixC^S) =  2
       endwhere
       ! Use more diffusive scheme, is actually TVDLF and selected by patchf=4
-      if(method=='hllcd') &
+      if(method==fs_hllcd) &
            call phys_diffuse_hllcd(ixI^L,ixC^L,idims,wLC,wRC,fLC,fRC,patchf)
 
       !---- calculate speed lambda at CD ----!
@@ -562,6 +568,10 @@ contains
         ! Guo equation (25) equivalent to Miyoshi equation (41)
         w1R(ixC^S,p_)=suR(ixC^S)*(sm(ixC^S)-vRC(ixC^S,ip1))+ptR(ixC^S)
         w1L(ixC^S,p_)=suL(ixC^S)*(sm(ixC^S)-vLC(ixC^S,ip1))+ptL(ixC^S)
+        !if(mhd_solve_eaux) then
+        !  w1R(ixC^S,eaux_)=(w1R(ixC^S,p_)-half*sum(w1R(ixC^S,mag(:))**2,dim=ndim+1))/(mhd_gamma-one)
+        !  w1L(ixC^S,eaux_)=(w1L(ixC^S,p_)-half*sum(w1L(ixC^S,mag(:))**2,dim=ndim+1))/(mhd_gamma-one)
+        !end if
         if(B0field) then
           ! Guo equation (32)
           w1R(ixC^S,p_)=w1R(ixC^S,p_)+sum(block%B0(ixC^S,:,ip1)*(wRC(ixC^S,mag(:))-w1R(ixC^S,mag(:))),dim=ndim+1)
@@ -620,6 +630,12 @@ contains
           sum(w2R(ixC^S,mom(:))*w2R(ixC^S,mag(:)),dim=ndim+1))*signBx(ixC^S)
         w2L(ixC^S,e_)=w1L(ixC^S,e_)-r1L(ixC^S)*(sum(w1L(ixC^S,mom(:))*w1L(ixC^S,mag(:)),dim=ndim+1)-&
           sum(w2L(ixC^S,mom(:))*w2L(ixC^S,mag(:)),dim=ndim+1))*signBx(ixC^S)
+        !if(mhd_solve_eaux) then
+        !  w2R(ixC^S,eaux_)=w2R(ixC^S,e_)-half*(sum(w2R(ixC^S,mag(:))**2,dim=ndim+1)+&
+        !     sum(w2R(ixC^S,mom(:))**2,dim=ndim+1)*w2R(ixC^S,rho_))
+        !  w2L(ixC^S,eaux_)=w2L(ixC^S,e_)-half*(sum(w2L(ixC^S,mag(:))**2,dim=ndim+1)+&
+        !     sum(w2L(ixC^S,mom(:))**2,dim=ndim+1)*w2L(ixC^S,rho_))
+        !end if
       end if
 
       ! convert velocity to momentum
@@ -631,7 +647,7 @@ contains
       end do
 
       ! get fluxes of intermedate states
-      do iw=iwstart,nwflux
+      do iw=1,nwflux
         if (flux_type(idims, iw) == flux_tvdlf) then
           !! hll flux for normal B
           !f1L(ixC^S,iw)=(sR(ixC^S)*fLC(ixC^S, iw)-sL(ixC^S)*fRC(ixC^S, iw) &
@@ -649,6 +665,13 @@ contains
           f1R(ixC^S,iw)=f1L(ixC^S,iw)
           f2L(ixC^S,iw)=f1L(ixC^S,iw)
           f2R(ixC^S,iw)=f1L(ixC^S,iw)
+        else if(flux_type(idims, iw) == flux_hll) then
+          ! using hll flux for eaux and tracers
+          f1L(ixC^S,iw)=(sR(ixC^S)*fLC(ixC^S, iw)-sL(ixC^S)*fRC(ixC^S, iw) &
+                    +sR(ixC^S)*sL(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(sR(ixC^S)-sL(ixC^S))
+          f1R(ixC^S,iw)=f1L(ixC^S,iw)
+          f2L(ixC^S,iw)=f1L(ixC^S,iw)
+          f2R(ixC^S,iw)=f1L(ixC^S,iw)
         else
           f1L(ixC^S,iw)=fLC(ixC^S,iw)+sL(ixC^S)*(w1L(ixC^S,iw)-wLC(ixC^S,iw))
           f1R(ixC^S,iw)=fRC(ixC^S,iw)+sR(ixC^S)*(w1R(ixC^S,iw)-wRC(ixC^S,iw))
@@ -656,16 +679,6 @@ contains
           f2R(ixC^S,iw)=f1R(ixC^S,iw)+s1R(ixC^S)*(w2R(ixC^S,iw)-w1R(ixC^S,iw))
         end if
       end do
-
-      ! use hll flux for the auxiliary internal e
-      if(phys_energy.and.phys_solve_eaux) then
-        iw=eaux_
-        f1L(ixC^S,iw)=(sR(ixC^S)*fLC(ixC^S, iw)-sL(ixC^S)*fRC(ixC^S, iw) &
-                  +sR(ixC^S)*sL(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(sR(ixC^S)-sL(ixC^S))
-        f1R(ixC^S,iw)=f1L(ixC^S,iw)
-        f2L(ixC^S,iw)=f1L(ixC^S,iw)
-        f2R(ixC^S,iw)=f1L(ixC^S,iw)
-      end if
 
       ! Miyoshi equation (66) and Guo equation (46)
      {do ix^DB=ixCmin^DB,ixCmax^DB\}
@@ -709,7 +722,7 @@ contains
     double precision   :: ldw(ixI^S), rdw(ixI^S), dwC(ixI^S)
     double precision   :: a2max
 
-    select case (typelimiter)
+    select case (type_limiter(block%level))
     case (limiter_mp5)
        call MP5limiter(ixI^L,ixL^L,idims,w,wLp,wRp)
     case (limiter_weno3)
@@ -754,7 +767,6 @@ contains
        jxR^L=ixR^L+kr(idims,^D);
        ixCmax^D=jxRmax^D; ixCmin^D=ixLmin^D-kr(idims,^D);
        jxC^L=ixC^L+kr(idims,^D);
-
        do iw=1,nwflux
           if (loglimit(iw)) then
              w(ixCmin^D:jxCmax^D,iw)=dlog10(w(ixCmin^D:jxCmax^D,iw))
@@ -783,7 +795,7 @@ contains
           end if
             
           ! limit flux from left and/or right
-          call dwlimiter2(dwC,ixI^L,ixC^L,idims,typelimiter,ldw,rdw,a2max=a2max)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idims,type_limiter(block%level),ldw,rdw,a2max=a2max)
           wLp(ixL^S,iw)=wLp(ixL^S,iw)+half*ldw(ixL^S)
           wRp(ixR^S,iw)=wRp(ixR^S,iw)-half*rdw(jxR^S)
 

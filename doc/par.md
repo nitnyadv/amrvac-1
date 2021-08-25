@@ -322,7 +322,6 @@ without changing time, set `reset_it=T`.
     time_stepper='twostep' | 'onestep' | 'threestep' | 'fourstep' | 'fivestep'
     time_integrator= choices depends on time_stepper
     flux_scheme=nlevelshi strings from: 'hll'|'hllc'|'hlld','hllcd'|'tvdlf'|'tvdmu'|'tvd'|'cd'|'fd'|'source'|'nul'
-    typepred1=nlevelshi strings from: 'default'|'hancock'|'tvdlf'|'hll'|'hllc'|'tvdmu'|'cd'|'fd'|'nul'
     limiter= nlevelshi strings from: 'minmod' | 'woodward' | 'superbee' | 'vanleer' | 'albada' | 'ppm' | 'mcbeta' | 'koren' | 'cada' | 'cada3' | 'mp5'
     gradient_limiter= nlevelshi strings from: 'minmod' | 'woodward' | 'superbee' | 'vanleer' | 'albada' | 'ppm' | 'mcbeta' | 'koren' | 'cada' | 'cada3'
     loglimit= nw logicals, all false by default
@@ -362,7 +361,7 @@ without changing time, set `reset_it=T`.
     typecurl = 'central' | 'Gaussbased' | 'Stokesbased'
     /
 
-### time_stepper, time_integrator, flux_scheme, typepred1 {#par_time_integrator}
+### time_stepper, time_integrator, flux_scheme {#par_time_integrator}
 
 The `time_stepper` variable determines the time integration procedure. The
 default procedure is a second order predictor-corrector type 'twostep' scheme
@@ -396,16 +395,6 @@ Setting for a certain level the flux_scheme to 'nul' implies doing no advance at
 all, and 'source' merely adds sources. These latter two values must be used
 with care, obviously, and are only useful for testing source terms or to save
 computations when fluxes are known to be zero.
-
-The `typepred1` array is only used when `time_stepper='twostep'` and 
-`time_integrator='Predictor_Corrector'` and 
-specifies the predictor step discretization, again per level (so _nlevelshi_
-strings must be set). By default, it contains _typepred1=20*'default'_ (default
-value _nlevelshi=20_), and it then deduces e.g. that 'cd' is predictor for
-'cd', 'hancock' is predictor for both 'tvdlf' and 'tvdmu'. Check its default
-behavior in the _mod_input_output.t_ module. Thus `typepred1` need not be defined in
-most cases, however `flux_scheme` should always be defined if methods other
-than 'tvdlf' are to be used.
 
 ### Limiter type {#par_typelimiter}
 
@@ -1060,21 +1049,25 @@ efficiency and accuracy.
 
 For solar atmosphere, simulations can sometimes suffer from the huge temperature gradient in the transition region.
 If the resolution is not enough (typically 1 km), the upward evaporation might be underestimated.
-The TRAC method could be used to correct the evaporation.
+The TRAC method could be used to correct the evaporation through artificially broadening the transition region.
 Set `mhd_trac=T` to enable this function.
-`mhd_trac_type=1` is the basic TRAC method for 1D simulation.
+`mhd_trac_type=1` is the basic TRAC method for 1D simulation (see Johnston et al. 2019, 2020).
 When it is used for 2D or 3D simulations, the local cutoff temperature inside each block would be calculated separately.
 It is the fastest way in multi-D simulations, it is not accurate but basically, is physically correct.
 For multi-D uniform Cartesian grids, we prepared some other methods.
-`mhd_trac_type=2` is the multi-D TRAC method based on the field line tracing module.
+`mhd_trac_type=3` is the multi-D TRAC method based on the field line tracing module.
 For multi-D simulations, it should be the most accurate one, but might be very slow.
 Considering that this TRAC modificaiton will mostly affect the transition region,
-one can use `mhd_trac_type=4` to add a mask to limit the region where the field lines are integrated.
+one can use `mhd_trac_type=5` to add a mask to limit the region where the field lines are integrated.
 Give `mhd_trac_mask` to set the maximum height of the mask, in your unit_length.
-`mhd_trac_type=3` uses the block-based TRAC method for multi-D simulations, which should be faster than the second type.
-And `mhd_trac_type=5` works in a similar way with the 4th type, by adding a mask on the block-based TRAC method.
+`mhd_trac_type=4` uses the block-based TRAC method for multi-D simulations, which should be faster than the second type.
+And `mhd_trac_type=6` works in a similar way with the 4th type, by adding a mask on the block-based TRAC method.
 Give `mhd_trac_finegrid` to set the distance between two adjacent traced field lines (in the unit of finest cell size).
-Note that when setting `mhd_trac_type >=2`, the direction of your gravity should follow y-dir (2D) or z-dir(3D)
+Note that when setting `mhd_trac_type >=3`, the direction of your gravity should follow y-dir (2D) or z-dir(3D).
+
+`mhd_trac_type=2` is anthor TRAC method, which broadens the transition region according to a different criterion.
+Unlike Johnston's TRAC method, this TRAC method has the advantage that all the calculation is done locally within the block.
+Thus, it could be used in either 1D (M)HD or multi-D MHD simulations, and is much faster than other multi-D methods.
 
 ### Solve internal energy to avoid negative pressure{#par_AIE}
 

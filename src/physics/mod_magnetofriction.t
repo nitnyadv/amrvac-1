@@ -7,7 +7,7 @@
 !> in amrvac.par:
 !>   &methodlist
 !>    time_stepper='onestep' ! time marching scheme, or 'twostep','threestep'
-!>    flux_scheme=13*'cd4' ! or 'tvdlf', 'fd'
+!>    flux_method=13*'cd4' ! or 'tvdlf', 'fd'
 !>    limiter= 13*'koren' ! or 'vanleer','cada3','mp5' so on
 !>   /
 !>   &meshlist
@@ -618,19 +618,19 @@ contains
 
     istep=0
 
-    select case (time_stepper)
-     case ("onestep")
-       call advect1mf(flux_scheme,qdt,one,idim^LIM,qt,ps1,qt,ps)
-     case ("twostep")
+    select case (t_stepper)
+     case (onestep)
+       call advect1mf(flux_method,qdt,one,idim^LIM,qt,ps1,qt,ps)
+     case (twostep)
        ! predictor step
        fix_conserve_at_step = .false.
        call advect1mf(typepred1,qdt,half,idim^LIM,qt,ps,qt,ps1)
        ! corrector step
        fix_conserve_at_step = mf_advance .and. levmax>levmin
-       call advect1mf(flux_scheme,qdt,one,idim^LIM,qt+half*qdt,ps1,qt,ps)
-     case ("threestep")
+       call advect1mf(flux_method,qdt,one,idim^LIM,qt+half*qdt,ps1,qt,ps)
+     case (threestep)
        ! three step Runge-Kutta in accordance with Gottlieb & Shu 1998
-       call advect1mf(flux_scheme,qdt,one,idim^LIM,qt,ps,qt,ps1)
+       call advect1mf(flux_method,qdt,one,idim^LIM,qt,ps,qt,ps1)
 
        do iigrid=1,igridstail; igrid=igrids(iigrid);
           ps2(igrid)%w(ixG^T,1:nwflux)=0.75d0*ps(igrid)%w(ixG^T,1:nwflux)+0.25d0*&
@@ -639,18 +639,16 @@ contains
                ps(igrid)%w(ixG^T,nwflux+1:nw)
        end do
 
-       call advect1mf(flux_scheme,qdt,0.25d0,idim^LIM,qt+qdt,ps1,qt+dt*0.25d0,ps2)
+       call advect1mf(flux_method,qdt,0.25d0,idim^LIM,qt+qdt,ps1,qt+dt*0.25d0,ps2)
 
        do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
           ps(igrid)%w(ixG^T,1:nwflux)=1.0d0/3.0d0*ps(igrid)%w(ixG^T,1:nwflux)+&
                2.0d0/3.0d0*ps2(igrid)%w(ixG^T,1:nwflux)
        end do
 
-       call advect1mf(flux_scheme,qdt,2.0d0/3.0d0,idim^LIM,qt+qdt/2.0d0,ps2,qt+qdt/3.0d0,ps)
+       call advect1mf(flux_method,qdt,2.0d0/3.0d0,idim^LIM,qt+qdt/2.0d0,ps2,qt+qdt/3.0d0,ps)
      case default
-       write(unitterm,*) "time_stepper=",time_stepper
-       write(unitterm,*) "Error in advectmf: Unknown time stepping method"
-       call mpistop("Correct time_stepper")
+       call mpistop("unkown time_stepper in advectmf")
     end select
 
   end subroutine advectmf
@@ -667,7 +665,7 @@ contains
     type(state) :: psa(max_blocks)! Compute fluxes based on this state
     type(state) :: psb(max_blocks) ! update on this state
     double precision, intent(in) :: dtin,dtfactor, qtC, qt
-    character(len=*), intent(in) :: method(nlevelshi)
+    integer, intent(in) :: method(nlevelshi)
 
     double precision :: qdt
     integer :: iigrid, igrid, level, i^D
@@ -721,7 +719,7 @@ contains
     use mod_global_parameters
     use mod_fix_conserve
 
-    character(len=*), intent(in) :: method
+    integer, intent(in) :: method
     integer, intent(in) :: igrid, ixG^L, idim^LIM
     double precision, intent(in) :: qdt, qtC, qt
     double precision :: wCT(ixG^S,1:nw), w(ixG^S,1:nw), wold(ixG^S,1:nw)
@@ -733,32 +731,28 @@ contains
     saveigrid=igrid
     fC=0.d0
 
-    typelimiter=type_limiter(node(plevel_,igrid))
-    typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
-
     ixO^L=ixG^L^LSUBnghostcells;
     select case (method)
-     case ("cd4")
+     case (fs_cd4)
        !================================
        ! 4th order central difference
        !================================
        call centdiff4mf(qdt,ixG^L,ixO^L,idim^LIM,qtC,wCT,qt,w,wold,fC,dx^D,ps(igrid)%x)
-     case ("tvdlf")
+     case (fs_tvdlf)
        !================================
        ! TVDLF
        !================================
        call tvdlfmf(qdt,ixG^L,ixO^L,idim^LIM,qtC,wCT,qt,w,wold,fC,dx^D,ps(igrid)%x)
-     case ('hancock')
+     case (fs_hancock)
        ! hancock predict (first) step for twostep tvdlf and tvdmu scheme
        call hancockmf(qdt,ixG^L,ixO^L,idim^LIM,qtC,wCT,qt,w,dx^D,ps(igrid)%x)
-     case ("fd")
+     case (fs_fd)
        !================================
        ! finite difference
        !================================
        call fdmf(qdt,ixG^L,ixO^L,idim^LIM,qtC,wCT,qt,w,wold,fC,dx^D,ps(igrid)%x)
     case default
-       if(mype==0) write(unitterm,*)'Error in advect1_gridmf:',method,' is not there!'
-       call mpistop("The scheme is not implemented.")
+       call mpistop("unknown flux scheme in advect1_gridmf")
     end select
 
     if (fix_conserve_at_step) then
@@ -781,9 +775,9 @@ contains
     integer :: jxR^L, ixC^L, jxC^L, iw
     double precision   :: ldw(ixI^S), rdw(ixI^S), dwC(ixI^S)
 
-    if (typelimiter == limiter_mp5) then
+    if (type_limiter(block%level) == limiter_mp5) then
        call MP5limiter(ixI^L,ixL^L,idim,w,wLC,wRC)
-    else if (typelimiter == limiter_ppm) then
+    else if (type_limiter(block%level) == limiter_ppm) then
        call PPMlimiter(ixI^L,ixM^LL,idim,w,wCT,wLC,wRC)
     else
        jxR^L=ixR^L+kr(idim,^D);
@@ -800,7 +794,7 @@ contains
           dwC(ixC^S)=w(jxC^S,iw)-w(ixC^S,iw)
 
           ! limit flux from left and/or right
-          call dwlimiter2(dwC,ixI^L,ixC^L,idim,typelimiter,ldw,rdw)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idim,type_limiter(block%level),ldw,rdw)
           wLC(ixL^S,iw)=wLC(ixL^S,iw)+half*ldw(ixL^S)
           wRC(ixR^S,iw)=wRC(ixR^S,iw)-half*rdw(jxR^S)
 
@@ -868,7 +862,7 @@ contains
     ^D&dxinv(^D)=-qdt/dx^D;
     fC=0.d0
     do idims= idim^LIM
-       block%iw0=idims
+       b0i=idims
 
        hxO^L=ixO^L-kr(idims,^D);
        ! ixC is centered index in the idim direction from ixOmin-1/2 to ixOmax+1/2
@@ -909,6 +903,7 @@ contains
 
        end do ! Next idir
     end do ! Next idims
+    b0i=0
 
     !Now update the state:
     do idims= idim^LIM
@@ -962,7 +957,7 @@ contains
 
     ^D&dxinv(^D)=-qdt/dx^D;
     do idims= idim^LIM
-       block%iw0=idims
+       b0i=idims
        ! Calculate w_j+g_j/2 and w_j-g_j/2
        ! First copy all variables, then upwind wLC and wRC.
        ! wLC is to the left of ixO, wRC is to the right of wCT.
@@ -989,6 +984,7 @@ contains
           end if
        end do
     end do ! next idims
+    b0i=0
 
     if (.not.slab) call addgeometrymf(qdt,ixI^L,ixO^L,wCT,wnew,x)
 
@@ -1063,7 +1059,7 @@ contains
     double precision                :: ldw(ixI^S), dwC(ixI^S)
     integer                         :: jxR^L, ixC^L, jxC^L, kxC^L, iw
 
-    select case (typelimiter)
+    select case (type_limiter(block%level))
     case (limiter_mp5)
        call MP5limiterL(ixI^L,iL^L,idims,w,wLC)
     case (limiter_weno5)
@@ -1084,7 +1080,7 @@ contains
        do iw=1,nwflux
           dwC(ixC^S)=w(jxC^S,iw)-w(ixC^S,iw)
 
-          call dwlimiter2(dwC,ixI^L,ixC^L,idims,typelimiter,ldw=ldw)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idims,type_limiter(block%level),ldw=ldw)
 
           wLC(iL^S,iw)=wLC(iL^S,iw)+half*ldw(iL^S)
        end do
@@ -1104,7 +1100,7 @@ contains
     double precision                :: rdw(ixI^S), dwC(ixI^S)
     integer                         :: jxR^L, ixC^L, jxC^L, kxC^L, kxR^L, iw
 
-    select case (typelimiter)
+    select case (type_limiter(block%level))
     case (limiter_mp5)
        call MP5limiterR(ixI^L,iL^L,idims,w,wRC)
     case (limiter_weno5)
@@ -1124,7 +1120,7 @@ contains
 
        do iw=1,nwflux
           dwC(ixC^S)=w(jxC^S,iw)-w(ixC^S,iw)
-          call dwlimiter2(dwC,ixI^L,ixC^L,idims,typelimiter,rdw=rdw)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idims,type_limiter(block%level),rdw=rdw)
 
           wRC(iL^S,iw)=wRC(iL^S,iw)-half*rdw(jxR^S)
        end do
@@ -1166,7 +1162,7 @@ contains
 
     ! Add fluxes to w
     do idims= idim^LIM
-       block%iw0=idims
+       b0i=idims
        ix^L=ixO^L^LADD2*kr(idims,^D);
        hxO^L=ixO^L-kr(idims,^D);
 
@@ -1211,6 +1207,7 @@ contains
           end if
        end do    !next idir
     end do       !next idims
+    b0i=0
 
     if (.not.slab) call addgeometrymf(qdt,ixI^L,ixO^L,wCT,w,x)
     call divbclean(qdt,ixI^L,ixO^L,wCT,w,x)

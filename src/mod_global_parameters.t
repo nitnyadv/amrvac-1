@@ -235,7 +235,7 @@ module mod_global_parameters
   !> Unit for error messages
   integer, parameter :: uniterr=6
 
-  !> \todo Move to mod_input_output
+  !> file handle for IO
   integer, parameter :: unitpar=9
   integer, parameter :: unitconvert=10
   integer, parameter :: unitslice=11
@@ -442,7 +442,6 @@ module mod_global_parameters
   ! Time integration aspects 
 
   double precision :: dt
-  double precision, allocatable :: dt_grid(:)
 
   logical :: time_advance
 
@@ -520,18 +519,59 @@ module mod_global_parameters
   !> How many sub-steps the time integrator takes
   integer :: nstep
 
-  !> Which time stepper to use
-  character(len=std_len) :: time_stepper
-
-  !> Which time integrator to use
-  character(len=std_len) :: time_integrator
-
-  !> Which spatial discretization to use (per grid level)
-  character(len=std_len), allocatable :: flux_scheme(:)
+  !> Which flux scheme of spatial discretization to use (per grid level)
+  integer, allocatable :: flux_method(:)
 
   !> The spatial discretization for the predictor step when using a two
   !> step PC method
-  character(len=std_len), allocatable :: typepred1(:)
+  integer, allocatable :: typepred1(:)
+
+  !> flux schemes
+  integer, parameter :: fs_hll=1
+  integer, parameter :: fs_hllc=2
+  integer, parameter :: fs_hlld=3
+  integer, parameter :: fs_hllcd=4
+  integer, parameter :: fs_tvdlf=5
+  integer, parameter :: fs_tvdmu=6
+  integer, parameter :: fs_tvd=7
+  integer, parameter :: fs_hancock=8
+  integer, parameter :: fs_cd=9
+  integer, parameter :: fs_cd4=10
+  integer, parameter :: fs_fd=11
+  integer, parameter :: fs_source=12
+  integer, parameter :: fs_nul=13
+
+  !> time stepper type
+  integer :: t_stepper=0
+  integer, parameter :: onestep=1
+  integer, parameter :: twostep=2
+  integer, parameter :: threestep=3
+  integer, parameter :: fourstep=4
+  integer, parameter :: fivestep=5
+
+  !> time integrator method
+  integer :: t_integrator=0
+  integer, parameter :: Forward_Euler=1
+  integer, parameter :: Predictor_Corrector=2
+  integer, parameter :: ssprk3=3
+  integer, parameter :: ssprk4=4
+  integer, parameter :: ssprk5=5
+
+  integer, parameter :: IMEX_Euler=6
+  integer, parameter :: IMEX_SP=7
+  integer, parameter :: RK2_alf=8
+  integer, parameter :: ssprk2=9
+  integer, parameter :: IMEX_Midpoint=10
+  integer, parameter :: IMEX_Trapezoidal=11
+  integer, parameter :: IMEX_222=12
+
+  integer, parameter :: RK3_BT=13
+  integer, parameter :: IMEX_ARS3=14
+  integer, parameter :: IMEX_232=15
+  integer, parameter :: IMEX_CB3a=16
+
+  integer, parameter :: rk4=17
+  integer, parameter :: jameson=18
 
   !> Type of slope limiter used for reconstructing variables on cell edges
   integer, allocatable :: type_limiter(:)
@@ -540,11 +580,8 @@ module mod_global_parameters
   !> typegrad or typediv are set to 'limited'
   integer, allocatable :: type_gradient_limiter(:)
 
-  !> \todo Remove / replace with limiter
-  integer :: typelimiter
-
-  !> \todo Remove / replace with gradient_limiter
-  integer :: typegradlimiter
+  !> background magnetic field location indicator
+  integer :: b0i=0
 
   !> Limiter used for prolongation to refined grids and ghost cells
   character(len=std_len) :: typeprolonglimit
@@ -555,8 +592,8 @@ module mod_global_parameters
   !> Which type of TVD method to use
   character(len=std_len) :: typetvd
 
-  !> Which type of TVDLF method to use
-  character(len=std_len) :: typeboundspeed
+  !> whether use Einfeldt's bound speed of Riemann fan
+  logical :: boundspeedEinfeldt=.true.
 
   character(len=std_len) :: typeaverage
   character(len=std_len) :: typedimsplit
@@ -573,7 +610,7 @@ module mod_global_parameters
   logical                       :: dimsplit
 
   !> RK2(alfa) method parameters from Butcher tableau
-  double precision              :: rk2_alfa,rk_a21,rk_b1,rk_b2
+  double precision              :: rk_a21,rk_b1,rk_b2
   !> IMEX-222(lambda) one-parameter family of schemes
   double precision              :: imex222_lambda
   !> SSPRK choice of methods (both threestep and fourstep, Shu-Osher 2N* implementation)
@@ -596,7 +633,7 @@ module mod_global_parameters
   !> whether IMEX in use or not
   logical                       :: use_imex_scheme
 
-  character(len=std_len) :: typediv,typegrad,typecurl
+  character(len=std_len) :: typediv,typegrad
 
   !> global fastest wave speed needed in fd scheme and glm method
   double precision :: cmax_global
@@ -637,10 +674,6 @@ module mod_global_parameters
   character(len=std_len) :: typeghostfill='linear',prolongation_method
   logical :: internalboundary
 
-  ! parameters for bc_phys
-  integer, parameter :: ismin^D=-1+2*^D
-  integer, parameter :: ismax^D=2*^D
-
   !> Base file name for synthetic EUV emission output
   character(len=std_len) :: filename_euv
   !> output image
@@ -658,9 +691,10 @@ module mod_global_parameters
   !> resolution of the output
   character(len=std_len) :: resolution_euv='instrument'
 
-  !$OMP THREADPRIVATE(dxlevel)
-  !$OMP THREADPRIVATE(saveigrid)
-  !$OMP THREADPRIVATE(typelimiter,typegradlimiter)
+  !> Block pointer for using one block and its previous state
+  type(state), pointer :: block
+
+  !$OMP THREADPRIVATE(block,dxlevel,saveigrid)
 
 contains
 
@@ -669,7 +703,6 @@ contains
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: a(ixI^S,3), b(ixI^S,3)
     double precision, intent(out) :: axb(ixI^S,3)
-    !-------------------------------------------------------------------------
 
     axb(ixO^S,1)=a(ixO^S,2)*b(ixO^S,3)-a(ixO^S,3)*b(ixO^S,2)
     axb(ixO^S,2)=a(ixO^S,3)*b(ixO^S,1)-a(ixO^S,1)*b(ixO^S,3)

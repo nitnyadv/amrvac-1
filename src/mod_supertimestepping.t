@@ -359,15 +359,12 @@ contains
     do while(associated(temp))
       dt_modified2 = .false.
       dtmin_mype=bigdouble
-      !$OMP PARALLEL DO PRIVATE(igrid,dtnew,&
-      !$OMP& dx^D) REDUCTION(min:dtmin_mype)
+      !$OMP PARALLEL DO PRIVATE(igrid,dx^D) REDUCTION(min:dtmin_mype)
       do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
          ! maybe the following global variables are needed in get_dt!
          ! next few lines ensure correct usage of routines like divvector etc
          ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
          block=>ps(igrid)
-         typelimiter=type_limiter(node(plevel_,igrid))
-         typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
          ! end maybe the following global variables are needed in get_dt!!!!!!!
          dx^D=rnode(rpdx^D_,igrid);
          dtmin_mype=min(dtmin_mype, sts_dtpar * temp%sts_getdt(ps(igrid)%w,ixG^LL,ixM^LL,dx^D,ps(igrid)%x))
@@ -453,7 +450,7 @@ contains
     double precision :: sumbj,dtj  
 
     integer:: iigrid, igrid, j, ixC^L
-    logical :: stagger_flag, prolong_flag, coarsen_flag
+    logical :: stagger_flag=.false., prolong_flag=.false., coarsen_flag=.false.
     type(sts_term), pointer  :: temp
 
     ! do not fill physical boundary conditions
@@ -531,8 +528,6 @@ contains
           do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
             block=>ps(igrid)
-            typelimiter=type_limiter(node(plevel_,igrid))
-            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps1(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
             if(temp%nflux>ndir) then
               ps(igrid)%w(ixM^T,temp%startVar)=ps(igrid)%w(ixM^T,temp%startVar)+dtj*ps1(igrid)%w(ixM^T,temp%startVar)
@@ -546,8 +541,6 @@ contains
           do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
             ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
             block=>ps(igrid)
-            typelimiter=type_limiter(node(plevel_,igrid))
-            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
             call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps1(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
             ps(igrid)%w(ixM^T,temp%startVar:temp%endVar)=ps(igrid)%w(ixM^T,temp%startVar:temp%endVar)+&
               dtj*ps1(igrid)%w(ixM^T,temp%startVar:temp%endVar)
@@ -636,7 +629,7 @@ contains
     double precision :: omega1,cmu,cmut,cnu,cnut,one_mu_nu
     double precision, allocatable :: bj(:)
     integer:: iigrid, igrid, j, ixC^L, ixGext^L
-    logical :: evenstep, stagger_flag, prolong_flag, coarsen_flag, total_energy_flag
+    logical :: evenstep, stagger_flag=.false., prolong_flag=.false., coarsen_flag=.false., total_energy_flag=.true.
     type(sts_term), pointer  :: temp
     type(state), dimension(:), pointer :: tmpPs1, tmpPs2
 
@@ -749,8 +742,6 @@ contains
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
           ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
           block=>ps(igrid)
-          typelimiter=type_limiter(node(plevel_,igrid))
-          typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
           ps4(igrid)%w=zero
           call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
           !!!eq solved: dU/dt = S, ps3 is stored S^n
@@ -767,8 +758,6 @@ contains
         do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
           ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
           block=>ps(igrid)
-          typelimiter=type_limiter(node(plevel_,igrid))
-          typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
           call temp%sts_set_sources(ixG^LL,ixM^LL,ps(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
           !!!eq solved: dU/dt = S, ps3 is stored S^n
           ps3(igrid)%w(ixM^T,temp%startVar:temp%endVar) = my_dt * ps4(igrid)%w(ixM^T,temp%startVar:temp%endVar)
@@ -840,8 +829,6 @@ contains
             ! next few lines ensure correct usage of routines like divvector etc
             ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
             block=>ps(igrid)
-            typelimiter=type_limiter(node(plevel_,igrid))
-            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
             ! end maybe the following global variables are needed in set_sources
             call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
             if(temp%nflux>ndir) then
@@ -862,8 +849,6 @@ contains
             ! next few lines ensure correct usage of routines like divvector etc
             ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
             block=>ps(igrid)
-            typelimiter=type_limiter(node(plevel_,igrid))
-            typegradlimiter=type_gradient_limiter(node(plevel_,igrid))
             ! end maybe the following global variables are needed in set_sources
             call temp%sts_set_sources(ixG^LL,ixM^LL,tmpPs1(igrid)%w,ps(igrid)%x,ps4(igrid)%w,fix_conserve_at_step,dtj,igrid,temp%nflux)
             tmpPs2(igrid)%w(ixM^T,temp%startVar:temp%endVar)=cmu*tmpPs1(igrid)%w(ixM^T,temp%startVar:temp%endVar)+&

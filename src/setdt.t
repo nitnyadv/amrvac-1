@@ -11,46 +11,43 @@ subroutine setdt()
   integer :: iigrid, igrid, ncycle, ncycle2, ifile, idim
   double precision :: dtnew, qdtnew, dtmin_mype, factor, dx^D, dxmin^D
 
-  double precision :: dtmax, dxmin, cmax_mype, v(ixG^T)
+  double precision :: dtmax, dxmin, cmax_mype
   double precision :: a2max_mype(ndim), tco_mype, tco_global, Tmax_mype, T_peak
   double precision :: trac_alfa, trac_dmax, trac_tau
 
   integer, parameter :: niter_print = 2000
 
   if (dtpar<=zero) then
-     dtmin_mype=bigdouble
-     cmax_mype = zero
-     a2max_mype = zero
-     tco_mype = zero
-     Tmax_mype = zero
-  !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,dtnew,dx^D) REDUCTION(min:dtmin_mype)
-     do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
-        dtnew=bigdouble
-        dx^D=rnode(rpdx^D_,igrid);
-        ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
-        saveigrid = igrid
-        block=>ps(igrid)
-        block%iw0=0
+    dtmin_mype=bigdouble
+    cmax_mype = zero
+    a2max_mype = zero
+    tco_mype = zero
+    Tmax_mype = zero
+    !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,dtnew,dx^D) REDUCTION(min:dtmin_mype)
+    do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
+      dtnew=bigdouble
+      dx^D=rnode(rpdx^D_,igrid);
+      ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+      saveigrid = igrid
+      block=>ps(igrid)
 
-        if (nwaux>0) then
-           call phys_get_aux(.true.,ps(igrid)%w,&
-                ps(igrid)%x,ixG^LL,ixM^LL,'setdt')
-        end if
+      if (nwaux>0) then
+        call phys_get_aux(.true.,ps(igrid)%w,ps(igrid)%x,ixG^LL,ixM^LL,'setdt')
+      end if
 
-        call getdt_courant(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
-        dtnew=min(dtnew,qdtnew)
+      call getdt_courant(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
+      dtnew=min(dtnew,qdtnew)
 
-        call phys_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
-        dtnew=min(dtnew,qdtnew)
+      call phys_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
+      dtnew=min(dtnew,qdtnew)
 
-        if (associated(usr_get_dt)) then
-           call usr_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
-        end if
-        dtnew          = min(dtnew,qdtnew)
-        dtmin_mype     = min(dtmin_mype,dtnew)
-        dt_grid(igrid) = dtnew
-     end do
-  !$OMP END PARALLEL DO
+      if (associated(usr_get_dt)) then
+         call usr_get_dt(ps(igrid)%w,ixG^LL,ixM^LL,qdtnew,dx^D,ps(igrid)%x)
+      end if
+      dtnew          = min(dtnew,qdtnew)
+      dtmin_mype     = min(dtmin_mype,dtnew)
+    end do
+    !$OMP END PARALLEL DO
   else
      dtmin_mype=dtpar
   end if
@@ -125,12 +122,6 @@ subroutine setdt()
     endif
   endif
 
-  !$OMP PARALLEL DO PRIVATE(igrid)
-  do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
-     dt_grid(igrid)=dt
-  end do
-  !$OMP END PARALLEL DO
-       
   ! global Lax-Friedrich finite difference flux splitting needs fastest wave-speed
   ! so does GLM: 
   if(need_global_cmax) call MPI_ALLREDUCE(cmax_mype,cmax_global,1,&
@@ -148,44 +139,34 @@ subroutine setdt()
          MPI_MAX,icomm,ierrmpi)
     ! default lower limit of cutoff temperature
     select case(phys_trac_type)
+    case(0)
+      !> Test case, fixed cutoff temperature
+      !> do nothing here
     case(1)
       !> 1D TRAC method
-      {^IFONED
       trac_dmax=0.1d0
       trac_tau=1.d0/unit_time
-      trac_alfa=trac_dmax**(dtnew/trac_tau)
+      trac_alfa=trac_dmax**(dt/trac_tau)
+      tco_global=zero
+      {^IFONED
       call MPI_ALLREDUCE(tco_mype,tco_global,1,MPI_DOUBLE_PRECISION,&
            MPI_MAX,icomm,ierrmpi)
-      !$OMP PARALLEL DO PRIVATE(igrid)
-      do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
-        ps(igrid)%special_values(1)=tco_global
-        if(ps(igrid)%special_values(1)<trac_alfa*ps(igrid)%special_values(2)) then
-          ps(igrid)%special_values(1)=trac_alfa*ps(igrid)%special_values(2)
-        end if
-        if(ps(igrid)%special_values(1) < T_bott) then
-          ps(igrid)%special_values(1)=T_bott
-        else if(ps(igrid)%special_values(1) > 0.2d0*T_peak) then
-          ps(igrid)%special_values(1)=0.2d0*T_peak
-        end if
-        !> special values(2) to save old tcutoff
-        ps(igrid)%special_values(2)=ps(igrid)%special_values(1)
-      end do
-      !$OMP END PARALLEL DO
       }
-      {^NOONED
-      !> 2D or 3D simplified TRAC method
-      call TRAC_simple(T_peak)
-      }
+      call TRAC_simple(tco_global,trac_alfa,T_peak)
     case(2)
+      !> LTRAC method, by iijima et al. 2021
+      !> do nothing here 
+      call LTRAC(T_peak)
+    case(3)
       !> 2D or 3D TRACL(ine) method
       call TRACL(.false.,T_peak)
-    case(3)
+    case(4)
       !> 2D or 3D TRACB(lock) method
       call TRACB(.false.,T_peak)
-    case(4)
+    case(5)
       !> 2D or 3D TRACL(ine) method with mask
       call TRACL(.true.,T_peak)
-    case(5)
+    case(6)
       !> 2D or 3D TRACB(lock) method with mask
       call TRACB(.true.,T_peak)
     case default

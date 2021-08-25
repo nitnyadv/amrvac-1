@@ -5,7 +5,6 @@ program amrvac
 
   use mod_global_parameters
   use mod_input_output
-  use mod_physics, only: phys_check_params
   use mod_usr_methods
   use mod_ghostcells_update
   use mod_usr
@@ -13,7 +12,6 @@ program amrvac
   use mod_particles
   use mod_fix_conserve
   use mod_advance, only: process
-  use mod_constrained_transport
   use mod_multigrid_coupling
 
   double precision :: time0, time_in
@@ -126,6 +124,9 @@ program amrvac
      if (use_particles) call particles_create()
 
   end if
+
+  ! initialize something base on tree information
+  call initialize_after_settree
 
   if (mype==0) then
      print*,'-------------------------------------------------------------------------------'
@@ -370,18 +371,14 @@ contains
     integer:: ifile
     logical:: oksave
 
-!       if(mype==0) print*,ifile,'OK tsave 0',isavet(ifile),global_time
     oksave=.false.
     if (it==itsave(isaveit(ifile),ifile)) then
-!       if(mype==0) print*,ifile,'OK tsave 1',isaveit(ifile),global_time
        oksave=.true.
        isaveit(ifile)=isaveit(ifile)+1
     end if
     if (it==itsavelast(ifile)+ditsave(ifile)) oksave=.true.
 
-!       if(mype==0) print*,ifile,'OK tsave2',isavet(ifile),global_time,tsave(isavet(ifile),ifile)
     if (global_time>=tsave(isavet(ifile),ifile).and.global_time-dt<tsave(isavet(ifile),ifile)) then
-!       if(mype==0) print*,ifile,'OK tsave3',isavet(ifile),global_time,tsave(isavet(ifile),ifile)
        oksave=.true.
        isavet(ifile)=isavet(ifile)+1
     end if

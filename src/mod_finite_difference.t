@@ -9,14 +9,13 @@ module mod_finite_difference
 
 contains
 
-  subroutine fd(method,qdt,ixI^L,ixO^L,idims^LIM,qtC,sCT,qt,snew,fC,fE,dx^D,x)
+  subroutine fd(qdt,ixI^L,ixO^L,idims^LIM,qtC,sCT,qt,snew,fC,fE,dx^D,x)
     use mod_physics
     use mod_source, only: addsource2
     use mod_finite_volume, only: reconstruct_LR
     use mod_global_parameters
     use mod_usr_methods
 
-    character(len=*), intent(in)                                     :: method
     double precision, intent(in)                                     :: qdt, qtC, qt, dx^D
     integer, intent(in)                                              :: ixI^L, ixO^L, idims^LIM
     double precision, dimension(ixI^S,1:ndim), intent(in)            :: x
@@ -34,8 +33,9 @@ contains
     double precision, dimension(ixI^S)      :: cmaxC
     double precision, dimension(ixI^S)      :: cminC
     double precision, dimension(1:ndim)     :: dxinv, dxdim
-    logical                                                          :: transport
-    integer                                                          :: idims, iw, ixC^L, ix^L, hxO^L
+    logical :: transport
+    integer :: idims, iw, ixC^L, ix^L, hxO^L, kxC^L, kxR^L
+    type(ct_velocity) :: vcts
 
     associate(wCT=>sCT%w,wnew=>snew%w)
 
@@ -47,7 +47,7 @@ contains
     ^D&dxdim(^D)=dx^D;
     do idims= idims^LIM
 
-       block%iw0=idims
+       b0i=idims
 
        ! Get fluxes for the whole grid (mesh+nghostcells)
        {^D& ixmin^D = ixOmin^D - nghostcells * kr(idims,^D)\}
@@ -59,6 +59,14 @@ contains
          ! ct needs all transverse cells
          ixCmax^D=ixOmax^D+nghostcells-nghostcells*kr(idims,^D); ixCmin^D=hxOmin^D-nghostcells+nghostcells*kr(idims,^D);
          ixmax^D=ixmax^D+nghostcells-nghostcells*kr(idims,^D); ixmin^D=ixmin^D-nghostcells+nghostcells*kr(idims,^D);
+         kxCmin^D=ixImin^D; kxCmax^D=ixImax^D-kr(idims,^D);
+         kxR^L=kxC^L+kr(idims,^D);
+         ! wRp and wLp are defined at the same locations, and will correspond to
+         ! the left and right reconstructed values at a cell face. Their indexing
+         ! is similar to cell-centered values, but in direction idims they are
+         ! shifted half a cell towards the 'lower' direction.
+         wRp(kxC^S,1:nw)=wprim(kxR^S,1:nw)
+         wLp(kxC^S,1:nw)=wprim(kxC^S,1:nw)
        else
          ! ixC is centered index in the idims direction from ixOmin-1/2 to ixOmax+1/2
          ixCmax^D=ixOmax^D; ixCmin^D=hxOmin^D;
@@ -77,18 +85,29 @@ contains
        call reconstructR(ixI^L,ixC^L,idims,fm,fmR)
 
        fC(ixC^S,1:nwflux,idims) = fpL(ixC^S,1:nwflux) + fmR(ixC^S,1:nwflux)
-       if(associated(usr_set_flux)) call usr_set_flux(ixI^L,ixC^L,qt,wLC,wRC,wLp,wRp,sCT,idims,fC)
+       if(associated(usr_set_flux)) then
+         kxCmin^D=ixImin^D; kxCmax^D=ixImax^D-kr(idims,^D);
+         kxR^L=kxC^L+kr(idims,^D);
+         ! wRp and wLp are defined at the same locations, and will correspond to
+         ! the left and right reconstructed values at a cell face. Their indexing
+         ! is similar to cell-centered values, but in direction idims they are
+         ! shifted half a cell towards the 'lower' direction.
+         wRp(kxC^S,1:nw)=wprim(kxR^S,1:nw)
+         wLp(kxC^S,1:nw)=wprim(kxC^S,1:nw)
+         call usr_set_flux(ixI^L,ixC^L,qt,wLC,wRC,wLp,wRp,sCT,idims,fC)
+       end if
 
        if(stagger_grid) then
          ! apply limited reconstruction for left and right status at cell interfaces
          call reconstruct_LR(ixI^L,ixC^L,ixC^L,idims,wprim,wLC,wRC,wLp,wRp,x,dxdim(idims))
          call phys_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixC^L,idims,cmaxC,cminC)
+         call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC,cminC)
        end if
 
     end do !idims loop
-    block%iw0=0
+    b0i=0
 
-    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,snew)
+    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,snew,vcts)
 
     do idims= idims^LIM
        hxO^L=ixO^L-kr(idims,^D);
@@ -138,7 +157,7 @@ contains
     integer                         :: jxR^L, ixC^L, jxC^L, kxC^L, iw
     double precision                :: a2max
 
-    select case (typelimiter)
+    select case (type_limiter(block%level))
     case (limiter_mp5)
        call MP5limiterL(ixI^L,iL^L,idims,w,wLC)
     case (limiter_weno5)
@@ -186,7 +205,7 @@ contains
              end select
            end if
 
-          call dwlimiter2(dwC,ixI^L,ixC^L,idims,typelimiter,ldw=ldw,a2max=a2max)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idims,type_limiter(block%level),ldw=ldw,a2max=a2max)
 
           wLC(iL^S,iw)=wLC(iL^S,iw)+half*ldw(iL^S)
        end do
@@ -208,7 +227,7 @@ contains
     integer                         :: jxR^L, ixC^L, jxC^L, kxC^L, kxR^L, iw
     double precision                :: a2max
 
-    select case (typelimiter)
+    select case (type_limiter(block%level))
     case (limiter_mp5)
        call MP5limiterR(ixI^L,iL^L,idims,w,wRC)
     case (limiter_weno5)
@@ -256,7 +275,7 @@ contains
              end select
            end if
 
-          call dwlimiter2(dwC,ixI^L,ixC^L,idims,typelimiter,rdw=rdw,a2max=a2max)
+          call dwlimiter2(dwC,ixI^L,ixC^L,idims,type_limiter(block%level),rdw=rdw,a2max=a2max)
 
           wRC(iL^S,iw)=wRC(iL^S,iw)-half*rdw(jxR^S)
        end do
@@ -277,7 +296,7 @@ contains
     use mod_source, only: addsource2
     use mod_usr_methods
 
-    character(len=*), intent(in) :: method
+    integer, intent(in) :: method
     integer, intent(in) :: ixI^L, ixO^L, idims^LIM
     double precision, intent(in) :: qdt, qtC, qt, dx^D
     type(state)      :: sCT, s
@@ -296,6 +315,7 @@ contains
 
     double precision :: dxinv(1:ndim), dxdim(1:ndim)
     integer :: idims, iw, ix^L, hxO^L, ixC^L, jxC^L, hxC^L, kxC^L, kkxC^L, kkxR^L
+    type(ct_velocity) :: vcts
     logical :: transport, new_cmax, patchw(ixI^S)
 
     associate(wCT=>sCT%w,w=>s%w)
@@ -317,7 +337,7 @@ contains
     ^D&dxdim(^D)=dx^D;
     ! get fluxes
     do idims= idims^LIM
-       block%iw0=idims
+       b0i=idims
 
        ix^L=ixO^L^LADD2*kr(idims,^D); 
        hxO^L=ixO^L-kr(idims,^D);
@@ -344,6 +364,7 @@ contains
 
        if(stagger_grid) then
          call phys_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixC^L,idims,cmaxC,cminC)
+         call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC,cminC)
        end if
 
        ! Calculate velocities from upwinded values
@@ -355,7 +376,7 @@ contains
        call phys_get_flux(wCT,wprim,x,ixI^L,ix^L,idims,f)
 
        ! Center flux to interface
-       if(method=='cd') then
+       if(method==fs_cd) then
           fC(ixC^S,iwstart:nwflux,idims)=half*(f(ixC^S,iwstart:nwflux)+f(jxC^S,iwstart:nwflux))
        else
           ! f_i+1/2= (-f_(i+2) +7 f_(i+1) + 7 f_i - f_(i-1))/12
@@ -372,9 +393,9 @@ contains
        if(associated(usr_set_flux)) call usr_set_flux(ixI^L,ixC^L,qt,wLC,wRC,wLp,wRp,sCT,idims,fC)
 
     end do       !next idims
-    block%iw0=0
+    b0i=0
 
-    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+    if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
 
     do idims= idims^LIM
        hxO^L=ixO^L-kr(idims,^D);
