@@ -2200,7 +2200,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, allocatable, dimension(:^D&) :: tmp2, tmp3, tmp4
 #endif
 
-    ! value at the interfaces, idim =  block%iw0 
+    ! value at the interfaces, idim =  block%iw0 --> b0i 
     ! reuse tmp, used afterwards
     ! value at the interface so we can't put momentum
     call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
@@ -2537,7 +2537,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
  
     if(B0field) then
       do idir=1,3
-        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,block%iw0)
+        btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,b0i)
       enddo
     else
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
@@ -3214,7 +3214,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhon(ixI^S)
     if(has_equi_rho_n0) then
-      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,block%iw0)
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,b0i)
     else  
       rhon(ixO^S) = w(ixO^S,rho_n_) 
     endif
@@ -3228,7 +3228,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in) :: pe_n1(ixI^S)
     double precision, intent(out) :: pen(ixI^S)
     if(has_equi_pe_n0) then
-      pen(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,block%iw0)
+      pen(ixO^S) = pe_n1(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,b0i)
     else  
       pen(ixO^S) = pe_n1(ixO^S) 
     endif
@@ -3299,7 +3299,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in)  :: w(ixI^S,1:nw)
     double precision, intent(out) :: rhoc(ixI^S)
     if(has_equi_rho_c0) then
-      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,block%iw0)
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,b0i)
     else  
       rhoc(ixO^S) = w(ixO^S,rho_c_) 
     endif
@@ -3313,7 +3313,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in) :: pe_c1(ixI^S)
     double precision, intent(out) :: pec(ixI^S)
     if(has_equi_pe_c0) then
-      pec(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,block%iw0)
+      pec(ixO^S) = pe_c1(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,b0i)
     else  
       pec(ixO^S) = pe_c1(ixO^S) 
     endif
@@ -4329,7 +4329,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision              :: mge(ixO^S)
 
     if (B0field) then
-      mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,block%iw0))**2, dim=ndim+1)
+      mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,b0i))**2, dim=ndim+1)
     else
       mge = sum(w(ixO^S, mag(:))**2, dim=ndim+1)
     end if
@@ -4343,7 +4343,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision              :: mgf(ixO^S)
 
     if (B0field) then
-      mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,block%iw0)
+      mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,b0i)
     else
       mgf = w(ixO^S, mag(idir))
     end if
@@ -4468,7 +4468,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 !
 !    if (.not. B0field) then
 !       bmag(ixO^S)=sqrt(sum(w(ixO^S,mag(:))**2, dim=ndim+1))
-!       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,block%iw0))**2))
+!       bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,b0i))**2))
 !    end if
 !
 !    if(slab_uniform) then
