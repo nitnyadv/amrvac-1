@@ -704,6 +704,7 @@ contains
 
     ! if using ct stagger grid, boundary divb=0 is not done here
     if(stagger_grid) then
+      phys_get_ct_velocity => twofl_get_ct_velocity
       phys_update_faces => twofl_update_faces
       phys_face_to_center => twofl_face_to_center
       phys_modify_wLR => twofl_modify_wLR
@@ -1652,33 +1653,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
     integer                            :: idimE,idimN
 
-    if (typeboundspeed=='cmaxmean') then
-      wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-      call get_rhon_tot(wmean,ixI^L,ixO^L,rhon)
-      tmp2(ixO^S)=wmean(ixO^S,mom_n(idim))/rhon(ixO^S)
-#endif
-      call get_rhoc_tot(wmean,ixI^L,ixO^L,rhoc)
-      tmp1(ixO^S)=wmean(ixO^S,mom_c(idim))/rhoc(ixO^S)
-      call twofl_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
-      if(present(cmin)) then
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-        cmax(ixO^S)=max(max(abs(tmp2(ixO^S)), abs(tmp1(ixO^S)) ) +csoundR(ixO^S),zero)
-        cmin(ixO^S)=min(min(abs(tmp2(ixO^S)),  abs(tmp1(ixO^S)) ) -csoundR(ixO^S),zero)
-#else
-        cmax(ixO^S)=max(abs(tmp1(ixO^S))+csoundR(ixO^S),zero)
-        cmin(ixO^S)=min(abs(tmp1(ixO^S))-csoundR(ixO^S),zero)
-#endif
-      else
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-        cmax(ixO^S)= max(abs(tmp2(ixO^S)),abs(tmp1(ixO^S)))+csoundR(ixO^S)
-#else
-        cmax(ixO^S)= abs(tmp1(ixO^S))+csoundR(ixO^S)
-
-#endif
-
-      end if
-    else
+    if (boundspeedEinfeldt) then
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
       ! Methods for Fluid Dynamics" by Toro.
       call get_rhoc_tot(wLP,ixI^L,ixO^L,rhoc)
@@ -1725,52 +1700,89 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       else
         cmax(ixO^S)=abs(umean(ixO^S))+dmean(ixO^S)
       end if
-    end if
+    else
+    ! typeboundspeed=='cmaxmean'
+      wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      call get_rhon_tot(wmean,ixI^L,ixO^L,rhon)
+      tmp2(ixO^S)=wmean(ixO^S,mom_n(idim))/rhon(ixO^S)
+#endif
+      call get_rhoc_tot(wmean,ixI^L,ixO^L,rhoc)
+      tmp1(ixO^S)=wmean(ixO^S,mom_c(idim))/rhoc(ixO^S)
+      call twofl_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
+      if(present(cmin)) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        cmax(ixO^S)=max(max(abs(tmp2(ixO^S)), abs(tmp1(ixO^S)) ) +csoundR(ixO^S),zero)
+        cmin(ixO^S)=min(min(abs(tmp2(ixO^S)),  abs(tmp1(ixO^S)) ) -csoundR(ixO^S),zero)
+#else
+        cmax(ixO^S)=max(abs(tmp1(ixO^S))+csoundR(ixO^S),zero)
+        cmin(ixO^S)=min(abs(tmp1(ixO^S))-csoundR(ixO^S),zero)
+#endif
+      else
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        cmax(ixO^S)= max(abs(tmp2(ixO^S)),abs(tmp1(ixO^S)))+csoundR(ixO^S)
+#else
+        cmax(ixO^S)= abs(tmp1(ixO^S))+csoundR(ixO^S)
 
-    !!TODO
-!    if(stagger_grid) then
-!      ! calculate velocities related to different UCT schemes
-!      select case(type_ct)
-!      case('average')
-!      case('uct_contact')
-!        if(.not.allocated(vcts%vnorm)) allocate(vcts%vnorm(ixI^S,1:ndim))
-!        ! get average normal velocity at cell faces
-!        vcts%vnorm(ixO^S,idim)=0.5d0*(wLp(ixO^S,mom(idim))+wRp(ixO^S,mom(idim)))
-!      case('uct_hll')
-!        if(.not.allocated(vcts%vbarC)) then
-!          allocate(vcts%vbarC(ixI^S,1:ndir,2),vcts%vbarLC(ixI^S,1:ndir,2),vcts%vbarRC(ixI^S,1:ndir,2))
-!          allocate(vcts%cbarmin(ixI^S,1:ndim),vcts%cbarmax(ixI^S,1:ndim)) 
-!        end if
-!        ! Store magnitude of characteristics
-!        if(present(cmin)) then
-!          vcts%cbarmin(ixO^S,idim)=max(-cmin(ixO^S),zero)
-!          vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
-!        else
-!          vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
-!          vcts%cbarmin(ixO^S,idim)=vcts%cbarmax(ixO^S,idim)
-!        end if
-!
-!        idimN=mod(idim,ndir)+1 ! 'Next' direction
-!        idimE=mod(idim+1,ndir)+1 ! Electric field direction
-!        ! Store velocities
-!        vcts%vbarLC(ixO^S,idim,1)=wLp(ixO^S,mom(idimN))
-!        vcts%vbarRC(ixO^S,idim,1)=wRp(ixO^S,mom(idimN))
-!        vcts%vbarC(ixO^S,idim,1)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,1) &
-!             +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
-!            /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
-!
-!        vcts%vbarLC(ixO^S,idim,2)=wLp(ixO^S,mom(idimE))
-!        vcts%vbarRC(ixO^S,idim,2)=wRp(ixO^S,mom(idimE))
-!        vcts%vbarC(ixO^S,idim,2)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,2) &
-!             +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
-!            /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
-!      case default
-!        call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
-!      end select
-!    end if
+#endif
+
+      end if
+    end if
 
   end subroutine twofl_get_cbounds
 
+  !> prepare velocities for ct methods
+  subroutine twofl_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixO^L,idim,cmax,cmin)
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
+    double precision, intent(in)    :: cmax(ixI^S)
+    double precision, intent(in), optional :: cmin(ixI^S)
+    type(ct_velocity), intent(inout):: vcts
+
+    integer                         :: idimE,idimN
+
+    ! calculate velocities related to different UCT schemes
+    select case(type_ct)
+    case('average')
+    case('uct_contact')
+      if(.not.allocated(vcts%vnorm)) allocate(vcts%vnorm(ixI^S,1:ndim))
+      ! get average normal velocity at cell faces
+      vcts%vnorm(ixO^S,idim)=0.5d0*(wLp(ixO^S,mom_c(idim))+wRp(ixO^S,mom_c(idim)))
+    case('uct_hll')
+      if(.not.allocated(vcts%vbarC)) then
+        allocate(vcts%vbarC(ixI^S,1:ndir,2),vcts%vbarLC(ixI^S,1:ndir,2),vcts%vbarRC(ixI^S,1:ndir,2))
+        allocate(vcts%cbarmin(ixI^S,1:ndim),vcts%cbarmax(ixI^S,1:ndim)) 
+      end if
+      ! Store magnitude of characteristics
+      if(present(cmin)) then
+        vcts%cbarmin(ixO^S,idim)=max(-cmin(ixO^S),zero)
+        vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
+      else
+        vcts%cbarmax(ixO^S,idim)=max( cmax(ixO^S),zero)
+        vcts%cbarmin(ixO^S,idim)=vcts%cbarmax(ixO^S,idim)
+      end if
+
+      idimN=mod(idim,ndir)+1 ! 'Next' direction
+      idimE=mod(idim+1,ndir)+1 ! Electric field direction
+      ! Store velocities
+      vcts%vbarLC(ixO^S,idim,1)=wLp(ixO^S,mom_c(idimN))
+      vcts%vbarRC(ixO^S,idim,1)=wRp(ixO^S,mom_c(idimN))
+      vcts%vbarC(ixO^S,idim,1)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,1) &
+           +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
+          /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
+
+      vcts%vbarLC(ixO^S,idim,2)=wLp(ixO^S,mom_c(idimE))
+      vcts%vbarRC(ixO^S,idim,2)=wRp(ixO^S,mom_c(idimE))
+      vcts%vbarC(ixO^S,idim,2)=(vcts%cbarmax(ixO^S,idim)*vcts%vbarLC(ixO^S,idim,2) &
+           +vcts%cbarmin(ixO^S,idim)*vcts%vbarRC(ixO^S,idim,1))&
+          /(vcts%cbarmax(ixO^S,idim)+vcts%cbarmin(ixO^S,idim))
+    case default
+      call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
+    end select
+
+  end subroutine twofl_get_ct_velocity
   !> Calculate fast magnetosonic wave speed
   subroutine twofl_get_csound(w,x,ixI^L,ixO^L,idim,csound)
     use mod_global_parameters
@@ -1921,6 +1933,14 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       pth(ixO^S)=twofl_adiab*w(ixO^S,rho_c_)**twofl_gamma
     end if
 
+    if (fix_small_values) then
+      {do ix^DB= ixO^LIM^DB\}
+         if(pth(ix^D)<small_pressure) then
+            pth(ix^D)=small_pressure
+         end if
+      {enddo^D&\}
+    end if
+
     ! no check when equi
     if(.not. has_equi_pe_c0) then
       if (check_small_values) then
@@ -1938,14 +1958,6 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
              if(trace_small_values) write(*,*) sqrt(pth(ix^D)-bigdouble)
              write(*,*) "Saving status at the previous time step"
              crash=.true.
-           end if
-        {enddo^D&\}
-      end if
-  
-      if (fix_small_values) then
-        {do ix^DB= ixO^LIM^DB\}
-           if(pth(ix^D)<small_pressure) then
-              pth(ix^D)=small_pressure
            end if
         {enddo^D&\}
       end if
@@ -2793,10 +2805,15 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     tmp(ixO^S) = twofl_mag_en_all(w, ixI^L, ixO^L)
     call multiplyAmbiCoef(ixI^L,ixO^L,tmp,w,x) 
     coef = maxval(abs(tmp(ixO^S)))
-    if(slab_uniform) then
-      dtnew=minval(dxarr(1:ndim))**2.0d0/coef
+    if(coef/=0.d0) then
+      coef=1.d0/coef
     else
-      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0/coef
+      coef=bigdouble
+    end if
+    if(slab_uniform) then
+      dtnew=minval(dxarr(1:ndim))**2.0d0*coef
+    else
+      dtnew=minval(block%ds(ixO^S,1:ndim))**2.0d0*coef
     end if
 
   end function get_ambipolar_dt
@@ -4511,10 +4528,20 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
       wRp(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wRp(ixO^S,psi_) = wLp(ixO^S,psi_)
+
+      if(phys_total_energy) then
+        wRC(ixO^S,e_c_)=wRC(ixO^S,e_c_)-half*wRC(ixO^S,mag(idir))**2
+        wLC(ixO^S,e_c_)=wLC(ixO^S,e_c_)-half*wLC(ixO^S,mag(idir))**2
+      end if
       wRC(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wRC(ixO^S,psi_) = wLp(ixO^S,psi_)
       wLC(ixO^S,mag(idir)) = wLp(ixO^S,mag(idir))
       wLC(ixO^S,psi_) = wLp(ixO^S,psi_)
+      ! modify total energy according to the change of magnetic field
+      if(phys_total_energy) then
+        wRC(ixO^S,e_c_)=wRC(ixO^S,e_c_)+half*wRC(ixO^S,mag(idir))**2
+        wLC(ixO^S,e_c_)=wLC(ixO^S,e_c_)+half*wLC(ixO^S,mag(idir))**2
+      end if
     end if
 
     if(associated(usr_set_wLR)) call usr_set_wLR(ixI^L,ixO^L,qt,wLC,wRC,wLp,wRp,s,idir)
@@ -5082,7 +5109,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   end subroutine twofl_clean_divb_multigrid
   }
 
-  subroutine twofl_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+  subroutine twofl_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
     use mod_global_parameters
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -5090,6 +5117,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     ! cell-center primitive variables
     double precision, intent(in)       :: wprim(ixI^S,1:nw)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
     double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
 
@@ -5097,9 +5125,9 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     case('average')
       call update_faces_average(ixI^L,ixO^L,qt,qdt,fC,fE,sCT,s)
     case('uct_contact')
-      call update_faces_contact(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s)
+      call update_faces_contact(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,s,vcts)
     case('uct_hll')
-      call update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s)
+      call update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s,vcts)
     case default
       call mpistop('choose average, uct_contact,or uct_hll for type_ct!')
     end select
@@ -5109,7 +5137,6 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   !> get electric field though averaging neighors to update faces in CT
   subroutine update_faces_average(ixI^L,ixO^L,qt,qdt,fC,fE,sCT,s)
     use mod_global_parameters
-    use mod_constrained_transport
     use mod_usr_methods
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -5216,9 +5243,8 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   end subroutine update_faces_average
 
   !> update faces using UCT contact mode by Gardiner and Stone 2005 JCP 205, 509
-  subroutine update_faces_contact(ixI^L,ixO^L,qt,qdt,wp,fC,fE,sCT,s)
+  subroutine update_faces_contact(ixI^L,ixO^L,qt,qdt,wp,fC,fE,sCT,s,vcts)
     use mod_global_parameters
-    use mod_constrained_transport
     use mod_usr_methods
 
     integer, intent(in)                :: ixI^L, ixO^L
@@ -5226,6 +5252,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     ! cell-center primitive variables
     double precision, intent(in)       :: wp(ixI^S,1:nw)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
     double precision, intent(in)       :: fC(ixI^S,1:nwflux,1:ndim)
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
 
@@ -5390,7 +5417,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   end subroutine update_faces_contact
 
   !> update faces
-  subroutine update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s)
+  subroutine update_faces_hll(ixI^L,ixO^L,qt,qdt,fE,sCT,s,vcts)
     use mod_global_parameters
     use mod_constrained_transport
     use mod_usr_methods
@@ -5399,6 +5426,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in)       :: qt, qdt
     double precision, intent(inout)    :: fE(ixI^S,7-2*ndim:3)
     type(state)                        :: sCT, s
+    type(ct_velocity)                  :: vcts
 
     double precision                   :: vtilL(ixI^S,2)
     double precision                   :: vtilR(ixI^S,2)
