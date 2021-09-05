@@ -215,6 +215,8 @@ contains
     character(len=std_len) :: time_integrator
     !> type of curl operator
     character(len=std_len) :: typecurl
+    !> Limiter used for prolongation to refined grids and ghost cells
+    character(len=std_len) :: typeprolonglimit
 
     double precision, dimension(nsavehi) :: tsave_log, tsave_dat, tsave_slice, &
          tsave_collapsed, tsave_custom
@@ -263,7 +265,7 @@ contains
          trace_small_values, angmomfix, small_values_fix_iw, &
          schmid_rad^D
 
-    namelist /boundlist/ nghostcells,typeboundary,typeghostfill,prolongation_method,&
+    namelist /boundlist/ nghostcells,typeboundary,ghost_copy,&
          internalboundary, typeboundary_^L, save_physical_boundary
 
     namelist /meshlist/ refine_max_level,nbufferx^D,refine_threshold,&
@@ -293,11 +295,6 @@ contains
 
     ! default resolution of level-1 mesh (full domain)
     {domain_nx^D = 32\}
-
-
-
-    ! defaults for boundary treatments
-    typeghostfill = 'linear'
 
     ! default number of ghost-cell layers at each boundary of a block
     nghostcells = 2
@@ -368,7 +365,6 @@ contains
     refine_threshold(1:nlevelshi)            = 0.1d0
     allocate(derefine_ratio(nlevelshi))
     derefine_ratio(1:nlevelshi)       = 1.0d0/8.0d0
-    prolongation_method                = 'linear'
     typeprolonglimit            = 'default'
     refine_criterion               = 3
     allocate(w_refine_weight(nw+1))
@@ -1180,6 +1176,21 @@ contains
     end if
 
     if (ndim==1) dimsplit=.false.
+
+    ! type limiter of prolongation
+    select case(typeprolonglimit)
+    case('unlimit')
+      ! unlimited
+      prolong_limiter=1
+    case('minmod')
+      prolong_limiter=2
+    case('woodward')
+      prolong_limiter=3
+    case('koren')
+      prolong_limiter=4
+    case default
+      prolong_limiter=0
+    end select
 
     ! Type limiter is of integer type for performance
     allocate(type_limiter(nlevelshi))
@@ -2123,9 +2134,8 @@ contains
         ! extra layer around mesh only for later averaging in convert
         ! set dxlevel value for use in gradient subroutine,
         ! which might be used in getaux
-        saveigrid=igrid
-        ^D&dxlevel(^D)=rnode(rpdx^D_, igrid);
         block=>ps(igrid)
+        ^D&dxlevel(^D)=rnode(rpdx^D_, igrid);
         call phys_get_aux(.true., ps(igrid)%w, ps(igrid)%x, ixG^LL, &
              ixM^LL^LADD1, "write_snapshot")
       endif

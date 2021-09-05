@@ -298,8 +298,6 @@ module mod_global_parameters
   !> Conversion factor for time unit
   double precision       :: time_convert_factor
 
-  integer                :: saveigrid
-
   !> Stores the memory and load imbalance, used in printlog
   double precision       :: Xload, Xmemory
 
@@ -584,7 +582,7 @@ module mod_global_parameters
   integer :: b0i=0
 
   !> Limiter used for prolongation to refined grids and ghost cells
-  character(len=std_len) :: typeprolonglimit
+  integer :: prolong_limiter=0
 
   !> Which type of entropy fix to use with Riemann-type solvers
   character(len=std_len), allocatable :: typeentropy(:)
@@ -671,7 +669,10 @@ module mod_global_parameters
   !> physical boundary
   character(len=std_len), allocatable :: typeboundary(:, :)
 
-  character(len=std_len) :: typeghostfill='linear',prolongation_method
+  !> whether copy values instead of interpolation in ghost cells of finer blocks
+  logical :: ghost_copy=.false.
+
+  !> if there is an internal boundary
   logical :: internalboundary
 
   !> Base file name for synthetic EUV emission output
@@ -694,7 +695,7 @@ module mod_global_parameters
   !> Block pointer for using one block and its previous state
   type(state), pointer :: block
 
-  !$OMP THREADPRIVATE(block,dxlevel,saveigrid)
+  !$OMP THREADPRIVATE(block,dxlevel,b0i)
 
 contains
 
