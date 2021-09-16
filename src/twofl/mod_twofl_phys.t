@@ -158,13 +158,17 @@ module mod_twofl_phys
   logical, public, protected              :: twofl_dump_coll_terms = .false.
 #endif
 
+  double precision, public, protected  :: Rc  ! defined for compat with the new eq of state, it is set to 1 for ONE_FLUID
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+  ! two fluid is only H plasma
+  double precision, public, protected  :: Rn
+#else
   ! Eq of state:
   !> Helium abundance over Hydrogen
   !> He_abundance = (He2+ + He+ + He)/(H+ + H)
   double precision, public, protected  :: He_abundance=0.1d0
   !> Ionization fraction of H
   !> H_ion_fr = H+/(H+ + H)
-  !> H_ion_fr is not allowed to be 0
   double precision, public, protected  :: H_ion_fr=1d0
   !> Ionization fraction of He
   !> He_ion_fr = (He2+ + He+)/(He2+ + He+ + He)
@@ -172,9 +176,7 @@ module mod_twofl_phys
   !> Ratio of number He2+ / number He+ + He2+
   !> He_ion_fr2 = (He2+ + He+)/(He2+ + He+ + He)
   double precision, public, protected  :: He_ion_fr2=1d0
-  double precision, public, protected  :: Rc  ! defined for compat with the new eq of state, it is set to 1 for ONE_FLUID
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-  double precision, public, protected  :: Rn,rho_nc_fr
+
 #endif
   ! Eq of state end
 
@@ -304,11 +306,10 @@ contains
       twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha,& 
       twofl_thermal_conduction_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
       twofl_viscosity, twofl_4th_order, typedivbfix, source_split_divb, divbdiff,&
-      typedivbdiff, type_ct, divbwave,He_abundance, SI_unit, B0field,&
+      typedivbdiff, type_ct, divbwave, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
       !added:
       twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0,&
-      H_ion_fr, He_ion_fr, He_ion_fr2,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
@@ -316,6 +317,7 @@ contains
       twofl_dump_coll_terms,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
+      H_ion_fr, He_ion_fr, He_abundance, He_ion_fr2,&
 #endif
       boundary_divbfix, boundary_divbfix_skip, twofl_divb_4thorder, &
       twofl_boris_method, twofl_boris_c, clean_initial_divb,  &
@@ -1015,10 +1017,6 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     end if
 
 
-    !a = a+c from below multiplied by H_ion_fr
-    !b = b+d
-    a = 1d0 + 4d0 * He_abundance
-    b = 1d0 + H_ion_fr + He_abundance*(He_ion_fr*(He_ion_fr2 + 1d0)+1d0)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     !a =  4d0  * He_abundance * He_ion_fr/H_ion_fr + 1d0 !rho_c 
     !b = (2d0 + He_ion_fr2) * He_abundance * He_ion_fr/H_ion_fr + 2d0 !pe_c
@@ -1026,14 +1024,22 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     !d = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/H_ion_fr !pe_n
     !Rn=d/c * (a+c)/(b+d)
     !Rc=b/a * (a+c)/(b+d)
-    Rc=((2d0 + He_ion_fr2) * He_abundance * He_ion_fr + 2d0 * H_ion_fr)/(4d0  * He_abundance * He_ion_fr + H_ion_fr) * a/b
-    Rn = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/(1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr)) * a/b 
-    !rho_nc_fr = c/a
-    rho_nc_fr = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/(4d0  * He_abundance * He_ion_fr + H_ion_fr) 
-    if(mype .eq.0) then
-      print*, "eq state Rn=", Rn, " Rc=",Rc
-    endif
+!    Rc=((2d0 + He_ion_fr2) * He_abundance * He_ion_fr + 2d0 * H_ion_fr)/(4d0  * He_abundance * He_ion_fr + H_ion_fr) * a/b
+!    Rn = (1d0 - H_ion_fr + He_abundance*(1d0 - He_ion_fr))/(1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr)) * a/b 
+!    !rho_nc_fr = c/a
+!    rho_nc_fr = (1d0 - H_ion_fr + 4*He_abundance*(1d0 - He_ion_fr))/(4d0  * He_abundance * He_ion_fr + H_ion_fr) 
+!    if(mype .eq.0) then
+!      print*, "eq state Rn=", Rn, " Rc=",Rc
+!    endif
+    a=1d0  
+    b=1d0
+    Rc=2d0
+    Rn=1d0  
 #else
+    !a = a+c from above multiplied by H_ion_fr
+    !b = b+d
+    a = 1d0 + 4d0 * He_abundance
+    b = 1d0 + H_ion_fr + He_abundance*(He_ion_fr*(He_ion_fr2 + 1d0)+1d0)
     Rc = 1d0 !for compatibility between single fluid eq state defined by units only and  
     ! twofl eq of state p = rho R T
 #endif
@@ -2926,28 +2932,28 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
         ! Do nothing
       case (divb_glm)
         active = .true.
-        call add_source_glm(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_glm(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_powel)
         active = .true.
-        call add_source_powel(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_powel(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_janhunen)
         active = .true.
-        call add_source_janhunen(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_janhunen(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_linde)
         active = .true.
-        call add_source_linde(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_linde(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_lindejanhunen)
         active = .true.
-        call add_source_linde(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
-        call add_source_janhunen(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_linde(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
+        call add_source_janhunen(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_lindepowel)
         active = .true.
-        call add_source_linde(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
-        call add_source_powel(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_linde(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
+        call add_source_powel(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_lindeglm)
         active = .true.
-        call add_source_linde(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
-        call add_source_glm(dt,ixI^L,ixO^L,pso(saveigrid)%w,w,x)
+        call add_source_linde(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
+        call add_source_glm(dt,ixI^L,ixO^L,pso(block%igrid)%w,w,x)
       case (divb_ct)
         continue ! Do nothing
       case (divb_multigrid)
@@ -3855,7 +3861,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     ! for AMR stability, retreat one cell layer from the boarders of level jump
     {do i^DB=-1,1\}
       if(i^D==0|.and.) cycle
-      if(neighbor_type(i^D,saveigrid)==2 .or. neighbor_type(i^D,saveigrid)==4) then
+      if(neighbor_type(i^D,block%igrid)==2 .or. neighbor_type(i^D,block%igrid)==4) then
         leveljump(i^D)=.true.
       else
         leveljump(i^D)=.false.
@@ -4548,47 +4554,44 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
   end subroutine twofl_modify_wLR
 
-  subroutine twofl_boundary_adjust
+  subroutine twofl_boundary_adjust(igrid,psb)
     use mod_global_parameters
-    integer :: iB, idim, iside, iigrid, igrid
-    integer :: ixG^L, ixO^L, i^D
+    integer, intent(in) :: igrid
+    type(state), target :: psb(max_blocks)
 
-    ixG^L=ixG^LL;
-     do iigrid=1,igridstail; igrid=igrids(iigrid);
-        if(.not.phyboundblock(igrid)) cycle
-        saveigrid=igrid
-        block=>ps(igrid)
-        ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
-        do idim=1,ndim
-           ! to avoid using as yet unknown corner info in more than 1D, we
-           ! fill only interior mesh ranges of the ghost cell ranges at first,
-           ! and progressively enlarge the ranges to include corners later
-           do iside=1,2
-              i^D=kr(^D,idim)*(2*iside-3);
-              if (neighbor_type(i^D,igrid)/=1) cycle
-              iB=(idim-1)*2+iside
-              if(.not.boundary_divbfix(iB)) cycle
-              if(any(typeboundary(:,iB)=="special")) then
-                ! MF nonlinear force-free B field extrapolation and data driven
-                ! require normal B of the first ghost cell layer to be untouched by
-                ! fixdivB=0 process, set boundary_divbfix_skip(iB)=1 in par file
-                select case (idim)
-                {case (^D)
-                   if (iside==2) then
-                      ! maximal boundary
-                      ixOmin^DD=ixGmax^D+1-nghostcells+boundary_divbfix_skip(2*^D)^D%ixOmin^DD=ixGmin^DD;
-                      ixOmax^DD=ixGmax^DD;
-                   else
-                      ! minimal boundary
-                      ixOmin^DD=ixGmin^DD;
-                      ixOmax^DD=ixGmin^D-1+nghostcells-boundary_divbfix_skip(2*^D-1)^D%ixOmax^DD=ixGmax^DD;
-                   end if \}
-                end select
-                call fixdivB_boundary(ixG^L,ixO^L,ps(igrid)%w,ps(igrid)%x,iB)
-              end if
-           end do
-        end do
-     end do
+    integer :: iB, idims, iside, ixO^L, i^D
+
+    block=>ps(igrid)
+    ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+    do idims=1,ndim
+       ! to avoid using as yet unknown corner info in more than 1D, we
+       ! fill only interior mesh ranges of the ghost cell ranges at first,
+       ! and progressively enlarge the ranges to include corners later
+       do iside=1,2
+          i^D=kr(^D,idims)*(2*iside-3);
+          if (neighbor_type(i^D,igrid)/=1) cycle
+          iB=(idims-1)*2+iside
+          if(.not.boundary_divbfix(iB)) cycle
+          if(any(typeboundary(:,iB)=="special")) then
+            ! MF nonlinear force-free B field extrapolation and data driven
+            ! require normal B of the first ghost cell layer to be untouched by
+            ! fixdivB=0 process, set boundary_divbfix_skip(iB)=1 in par file
+            select case (idims)
+            {case (^D)
+               if (iside==2) then
+                  ! maximal boundary
+                  ixOmin^DD=ixGhi^D+1-nghostcells+boundary_divbfix_skip(2*^D)^D%ixOmin^DD=ixGlo^DD;
+                  ixOmax^DD=ixGhi^DD;
+               else
+                  ! minimal boundary
+                  ixOmin^DD=ixGlo^DD;
+                  ixOmax^DD=ixGlo^D-1+nghostcells-boundary_divbfix_skip(2*^D-1)^D%ixOmax^DD=ixGhi^DD;
+               end if \}
+            end select
+            call fixdivB_boundary(ixG^LL,ixO^L,psb(igrid)%w,psb(igrid)%x,iB)
+          end if
+       end do
+    end do
 
   end subroutine twofl_boundary_adjust
 
@@ -5874,14 +5877,15 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
        tmp3(ixO^S) =  1d0 + dtfactor * dt * (gamma_rec(ixO^S) +  gamma_ion(ixO^S))     
-#if !defined(EQUI_IONREC) || EQUI_IONREC==0
-       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
-                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-#else
+!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
+!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
+!#else
        ! equilibrium density does not evolve through ion/rec 
+       ! it has to be always like this because of the linearization of the coll. term 
        tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
-#endif
+!#endif
        wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S)
        wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S)
     else
