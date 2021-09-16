@@ -146,8 +146,6 @@ contains
     double precision, dimension(ixI^S)      :: cminC
     double precision, dimension(ixO^S)      :: inv_volume
     double precision, dimension(1:ndim)     :: dxinv, dxdim
-    ! cell-face location coordinates
-    double precision, dimension(ixI^S,1:ndim) :: xi
     integer, dimension(ixI^S)               :: patchf
     integer :: idims, iw, ix^L, hxO^L, ixC^L, ixCR^L, kxC^L, kxR^L
     type(ct_velocity) :: vcts
@@ -200,29 +198,24 @@ contains
        {ixCRmin^D = max(ixCmin^D - phys_wider_stencil,ixGlo^D)\}
        {ixCRmax^D = min(ixCmax^D + phys_wider_stencil,ixGhi^D)\}
 
-       ! get cell-face coordinates
-       xi=x
-       xi(ixI^S,idims)=xi(ixI^S,idims)+0.5d0*sCT%dx(ixI^S,idims)
-
        ! apply limited reconstruction for left and right status at cell interfaces
-       call reconstruct_LR(ixI^L,ixCR^L,ixCR^L,idims,wprim,wLC,wRC,wLp,wRp,xi,dxdim(idims))
+       call reconstruct_LR(ixI^L,ixCR^L,ixCR^L,idims,wprim,wLC,wRC,wLp,wRp,x,dxdim(idims))
 
        ! special modification of left and right status before flux evaluation
        call phys_modify_wLR(ixI^L,ixCR^L,qt,wLC,wRC,wLp,wRp,sCT,idims)
 
        ! evaluate physical fluxes according to reconstructed status
-       call phys_get_flux(wLC,wLp,xi,ixI^L,ixC^L,idims,fLC)
-       call phys_get_flux(wRC,wRp,xi,ixI^L,ixC^L,idims,fRC)
+       call phys_get_flux(wLC,wLp,x,ixI^L,ixC^L,idims,fLC)
+       call phys_get_flux(wRC,wRp,x,ixI^L,ixC^L,idims,fRC)
 
        ! estimating bounds for the minimum and maximum signal velocities
        if(method==fs_tvdlf.or.method==fs_tvdmu) then
-         call phys_get_cbounds(wLC,wRC,wLp,wRp,xi,ixI^L,ixC^L,idims,cmaxC)
+         call phys_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixC^L,idims,cmaxC)
          if(stagger_grid) call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC)
        else
-         call phys_get_cbounds(wLC,wRC,wLp,wRp,xi,ixI^L,ixC^L,idims,cmaxC,cminC)
+         call phys_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixC^L,idims,cmaxC,cminC)
          if(stagger_grid) call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC,cminC)
        end if
-
 
        ! use approximate Riemann solver to get flux at interfaces
        select case(method)
@@ -239,8 +232,6 @@ contains
        case default
          call mpistop('unkown Riemann flux in finite volume')
        end select
-
-       if(associated(usr_set_flux)) call usr_set_flux(ixI^L,ixC^L,qt,wLC,wRC,wLp,wRp,sCT,idims,fC)
 
     end do ! Next idims
     b0i=0
@@ -346,41 +337,29 @@ contains
     end subroutine get_Riemann_flux_tvdlf
 
     subroutine get_Riemann_flux_hll()
+      integer :: ix^D
 
-      double precision :: fac(ixI^S), div(ixI^S)
-
-      where(cminC(ixC^S) >= zero)
-        patchf(ixC^S) = -2
-      elsewhere(cmaxC(ixC^S) <= zero)
-        patchf(ixC^S) =  2
-      elsewhere
-        patchf(ixC^S) =  1
-        div(ixC^S) = 1.d0/(cmaxC(ixC^S)-cminC(ixC^S))
-        fac(ixC^S) = tvdlfeps*cminC(ixC^S)*cmaxC(ixC^S)
-      endwhere
-
-
-      ! Calculate fLC=f(uL_j+1/2) and fRC=f(uR_j+1/2) for each iw
       do iw=iwstart,nwflux
-         if (flux_type(idims, iw) == flux_tvdlf) then
-            fLC(ixC^S, iw) = half*(fLC(ixC^S, iw) + fRC(ixC^S, iw) &
-                 -tvdlfeps*max(cmaxC(ixC^S), dabs(cminC(ixC^S))) * &
-                 (wRC(ixC^S,iw)-wLC(ixC^S,iw)))
-         else
-            where(patchf(ixC^S)==1)
-               ! Add hll dissipation to the flux
-               fLC(ixC^S, iw) = (cmaxC(ixC^S)*fLC(ixC^S, iw)-cminC(ixC^S) * fRC(ixC^S, iw) &
-                    +fac(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw))) * div(ixC^S)
-            elsewhere(patchf(ixC^S)== 2)
-               fLC(ixC^S, iw)=fRC(ixC^S, iw)
-            elsewhere(patchf(ixC^S)==-2)
-               fLC(ixC^S, iw)=fLC(ixC^S, iw)
-            endwhere
-         endif
+        if(flux_type(idims, iw) == flux_tvdlf) then
+          fC(ixC^S,iw,idims) = half*(fLC(ixC^S, iw) + fRC(ixC^S, iw) &
+               -tvdlfeps*max(cmaxC(ixC^S), dabs(cminC(ixC^S))) * &
+               (wRC(ixC^S,iw)-wLC(ixC^S,iw)))
+        else
+         {do ix^DB=ixCmin^DB,ixCmax^DB\} 
+           if(cminC(ix^D) >= zero) then
+             fC(ix^D,iw,idims)=fLC(ix^D,iw)
+           else if(cmaxC(ix^D) <= zero) then
+             fC(ix^D,iw,idims)=fRC(ix^D,iw)
+           else
+             ! Add hll dissipation to the flux
+             fC(ix^D,iw,idims)=(cmaxC(ix^D)*fLC(ix^D, iw)-cminC(ix^D)*fRC(ix^D,iw)&
+                   +tvdlfeps*cminC(ix^D)*cmaxC(ix^D)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
+                   /(cmaxC(ix^D)-cminC(ix^D))
+           end if
+         {end do\}
+        end if
+      end do
 
-         fC(ixC^S,iw,idims)=fLC(ixC^S, iw)
-
-      end do ! Next iw
     end subroutine get_Riemann_flux_hll
 
     subroutine get_Riemann_flux_hllc()
