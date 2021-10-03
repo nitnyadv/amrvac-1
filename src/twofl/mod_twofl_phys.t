@@ -4180,7 +4180,6 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   end function has_collisions
 
 
-  !TODO add ion/rec
   subroutine coll_get_dt(w,x,ixI^L,ixO^L,dtnew)
     use mod_global_parameters
     integer, intent(in)             :: ixI^L, ixO^L
@@ -4189,13 +4188,22 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(inout) :: dtnew
 
     double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
+    double precision, allocatable :: gamma_rec(:^D&), gamma_ion(:^D&)
+    double precision :: max_coll_rate
 
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
 
     call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
-    dtnew = min(dtcollpar/maxval(alpha(ixO^S) * max(rhon(ixO^S), rhoc(ixO^S))), dtnew)
+    max_coll_rate = maxval(alpha(ixO^S) * max(rhon(ixO^S), rhoc(ixO^S)))
 
+    if(twofl_coll_inc_ionrec) then
+       allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
+       call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
+       max_coll_rate=max(max_coll_rate, maxval(gamma_ion(ixO^S)), maxval(gamma_rec(ixO^S))) 
+       deallocate(gamma_ion, gamma_rec) 
+    endif
+    dtnew = min(dtcollpar/max_coll_rate, dtnew)
 
   end subroutine coll_get_dt
 #endif
@@ -5882,7 +5890,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 !                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
 !#else
        ! equilibrium density does not evolve through ion/rec 
-       ! it has to be always like this because of the linearization of the coll. term 
+       ! TODO it has to be always like this because of the linearization of the coll. term?
        tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
 !#endif
