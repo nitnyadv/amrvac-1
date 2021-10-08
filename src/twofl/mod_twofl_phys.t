@@ -292,6 +292,21 @@ module mod_twofl_phys
 
    procedure (mask_subroutine), pointer :: usr_mask_ambipolar => null()
    public :: usr_mask_ambipolar 
+#else
+  abstract interface
+
+    subroutine implicit_mult_factor_subroutine(ixI^L, ixO^L, step_dt, JJ, res)
+    integer, intent(in)                :: ixI^L, ixO^L
+    double precision, intent(in) :: step_dt
+    double precision, intent(in) :: JJ(ixI^S)
+    double precision, intent(out) :: res(ixI^S)
+
+  end subroutine implicit_mult_factor_subroutine
+
+  end interface
+
+   procedure (implicit_mult_factor_subroutine), pointer :: calc_mult_factor => null()
+   integer, protected ::  twofl_implicit_calc_mult_method = 1
 
 #endif
 contains
@@ -314,7 +329,7 @@ contains
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
       twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,dtcollpar,&
-      twofl_dump_coll_terms,&
+      twofl_dump_coll_terms,twofl_implicit_calc_mult_method,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
       H_ion_fr, He_ion_fr, He_abundance, He_ion_fr2,&
@@ -693,6 +708,15 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     if(twofl_implicit_coll_terms .and. has_collisions()) then
       phys_implicit_update => twofl_implicit_coll_terms_update
+      phys_evaluate_implicit => twofl_evaluate_implicit
+      if(mype .eq. 1) then
+          print*, "IMPLICIT UPDATE with calc_mult_factor", twofl_implicit_calc_mult_method
+      endif
+      if(twofl_implicit_calc_mult_method == 1) then
+        calc_mult_factor => calc_mult_factor1
+      else
+        calc_mult_factor => calc_mult_factor2
+      endif
     endif
 #endif
     !set equilibrium variables for the new grid
@@ -5860,6 +5884,28 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
   end subroutine get_alpha_coll_plasma
 
+
+
+  subroutine calc_mult_factor1(ixI^L, ixO^L, step_dt, JJ, res)
+    integer, intent(in)                :: ixI^L, ixO^L
+    double precision, intent(in) :: step_dt
+    double precision, intent(in) :: JJ(ixI^S)
+    double precision, intent(out) :: res(ixI^S)
+
+    res(ixO^S) = step_dt/(1d0 + step_dt * JJ(ixO^S))
+
+  end subroutine calc_mult_factor1
+
+  subroutine calc_mult_factor2(ixI^L, ixO^L, step_dt, JJ, res)
+    integer, intent(in)                :: ixI^L, ixO^L
+    double precision, intent(in) :: step_dt
+    double precision, intent(in) :: JJ(ixI^S)
+    double precision, intent(out) :: res(ixI^S)
+
+    res(ixO^S) = (1d0 - exp(-step_dt * JJ(ixO^S)))/JJ(ixO^S)
+
+  end subroutine calc_mult_factor2
+
   subroutine advance_implicit_grid(ixI^L, ixO^L, w, wout, x, dtfactor,qdt)
     use mod_global_parameters
     integer, intent(in)                :: ixI^L, ixO^L
@@ -5884,18 +5930,20 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     if(twofl_coll_inc_ionrec) then
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
-       tmp3(ixO^S) =  1d0 + dtfactor * dt * (gamma_rec(ixO^S) +  gamma_ion(ixO^S))     
+       tmp2(ixO^S) =  gamma_rec(ixO^S) +  gamma_ion(ixO^S)
+       call calc_mult_factor(ixI^L, ixO^L, dtfactor * qdt, tmp2, tmp3) 
+
 !#if !defined(EQUI_IONREC) || EQUI_IONREC==0
 !       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
 !                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
 !#else
        ! equilibrium density does not evolve through ion/rec 
        ! TODO it has to be always like this because of the linearization of the coll. term?
-       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
-                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))/tmp3(ixO^S)
+       tmp(ixO^S) = (-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))
 !#endif
-       wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S)
-       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S)
+       wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) * tmp3(ixO^S)
+       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) * tmp3(ixO^S)
     else
       wout(ixO^S,rho_n_) = w(ixO^S,rho_n_)
       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_)
@@ -5905,11 +5953,12 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     
  
     !-J11 + J12    for momentum and kinetic energy
-    tmp3(ixO^S) =  alpha(ixO^S) * (rhon(ixO^S) +  rhoc(ixO^S))     
+    tmp2(ixO^S) =  alpha(ixO^S) * (rhon(ixO^S) +  rhoc(ixO^S))     
     if(twofl_coll_inc_ionrec) then
-      tmp3(ixO^S) = tmp3(ixO^S) + gamma_ion(ixO^S) + gamma_rec(ixO^S)
+      tmp2(ixO^S) = tmp2(ixO^S) + gamma_ion(ixO^S) + gamma_rec(ixO^S)
     endif
-    tmp3(ixO^S) =  1d0 + dtfactor * dt * tmp3(ixO^S)  
+    call calc_mult_factor(ixI^L, ixO^L, dtfactor * qdt, tmp2, tmp3) 
+
     ! momentum update
     do idir=1,ndir
 
@@ -5917,10 +5966,9 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       if(twofl_coll_inc_ionrec) then
         tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * w(ixO^S,mom_n(idir)) + gamma_rec(ixO^S) * w(ixO^S,mom_c(idir))
       endif
-      tmp(ixO^S) = dtfactor * dt * tmp(ixO^S)/tmp3(ixO^S)
 
-      wout(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S)
-      wout(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S)
+      wout(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S) * tmp3(ixO^S)
+      wout(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S) * tmp3(ixO^S)
     enddo
 
     ! energy update
@@ -5941,11 +5989,10 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       if(twofl_coll_inc_ionrec) then
         tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * tmp1(ixO^S) + gamma_rec(ixO^S) * tmp2(ixO^S)
       endif
-      tmp(ixO^S) = dtfactor * dt * tmp(ixO^S)/tmp3(ixO^S)
 
 
-      wout(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
-      wout(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S)
+      wout(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S) * tmp3(ixO^S)
+      wout(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S) * tmp3(ixO^S)
 
      else 
       tmp4(ixO^S) = w(ixO^S,e_n_) 
@@ -5961,7 +6008,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       endif 
 
       tmp(ixO^S) = 0.5d0 * sum((v_c(ixO^S,1:ndir) - v_n(ixO^S,1:ndir))**2, dim=ndim+1) &
-                   * dtfactor * dt 
+                   * dtfactor * qdt 
       wout(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)*tmp1(ixO^S)
       wout(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)*tmp2(ixO^S)
      endif
@@ -5976,19 +6023,19 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
           tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
         endif
       endif
-      tmp3(ixO^S) =  1d0 + dtfactor * dt * alpha(ixO^S) * (rhon(ixO^S)/Rc +  rhoc(ixO^S)/Rn)  
 
       tmp(ixO^S) = alpha(ixO^S) *(-rhoc(ixO^S)/Rn * tmp4(ixO^S) + rhon(ixO^S)/Rc * tmp5(ixO^S))
-      tmp3(ixO^S) =  alpha(ixO^S) * (rhon(ixO^S)/Rc +  rhoc(ixO^S)/Rn)     
+      tmp2(ixO^S) =  alpha(ixO^S) * (rhon(ixO^S)/Rc +  rhoc(ixO^S)/Rn)     
       if(twofl_coll_inc_ionrec) then
-        tmp3(ixO^S) =  tmp3(ixO^S) + gamma_rec(ixO^S)/Rc + gamma_ion(ixO^S)/Rn 
+        tmp2(ixO^S) =  tmp2(ixO^S) + gamma_rec(ixO^S)/Rc + gamma_ion(ixO^S)/Rn 
         tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S)/Rn * tmp4(ixO^S) + gamma_rec(ixO^S)/Rc * tmp5(ixO^S)
       endif
-      tmp3(ixO^S) = 1d0 +  dtfactor * dt * tmp3(ixO^S)  
-      tmp(ixO^S) = dtfactor * dt * tmp(ixO^S)/tmp3(ixO^S)
 
-      wout(ixO^S,e_n_) = wout(ixO^S,e_n_)+tmp(ixO^S)
-      wout(ixO^S,e_c_) = wout(ixO^S,e_c_)-tmp(ixO^S)
+
+      call calc_mult_factor(ixI^L, ixO^L, dtfactor * qdt, tmp2, tmp3) 
+
+      wout(ixO^S,e_n_) = wout(ixO^S,e_n_)+tmp(ixO^S)*tmp3(ixO^S)
+      wout(ixO^S,e_c_) = wout(ixO^S,e_c_)-tmp(ixO^S)*tmp3(ixO^S)
     endif
     if(twofl_coll_inc_ionrec) then
        deallocate(gamma_ion, gamma_rec) 
@@ -6021,104 +6068,361 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
    end subroutine twofl_implicit_coll_terms_update 
 
 
-  !TODO !!! add ion/rec
+  !> inplace update of psa==>F_im(psa)
+  subroutine twofl_evaluate_implicit(qtC,psa)
+    use mod_global_parameters
+    type(state), target :: psa(max_blocks)
+    double precision, intent(in) :: qtC
+
+    integer :: iigrid, igrid, level
+
+    !$OMP PARALLEL DO PRIVATE(igrid)
+    do iigrid=1,igridstail; igrid=igrids(iigrid);
+       ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+       call coll_terms(ixG^LL,ixM^LL,psa(igrid)%w,psa(igrid)%x)
+    end do
+    !$OMP END PARALLEL DO
+
+  end subroutine twofl_evaluate_implicit
+
+
+
+
+  subroutine coll_terms(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, 1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+
+    integer :: idir
+    double precision :: tmp(ixI^S),tmp1(ixI^S),tmp2(ixI^S),tmp3(ixI^S),tmp4(ixI^S),tmp5(ixI^S)
+    !double precision :: v_c(ixI^S,ndir), v_n(ixI^S,ndir)
+    double precision, allocatable :: v_c(:^D&,:), v_n(:^D&,:)
+    double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
+    double precision, allocatable :: gamma_rec(:^D&), gamma_ion(:^D&)
+
+
+    ! get velocity before overwrite density
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    if(phys_internal_e) then
+      ! get velocity before overwrite momentum
+       allocate(v_n(ixI^S,ndir), v_c(ixI^S,ndir)) 
+      call twofl_get_v_n(w,x,ixI^L,ixO^L,v_n)
+      call twofl_get_v_c(w,x,ixI^L,ixO^L,v_c)
+    else
+      ! get ke before overwrite density and momentum
+      tmp1(ixO^S) = twofl_kin_en_n(w,ixI^L,ixO^L) 
+      tmp2(ixO^S) = twofl_kin_en_c(w,ixI^L,ixO^L) 
+    endif
+
+
+
+    !update density
+    if(twofl_coll_inc_ionrec) then
+       allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
+       call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
+
+!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
+!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
+!#else
+       ! equilibrium density does not evolve through ion/rec 
+       ! TODO it has to be always like this because of the linearization of the coll. term?
+       tmp(ixO^S) = -gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_)
+!#endif
+       w(ixO^S,rho_n_) = tmp(ixO^S) 
+       w(ixO^S,rho_c_) = -tmp(ixO^S) 
+    else
+       w(ixO^S,rho_n_) = 0d0 
+       w(ixO^S,rho_c_) = 0d0
+  
+    endif
+
+    call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
+
+    ! momentum update
+    do idir=1,ndir
+
+      tmp(ixO^S) = alpha(ixO^S)* (-rhoc(ixO^S) * w(ixO^S,mom_n(idir)) + rhon(ixO^S) * w(ixO^S,mom_c(idir)))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * w(ixO^S,mom_n(idir)) + gamma_rec(ixO^S) * w(ixO^S,mom_c(idir))
+      endif
+
+      w(ixO^S,mom_n(idir)) = tmp(ixO^S) 
+      w(ixO^S,mom_c(idir)) = -tmp(ixO^S) 
+    enddo
+
+    ! energy update
+    
+    ! kinetic energy update  
+    if(.not. phys_internal_e) then
+      ! E_tot includes kinetic energy
+      tmp4(ixO^S) = w(ixO^S,e_n_) - tmp1(ixO^S) !E_tot - E_kin
+      tmp5(ixO^S) = w(ixO^S,e_c_) - tmp2(ixO^S)
+      if(phys_total_energy) then
+        tmp5(ixO^S) = tmp5(ixO^S) - twofl_mag_en(w,ixI^L,ixO^L)
+      endif
+      ! tmp4 = eint_n, tmp5 = eint_c
+      ! tmp1 = ke_n, tmp2 = ke_c
+      tmp(ixO^S) = alpha(ixO^S)*(-rhoc(ixO^S) * tmp1(ixO^S) + rhon(ixO^S) * tmp2(ixO^S))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * tmp1(ixO^S) + gamma_rec(ixO^S) * tmp2(ixO^S)
+      endif
+
+      w(ixO^S,e_n_) = tmp(ixO^S) 
+      w(ixO^S,e_c_) = -tmp(ixO^S) 
+
+     else 
+      tmp4(ixO^S) = w(ixO^S,e_n_) 
+      tmp5(ixO^S) = w(ixO^S,e_c_) 
+      tmp1(ixO^S) = alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
+      tmp2(ixO^S) = tmp1(ixO^S) 
+      if(twofl_coll_inc_ionrec) then
+        tmp1(ixO^S) = tmp1(ixO^S) + rhoc(ixO^S) * gamma_rec(ixO^S)
+        tmp2(ixO^S) = tmp2(ixO^S) + rhon(ixO^S) * gamma_ion(ixO^S)
+      endif 
+
+      tmp(ixO^S) = 0.5d0 * sum((v_c(ixO^S,1:ndir) - v_n(ixO^S,1:ndir))**2, dim=ndim+1) 
+      w(ixO^S,e_n_) = tmp(ixO^S)*tmp1(ixO^S)
+      w(ixO^S,e_c_) = tmp(ixO^S)*tmp2(ixO^S)
+     endif
+
+    !update internal energy
+    if(twofl_coll_inc_te) then
+     if(.not. twofl_equi_thermal) then   
+        if(has_equi_pe_n0) then
+          tmp4(ixO^S) = tmp4(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1  
+        endif
+        if(has_equi_pe_c0) then
+          tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
+        endif
+      endif
+
+      tmp(ixO^S) = alpha(ixO^S) *(-rhoc(ixO^S)/Rn * tmp4(ixO^S) + rhon(ixO^S)/Rc * tmp5(ixO^S))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S)/Rn * tmp4(ixO^S) + gamma_rec(ixO^S)/Rc * tmp5(ixO^S)
+      endif
+
+      w(ixO^S,e_n_) = w(ixO^S,e_n_)+tmp(ixO^S)
+      w(ixO^S,e_c_) = w(ixO^S,e_c_)-tmp(ixO^S)
+    endif
+    if(twofl_coll_inc_ionrec) then
+       deallocate(gamma_ion, gamma_rec) 
+    endif
+    if(phys_internal_e) then
+       deallocate(v_n, v_c) 
+    endif
+    !set contribution to mag field
+    w(ixO^S,mag(1:ndir)) = 0d0 
+
+  end subroutine coll_terms
+
+
+
+
+
   subroutine twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
     use mod_global_parameters
-
+  
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision, intent(in) :: wCT(ixI^S,1:nw)
 
-    double precision :: tmp(ixI^S),tmp2(ixI^S) 
-    double precision, dimension(:^D&,:), allocatable :: vc, vn
-    double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
+
+
     integer :: idir
-!    print*, "expl call ", it
+    double precision :: tmp(ixI^S),tmp1(ixI^S),tmp2(ixI^S),tmp3(ixI^S),tmp4(ixI^S),tmp5(ixI^S)
+    double precision :: v_c(ixI^S,ndir), v_n(ixI^S,ndir)
+    double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
+    double precision, allocatable :: gamma_rec(:^D&), gamma_ion(:^D&)
 
-!    print*, " RHOC ", wCT(ixI^S,rho_c_) 
-!    print*, " RHON ", wCT(ixI^S,rho_n_) 
-!    print*, " MOM N ", wCT(ixI^S,mom_n(idir))
-!    print*, " MOM C ", wCT(ixO^S,mom_c(idir))
-    if(has_equi_rho_n0) then
-      rhon(ixO^S) = wCT(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
-    else  
-      rhon(ixO^S) = wCT(ixO^S,rho_n_) 
+
+    call get_rhon_tot(wCT,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(wCT,ixI^L,ixO^L,rhoc)
+    !update density
+    if(twofl_coll_inc_ionrec) then
+       allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
+       call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
+
+!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
+!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
+!#else
+       ! equilibrium density does not evolve through ion/rec 
+       ! TODO it has to be always like this because of the linearization of the coll. term?
+       tmp(ixO^S) = qdt * (-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))
+!#endif
+       w(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) 
+       w(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) 
     endif
 
-    if(has_equi_rho_c0) then
-      rhoc(ixO^S) = wCT(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
-    else  
-      rhoc(ixO^S) = wCT(ixO^S,rho_c_) 
-    endif
+    call get_alpha_coll(ixI^L, ixO^L, wCT, x, alpha)
 
-    call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
-    ! calculate velocities
-    allocate(vc(ixO^S,1:ndir),vn(ixO^S,1:ndir))
-    !use the prev vars
-    call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
-    call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
     ! momentum update
     do idir=1,ndir
-      ! the coll. term in the neutrals momentum eq. multiplied by qdt
-      tmp(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,mom_n(idir)) + rhon(ixO^S) * wCT(ixO^S,mom_c(idir)))
+
+      tmp(ixO^S) = alpha(ixO^S)* (-rhoc(ixO^S) * wCT(ixO^S,mom_n(idir)) + rhon(ixO^S) * wCT(ixO^S,mom_c(idir)))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * wCT(ixO^S,mom_n(idir)) + gamma_rec(ixO^S) * wCT(ixO^S,mom_c(idir))
+      endif
+      tmp(ixO^S) =tmp(ixO^S) * qdt
+
       w(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S) 
       w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S) 
-
     enddo
+
     ! energy update
-    !DEBUG
-    !w(ixO^S,e_n_) = wCT(ixO^S,e_n_)
-    !w(ixO^S,e_c_) = wCT(ixO^S,e_c_)
-    ! calculate velocities
-    !use the updated vars
-    !call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
-    !call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
-    if(twofl_eq_energy == EQ_ENERGY_INT) then
-      ! tmp = qdt * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING multiplied by qdt
-      tmp(ixO^S) = 0.5d0 * sum((vc(ixO^S, 1:ndir) - vn(ixO^S, 1:ndir))**2, dim=ndim+1)&
-         * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
-    endif
-    if(.not. twofl_coll_inc_te) then
-      if(phys_internal_e) then
-        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
-        w(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)
-      else  
-        ! tmp = qdt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in NEUTRALS mom
-        ! eq. MULTIPLIED by qdt
-        tmp(ixO^S) = 0.5d0*(sum(vc(ixO^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixO^S, 1:ndir)**2,dim=ndim+1))&
-                     * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
-        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
-        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S)
-      endif  
-    else
-      ! coll term THERMAL EXCHANGE in neutrals energy eq. multiplied by qdti
+    
+    ! kinetic energy update  
+    if(.not. phys_internal_e) then
+      ! E_tot includes kinetic energy
+      tmp1(ixO^S) = twofl_kin_en_n(wCT,ixI^L,ixO^L) 
+      tmp2(ixO^S) = twofl_kin_en_c(wCT,ixI^L,ixO^L) 
+      tmp4(ixO^S) = wCT(ixO^S,e_n_) - tmp1(ixO^S) !E_tot - E_kin
+      tmp5(ixO^S) = wCT(ixO^S,e_c_) - tmp2(ixO^S)
       if(phys_total_energy) then
-        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
-                    rhon(ixO^S) * (wCT(ixO^S,e_c_) - twofl_mag_en(wCT,ixO^L,ixO^L)) *2d0/Rc )
-      else
-        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
-                    rhon(ixO^S) * wCT(ixO^S,e_c_)*2d0/Rc )
+        tmp5(ixO^S) = tmp5(ixO^S) - twofl_mag_en(wCT,ixI^L,ixO^L)
       endif
-      if(.not. phys_internal_e) then
-          tmp2(ixO^S) = tmp2(ixO^S) + qdt * alpha(ixO^S) * (-rhoc(ixO^S) * twofl_kin_en_n(wCT,ixI^L,ixO^L)*(1d0 -2d0/Rn) +&
-                                                            rhon(ixO^S) * twofl_kin_en_c(wCT,ixI^L,ixO^L)*(1d0 - 2d0/Rc))           
-      endif
-      if(phys_internal_e) then
-        w(ixO^S,e_n_) = w(ixO^S,e_n_) + (tmp(ixO^S) + tmp2(ixO^S))
-        w(ixO^S,e_c_) = w(ixO^S,e_c_) + (tmp(ixO^S) - tmp2(ixO^S))
 
-      else
-        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp2(ixO^S)
-        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp2(ixO^S)
+      tmp(ixO^S) = alpha(ixO^S)*(-rhoc(ixO^S) * tmp1(ixO^S) + rhon(ixO^S) * tmp2(ixO^S))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S) * tmp1(ixO^S) + gamma_rec(ixO^S) * tmp2(ixO^S)
       endif
+      tmp(ixO^S) =tmp(ixO^S) * qdt
+
+      w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S) 
+      w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S) 
+
+     else 
+      tmp4(ixO^S) = w(ixO^S,e_n_) 
+      tmp5(ixO^S) = w(ixO^S,e_c_) 
+      call twofl_get_v_n(wCT,x,ixI^L,ixO^L,v_n)
+      call twofl_get_v_c(wCT,x,ixI^L,ixO^L,v_c)
+      tmp1(ixO^S) = alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
+      tmp2(ixO^S) = tmp1(ixO^S) 
+      if(twofl_coll_inc_ionrec) then
+        tmp1(ixO^S) = tmp1(ixO^S) + rhoc(ixO^S) * gamma_rec(ixO^S)
+        tmp2(ixO^S) = tmp2(ixO^S) + rhon(ixO^S) * gamma_ion(ixO^S)
+      endif 
+
+      tmp(ixO^S) = 0.5d0 * sum((v_c(ixO^S,1:ndir) - v_n(ixO^S,1:ndir))**2, dim=ndim+1) * qdt 
+      w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)*tmp1(ixO^S)
+      w(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)*tmp2(ixO^S)
+     endif
+
+    !update internal energy
+    if(twofl_coll_inc_te) then
+     if(.not. twofl_equi_thermal) then   
+        if(has_equi_pe_n0) then
+          tmp4(ixO^S) = tmp4(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1  
+        endif
+        if(has_equi_pe_c0) then
+          tmp5(ixO^S) = tmp5(ixO^S) + block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
+        endif
+      endif
+
+      tmp(ixO^S) = alpha(ixO^S) *(-rhoc(ixO^S)/Rn * tmp4(ixO^S) + rhon(ixO^S)/Rc * tmp5(ixO^S))
+      if(twofl_coll_inc_ionrec) then
+        tmp(ixO^S) = tmp(ixO^S) - gamma_ion(ixO^S)/Rn * tmp4(ixO^S) + gamma_rec(ixO^S)/Rc * tmp5(ixO^S)
+      endif
+
+      tmp(ixO^S) =tmp(ixO^S) * qdt
+
+      w(ixO^S,e_n_) = w(ixO^S,e_n_)+tmp(ixO^S)
+      w(ixO^S,e_c_) = w(ixO^S,e_c_)-tmp(ixO^S)
     endif
-    deallocate(vc,vn)
-
-!    do idir=1,nw
-!      print*, idir, "-----------", w(ixO^S,idir)
-!    enddo  
-
+    if(twofl_coll_inc_ionrec) then
+       deallocate(gamma_ion, gamma_rec) 
+    endif
   end subroutine twofl_explicit_coll_terms_update
+
+!  !TODO !!! add ion/rec
+!  subroutine twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
+!    use mod_global_parameters
+!
+!    integer, intent(in)             :: ixI^L, ixO^L
+!    double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
+!    double precision, intent(inout) :: w(ixI^S,1:nw)
+!    double precision, intent(in) :: wCT(ixI^S,1:nw)
+!
+!    double precision :: tmp(ixI^S),tmp2(ixI^S) 
+!    double precision, dimension(:^D&,:), allocatable :: vc, vn
+!    double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
+!    integer :: idir
+!    call get_rhon_tot(wCT,ixI^L,ixO^L,rhon)
+!    call get_rhoc_tot(wCT,ixI^L,ixO^L,rhoc)
+!
+!    call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
+!    ! calculate velocities
+!    allocate(vc(ixO^S,1:ndir),vn(ixO^S,1:ndir))
+!    !use the prev vars
+!    call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
+!    call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
+!    ! momentum update
+!    do idir=1,ndir
+!      ! the coll. term in the neutrals momentum eq. multiplied by qdt
+!      tmp(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,mom_n(idir)) + rhon(ixO^S) * wCT(ixO^S,mom_c(idir)))
+!      w(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S) 
+!      w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S) 
+!
+!    enddo
+!    ! energy update
+!    !DEBUG
+!    !w(ixO^S,e_n_) = wCT(ixO^S,e_n_)
+!    !w(ixO^S,e_c_) = wCT(ixO^S,e_c_)
+!    ! calculate velocities
+!    !use the updated vars
+!    !call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
+!    !call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
+!    if(twofl_eq_energy == EQ_ENERGY_INT) then
+!      ! tmp = qdt * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING multiplied by qdt
+!      tmp(ixO^S) = 0.5d0 * sum((vc(ixO^S, 1:ndir) - vn(ixO^S, 1:ndir))**2, dim=ndim+1)&
+!         * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
+!    endif
+!    if(.not. twofl_coll_inc_te) then
+!      if(phys_internal_e) then
+!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
+!        w(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)
+!      else  
+!        ! tmp = qdt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in NEUTRALS mom
+!        ! eq. MULTIPLIED by qdt
+!        tmp(ixO^S) = 0.5d0*(sum(vc(ixO^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixO^S, 1:ndir)**2,dim=ndim+1))&
+!                     * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
+!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
+!        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S)
+!      endif  
+!    else
+!      ! coll term THERMAL EXCHANGE in neutrals energy eq. multiplied by qdti
+!      if(phys_total_energy) then
+!        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
+!                    rhon(ixO^S) * (wCT(ixO^S,e_c_) - twofl_mag_en(wCT,ixO^L,ixO^L)) *2d0/Rc )
+!      else
+!        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
+!                    rhon(ixO^S) * wCT(ixO^S,e_c_)*2d0/Rc )
+!      endif
+!      if(.not. phys_internal_e) then
+!          tmp2(ixO^S) = tmp2(ixO^S) + qdt * alpha(ixO^S) * (-rhoc(ixO^S) * twofl_kin_en_n(wCT,ixI^L,ixO^L)*(1d0 -2d0/Rn) +&
+!                                                            rhon(ixO^S) * twofl_kin_en_c(wCT,ixI^L,ixO^L)*(1d0 - 2d0/Rc))           
+!      endif
+!      if(phys_internal_e) then
+!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + (tmp(ixO^S) + tmp2(ixO^S))
+!        w(ixO^S,e_c_) = w(ixO^S,e_c_) + (tmp(ixO^S) - tmp2(ixO^S))
+!
+!      else
+!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp2(ixO^S)
+!        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp2(ixO^S)
+!      endif
+!    endif
+!    deallocate(vc,vn)
+!
+!!    do idir=1,nw
+!!      print*, idir, "-----------", w(ixO^S,idir)
+!!    enddo  
+!
+!  end subroutine twofl_explicit_coll_terms_update
 #endif
 end module mod_twofl_phys
