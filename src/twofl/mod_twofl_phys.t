@@ -306,7 +306,7 @@ module mod_twofl_phys
   end interface
 
    procedure (implicit_mult_factor_subroutine), pointer :: calc_mult_factor => null()
-
+   integer, protected ::  twofl_implicit_calc_mult_method = 1
 
 #endif
 contains
@@ -329,7 +329,7 @@ contains
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
       twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,dtcollpar,&
-      twofl_dump_coll_terms,&
+      twofl_dump_coll_terms,twofl_implicit_calc_mult_method,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
       H_ion_fr, He_ion_fr, He_abundance, He_ion_fr2,&
@@ -709,8 +709,14 @@ contains
     if(twofl_implicit_coll_terms .and. has_collisions()) then
       phys_implicit_update => twofl_implicit_coll_terms_update
       phys_evaluate_implicit => twofl_evaluate_implicit
-      calc_mult_factor => calc_mult_factor1
-      !calc_mult_factor => calc_mult_factor2
+      if(mype .eq. 1) then
+          print*, "IMPLICIT UPDATE with calc_mult_factor", twofl_implicit_calc_mult_method
+      endif
+      if(twofl_implicit_calc_mult_method == 1) then
+        calc_mult_factor => calc_mult_factor1
+      else
+        calc_mult_factor => calc_mult_factor2
+      endif
     endif
 #endif
     !set equilibrium variables for the new grid
