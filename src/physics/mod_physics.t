@@ -142,6 +142,7 @@ module mod_physics
        double precision, intent(out) :: tco_local, Tmax_local
      end subroutine sub_get_tcutoff
 
+    !> TODO this is not called anywhere
      subroutine sub_get_v_idim(w,x,ixI^L,ixO^L,idim,v)
        use mod_global_parameters
 
@@ -153,12 +154,13 @@ module mod_physics
 
      subroutine sub_get_cbounds(wLC, wRC, wLp, wRp, x, ixI^L, ixO^L, idim, cmax, cmin)
        use mod_global_parameters
+       use mod_variables
        integer, intent(in)             :: ixI^L, ixO^L, idim
        double precision, intent(in)    :: wLC(ixI^S, nw), wRC(ixI^S, nw)
        double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
        double precision, intent(in)    :: x(ixI^S, 1:^ND)
-       double precision, intent(inout) :: cmax(ixI^S)
-       double precision, intent(inout), optional :: cmin(ixI^S)
+       double precision, intent(inout) :: cmax(ixI^S,1:number_species)
+       double precision, intent(inout), optional :: cmin(ixI^S,1:number_species)
      end subroutine sub_get_cbounds
 
      subroutine sub_get_flux(wC, w, x, ixI^L, ixO^L, idim, f)

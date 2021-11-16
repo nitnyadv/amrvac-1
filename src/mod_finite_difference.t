@@ -45,9 +45,10 @@ contains
 
     ^D&dxinv(^D)=-qdt/dx^D;
     ^D&dxdim(^D)=dx^D;
+    b0i = 0 ! fd uses centered values in phys_get_flux  
     do idims= idims^LIM
 
-       b0i=idims
+       !b0i=idims
 
        ! Get fluxes for the whole grid (mesh+nghostcells)
        {^D& ixmin^D = ixOmin^D - nghostcells * kr(idims,^D)\}
@@ -94,7 +95,7 @@ contains
        end if
 
     end do !idims loop
-    b0i=0
+    !b0i=0
 
     if(stagger_grid) call phys_update_faces(ixI^L,ixO^L,qt,qdt,wprim,fC,fE,sCT,snew,vcts)
 
@@ -284,6 +285,7 @@ contains
     use mod_global_parameters
     use mod_source, only: addsource2
     use mod_usr_methods
+    use mod_variables
 
     integer, intent(in) :: method
     integer, intent(in) :: ixI^L, ixO^L, idims^LIM
@@ -298,9 +300,9 @@ contains
     double precision, dimension(ixI^S,1:nw) :: wprim, wLC, wRC
     ! left and right constructed status in primitive form, needed for better performance
     double precision, dimension(ixI^S,1:nw) :: wLp, wRp
-    double precision, dimension(ixI^S)      :: vLC, phi, cmaxLC, cmaxRC
-    double precision, dimension(ixI^S)      :: cmaxC
-    double precision, dimension(ixI^S)      :: cminC
+    double precision, dimension(ixI^S)      :: vLC, cmaxLC, cmaxRC
+    double precision, dimension(ixI^S,1:number_species)      :: cmaxC
+    double precision, dimension(ixI^S,1:number_species)      :: cminC
 
     double precision :: dxinv(1:ndim), dxdim(1:ndim)
     integer :: idims, iw, ix^L, hxO^L, ixC^L, jxC^L, hxC^L, kxC^L, kkxC^L, kkxR^L

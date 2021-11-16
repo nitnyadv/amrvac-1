@@ -987,6 +987,8 @@ contains
           t_integrator=rk4
        case ("jameson")
           t_integrator=jameson
+       case ("IMEX_RK4")
+          t_integrator=IMEX_RK4
        case default
           write(unitterm,*) "time_integrator=",time_integrator,"time_stepper=",time_stepper
           call mpistop("unkown fourstep time_integrator in read_par_files")
