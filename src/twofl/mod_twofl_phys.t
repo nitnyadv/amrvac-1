@@ -31,6 +31,10 @@ module mod_twofl_phys
 
   integer, public, protected              :: twofl_eq_energy = EQ_ENERGY_KI
 
+  !> Whether hyperdiffusivity is used
+  logical, public, protected              :: twofl_hyperdiffusivity = .false.
+  logical, public, protected, allocatable :: c_shk(:)
+  logical, public, protected, allocatable :: c_hyp(:)
 
   !> Whether thermal conduction is used
   logical, public, protected              :: twofl_thermal_conduction_c = .false.
@@ -262,6 +266,8 @@ module mod_twofl_phys
   public :: twofl_to_primitive
   public :: get_divb
   public :: get_rhoc_tot
+  ! TODO needed for the roe, see if can be used for n
+  public :: twofl_get_csound2_c
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   public :: get_rhon_tot
   public :: get_alpha_coll_plasma
@@ -323,7 +329,7 @@ contains
       typedivbdiff, type_ct, divbwave, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
       !added:
-      twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0,&
+      twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0, twofl_hyperdiffusivity,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
@@ -344,6 +350,33 @@ contains
     end do
  
   end subroutine twofl_read_params
+
+  subroutine twofl_init_hyper(files)
+    use mod_global_parameters
+    use mod_hyperdiffusivity, only: hyperdiffusivity_init
+    character(len=*), intent(in) :: files(:)
+    integer                      :: n
+
+    namelist /hyperdiffusivity_list/ c_shk, c_hyp
+
+    do n = 1, size(files)
+       open(unitpar, file=trim(files(n)), status="old")
+       read(unitpar, hyperdiffusivity_list, end=113)
+113    close(unitpar)
+    end do
+    
+    call hyperdiffusivity_init()
+
+    !!DEBUG
+    if(mype .eq. 0) then
+      print*, "Using Hyperdiffusivity"
+      print*, "C_SHK ", c_shk(:)
+      print*, "C_HYP ", c_hyp(:)
+      print*, "GHOSTCELLS CHANGED? ", nghostcells
+    endif
+
+  end subroutine twofl_init_hyper
+
 
   !> Write this module's parameters to a snapsoht
   subroutine twofl_write_info(fh)
@@ -852,6 +885,13 @@ contains
       end if
     end if
 #endif
+  if(twofl_hyperdiffusivity) then
+    allocate(c_shk(1:nwflux))
+    allocate(c_hyp(1:nwflux))
+    call twofl_init_hyper(par_files)
+
+
+  endif
   end subroutine twofl_phys_init
 
   !> sets the equilibrium variables
@@ -1752,6 +1792,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       else
         cmax(ixO^S,1)= abs(tmp1(ixO^S))+csoundR(ixO^S)
       end if
+#if !defined(ONE_FLUID) || ONE_FLUID==0
       !neutrals
       
       call get_rhon_tot(wmean,ixI^L,ixO^L,rho)
@@ -1763,7 +1804,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       else
         cmax(ixO^S,2)= abs(tmp1(ixO^S))+csoundR(ixO^S)
       end if
-
+#endif
     end if
 
   end subroutine twofl_get_cbounds
@@ -1886,38 +1927,6 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
   end subroutine twofl_get_csound_c
 
-  subroutine twofl_get_csound_n(w,x,ixI^L,ixO^L,idim,csound)
-    use mod_global_parameters
-
-    integer, intent(in)          :: ixI^L, ixO^L, idim
-    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
-    double precision, intent(out):: csound(ixI^S)
-    double precision :: pe_n1(ixI^S)
-    if(phys_energy) then
-      call twofl_get_pthermal_n(w,x,ixI^L,ixO^L,pe_n1)
-      call twofl_get_csound2_from_pe_n(w,x,ixI^L,ixO^L,pe_n1,csound)
-    else
-      call twofl_get_csound2_adiab_n(w,x,ixI^L,ixO^L,csound)
-    endif
-    csound(ixO^S) = sqrt(csound(ixO^S))
-  end subroutine twofl_get_csound_n
-
-  !> Calculate fast magnetosonic wave speed
-  subroutine twofl_get_csound_prim_n(w,x,ixI^L,ixO^L,idim,csound)
-    use mod_global_parameters
-
-    integer, intent(in)          :: ixI^L, ixO^L, idim
-    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
-    double precision, intent(out):: csound(ixI^S)
-
-    if(phys_energy) then
-       call twofl_get_csound2_from_pe_n(w,x,ixI^L,ixO^L,w(ixI^S,e_n_),csound)
-    else
-       call twofl_get_csound2_adiab_n(w,x,ixI^L,ixO^L,csound)
-    end if
-    csound(ixO^S) = sqrt(csound(ixO^S))
-
-  end subroutine twofl_get_csound_prim_n
 
   !> Calculate fast magnetosonic wave speed
   subroutine twofl_get_csound_prim_c(w,x,ixI^L,ixO^L,idim,csound)
@@ -2031,6 +2040,38 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
   end subroutine twofl_get_pthermal_c
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
+  subroutine twofl_get_csound_n(w,x,ixI^L,ixO^L,idim,csound)
+    use mod_global_parameters
+
+    integer, intent(in)          :: ixI^L, ixO^L, idim
+    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
+    double precision, intent(out):: csound(ixI^S)
+    double precision :: pe_n1(ixI^S)
+    if(phys_energy) then
+      call twofl_get_pthermal_n(w,x,ixI^L,ixO^L,pe_n1)
+      call twofl_get_csound2_from_pe_n(w,x,ixI^L,ixO^L,pe_n1,csound)
+    else
+      call twofl_get_csound2_adiab_n(w,x,ixI^L,ixO^L,csound)
+    endif
+    csound(ixO^S) = sqrt(csound(ixO^S))
+  end subroutine twofl_get_csound_n
+
+  !> Calculate fast magnetosonic wave speed
+  subroutine twofl_get_csound_prim_n(w,x,ixI^L,ixO^L,idim,csound)
+    use mod_global_parameters
+
+    integer, intent(in)          :: ixI^L, ixO^L, idim
+    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
+    double precision, intent(out):: csound(ixI^S)
+
+    if(phys_energy) then
+       call twofl_get_csound2_from_pe_n(w,x,ixI^L,ixO^L,w(ixI^S,e_n_),csound)
+    else
+       call twofl_get_csound2_adiab_n(w,x,ixI^L,ixO^L,csound)
+    end if
+    csound(ixO^S) = sqrt(csound(ixO^S))
+
+  end subroutine twofl_get_csound_prim_n
   !> Calculate thermal pressure of neutrals =(gamma-1)*(e-0.5*m**2/rho) within ixO^L
   subroutine twofl_get_pthermal_n(w,x,ixI^L,ixO^L,pth)
     use mod_global_parameters

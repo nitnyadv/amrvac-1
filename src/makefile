@@ -279,9 +279,6 @@ mod_thermal_emission.o: mod_physics.mod
 mod_trac.o: mod_mhd.mod
 mod_trac.o: mod_particle_base.mod
 mod_trac.o: mod_point_searching.mod
-mod_trac_new.o: mod_mhd.mod
-mod_trac_new.o: mod_particle_base.mod
-mod_trac_new.o: mod_point_searching.mod
 mod_trace_Bfield.o: mod_mhd.mod
 mod_trace_Bfield.o: mod_particle_base.mod
 mod_trace_Vfield.o: mod_particle_base.mod
@@ -301,6 +298,7 @@ mod_twofl_phys.o: mod_convert.mod
 mod_twofl_phys.o: mod_fix_conserve.mod
 mod_twofl_phys.o: mod_geometry.mod
 mod_twofl_phys.o: mod_ghostcells_update.mod
+mod_twofl_phys.o: mod_hyperdiffusivity.mod
 mod_twofl_phys.o: mod_multigrid_coupling.mod
 mod_twofl_phys.o: mod_physics.mod
 mod_twofl_phys.o: mod_radiative_cooling.mod
