@@ -7,6 +7,7 @@ subroutine setdt()
   use mod_trac
   use mod_usr_methods, only: usr_get_dt
   use mod_supertimestepping, only: set_dt_sts_ncycles, is_sts_initialized, sourcetype_sts,sourcetype_sts_split
+  use mod_ghostcells_update, only: getbc
 
   integer :: iigrid, igrid, ncycle, ncycle2, ifile, idim
   double precision :: dtnew, qdtnew, dtmin_mype, factor, dx^D, dxmin^D
@@ -23,6 +24,8 @@ subroutine setdt()
     a2max_mype = zero
     tco_mype = zero
     Tmax_mype = zero
+    !TODO NEEDED?
+    call getbc(global_time,0.d0,ps,iwstart,nwgc)
     !$OMP PARALLEL DO PRIVATE(igrid,qdtnew,dtnew,dx^D) REDUCTION(min:dtmin_mype) REDUCTION(max:cmax_mype,a2max_mype)
     do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
       dtnew=bigdouble

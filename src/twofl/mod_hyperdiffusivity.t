@@ -61,6 +61,7 @@ contains
 
   nu_hyp(ixO^S) = max(tmp(hx1b^S),tmp(ixO^S),tmp(hx1f^S))/max(tmp2(hx1b^S),tmp2(ixO^S),tmp2(hx1f^S),eps)  
 
+  !print*, "HYP IXO ", ixO^L 
 
   end subroutine hyp_coeff
 
@@ -76,11 +77,10 @@ contains
 
     integer :: ii
 
-   ixOmin^D=ixImin^D+2; 
+   ixOmin^D=ixImin^D+1; 
    ixOmax^D=ixImax^D-1; 
 
    ixOmin^D=ixOmin^D+kr(idimm,^D); 
-   ixOmax^D=ixOmax^D-kr(idimm,^D); 
 
    nu_vel(ixO^S) = 0d0 
 
@@ -100,7 +100,9 @@ contains
       nu_vel(ixO^S) = 0d0
     endwhere
 
-   enddo  
+   enddo 
+
+  !print*, "DIV_VEL IXO ", ixO^L 
 
   end subroutine div_vel_coeff
 
@@ -126,6 +128,7 @@ contains
     res(ixO^S) = 1d0/(dxlevel(idimm)**2)*&
           (nu_hyper(hxf^S) * (var(hxf^S)-var(ixO^S))-&
           nu_hyper(ixO^S) * (var(ixO^S)-var(hxb^S)))
+   !print*, "SECOND SAME DERIV IXO ", ixO^L 
 
   end subroutine second_same_deriv
 
@@ -150,6 +153,7 @@ contains
     res(ixO^S) = 1d0/(2d0*dxlevel(idimm)**2)*&
           (nu_hyper(hxf^S) * (var2(hxf^S)+var2(ixO^S)) *  (var(hxf^S)-var(ixO^S))-&
           nu_hyper(ixO^S) * (var2(hxb^S)+var2(ixO^S)) * (var(ixO^S)-var(hxb^S)))
+    !print*, "SECOND SAME DERIV2 IXO ", ixO^L 
 
   end subroutine second_same_deriv2
 
@@ -182,6 +186,7 @@ contains
           ((nu_hyper(hxfifj^S) + nu_hyper(hxfi^S)) * (var(hxfifj^S)-var(hxfibj^S))-&
           (nu_hyper(hxbifj^S) + nu_hyper(hxbi^S)) * (var(hxbifj^S)-var(hxbibj^S)))
 
+    !print*, "SECOND CROSS DERIV IXO ", ixO^L 
 
   end subroutine second_cross_deriv
 
@@ -216,6 +221,7 @@ contains
           ((nu_hyper(hxfifj^S) + nu_hyper(hxfi^S)) * var2(hxfi^S) * (var(hxfifj^S)-var(hxfibj^S))-&
           (nu_hyper(hxbifj^S) + nu_hyper(hxbi^S)) * var2(hxbi^S) * (var(hxbifj^S)-var(hxbibj^S)))
 
+    !print*, "SECOND CROSS DERIV2 IXO ", ixO^L 
 
   end subroutine second_cross_deriv2
 

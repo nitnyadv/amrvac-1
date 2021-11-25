@@ -6009,7 +6009,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision :: csound(ixI^S),csound_dim(ixI^S,1:ndim)
     double precision              :: dxarr(ndim)
     double precision :: maxCoef
-    integer :: ixOO^L, ixOO2^L, hxb^L, ii, jj
+    integer :: ixOO^L, hxb^L, ii, jj
 
 
     ^D&dxarr(^D)=dx^D;
@@ -6029,13 +6029,13 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     do ii=1,ndim
       !TODO the following is copied
       !rho_c
-      call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,rho_c_), ii, tmp(ixI^S))
+      call hyp_coeff(ixI^L, ixOO^L, w(ixI^S,rho_c_), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(rho_c_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
       maxCoef = max(maxCoef,maxval(nu(ixO^S)))
 
       !TH c  
-      call hyp_coeff(ixI^L, ixOO2^L, temp(ixI^S), ii, tmp(ixI^S))
+      call hyp_coeff(ixI^L, ixOO^L, temp(ixI^S), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(e_c_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(e_c_) * (dxlevel(ii)**2) *divv(ixO^S,ii)
       nu(ixO^S) = nu(ixO^S) * rho(ixO^S) * Rc/(twofl_gamma-1d0)
@@ -6043,7 +6043,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
       !visc c
       do jj=1,ndir
-        call hyp_coeff(ixI^L, ixOO2^L, vel(ixI^S,jj), ii, tmp(ixI^S))
+        call hyp_coeff(ixI^L, ixOO^L, vel(ixI^S,jj), ii, tmp(ixI^S))
         nu(ixO^S) = c_hyp(mom_c(jj)) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(mom_c(jj)) * (dxlevel(ii)**2) *divv(ixO^S,ii)
         nu(ixO^S) = nu(ixO^S) * rho(ixO^S) 
@@ -6053,9 +6053,9 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       ! Ohmic
       do jj=1,ndir
         if(ii .ne. jj) then
-          call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,mag(jj)), ii, tmp(ixI^S))
-          nu(ixOO^S) = c_hyp(mag(jj)) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
-                     c_shk(mag(jj)) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
+          call hyp_coeff(ixI^L, ixOO^L, w(ixI^S,mag(jj)), ii, tmp(ixI^S))
+          nu(ixO^S) = c_hyp(mag(jj)) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
+                     c_shk(mag(jj)) * (dxlevel(ii)**2) *divv(ixO^S,ii)
           maxCoef = max(maxCoef,maxval(nu(ixO^S)))
         endif
       enddo
@@ -6077,13 +6077,13 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     call twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixO^L, temp)
     do ii=1,ndim
       !rho_n
-      call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,rho_n_), ii, tmp(ixI^S))
+      call hyp_coeff(ixI^L, ixOO^L, w(ixI^S,rho_n_), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(rho_n_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(rho_n_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
       maxCoef = max(maxCoef,maxval(nu(ixO^S)))
 
       !TH n  
-      call hyp_coeff(ixI^L, ixOO2^L, temp(ixI^S), ii, tmp(ixI^S))
+      call hyp_coeff(ixI^L, ixOO^L, temp(ixI^S), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(e_n_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(e_n_) * (dxlevel(ii)**2) *divv(ixO^S,ii)
       nu(ixO^S) = nu(ixO^S) * rho(ixO^S) * Rn/(twofl_gamma-1d0)
@@ -6091,7 +6091,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
       !visc n
       do jj=1,ndir
-        call hyp_coeff(ixI^L, ixOO2^L, vel(ixI^S,jj), ii, tmp(ixI^S))
+        call hyp_coeff(ixI^L, ixOO^L, vel(ixI^S,jj), ii, tmp(ixI^S))
         nu(ixO^S) = c_hyp(mom_n(jj)) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(mom_n(jj)) * (dxlevel(ii)**2) *divv(ixO^S,ii)
         nu(ixO^S) = nu(ixO^S) * rho(ixO^S) 
@@ -6117,6 +6117,8 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision :: csound(ixI^S),csound_dim(ixI^S,1:ndim)
     integer :: ii,ixOO^L,hxb^L
     double precision :: rho(ixI^S)
+
+    !print*, "INIT ixI ", ixI^L
 
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,vel)
     call  twofl_get_csound_c(wCT,x,ixI^L,ixI^L,0,csound)
@@ -6152,17 +6154,16 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     integer, intent(in) :: index_rho
 
     double precision :: nu(ixI^S), tmp(ixI^S)
-    integer :: ixOO2^L
 
     do ii=1,ndim
 
-      call hyp_coeff(ixI^L, ixOO2^L, wCT(ixI^S,index_rho), ii, tmp(ixI^S))
+      call hyp_coeff(ixI^L, ixOO^L, wCT(ixI^S,index_rho), ii, tmp(ixI^S))
       nu(ixOO^S) = c_hyp(index_rho) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
                    c_shk(index_rho) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
-      call second_same_deriv(ixI^L, ixOO2^L, nu(ixI^S), wCT(ixI^S,index_rho), ii, tmp)
+      call second_same_deriv(ixI^L, ixOO^L, nu(ixI^S), wCT(ixI^S,index_rho), ii, tmp)
 
       w(ixO^S,index_rho) = w(ixO^S,index_rho) + qdt * tmp(ixO^S)
-
+      !print*, "RHO ", index_rho, maxval(abs(tmp(ixO^S)))
     enddo
 
 
@@ -6172,14 +6173,14 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     subroutine add_th_cond_c_hyper_Source(var2)
       double precision, intent(in) :: var2(ixI^S)
       double precision :: nu(ixI^S), tmp(ixI^S), var(ixI^S)
-      integer :: ixOO2^L
       call twofl_get_temp_c_pert_from_etot(wCT, x, ixI^L, ixI^L, var)
       do ii=1,ndim
-        call hyp_coeff(ixI^L, ixOO2^L, var(ixI^S), ii, tmp(ixI^S))
+        call hyp_coeff(ixI^L, ixOO^L, var(ixI^S), ii, tmp(ixI^S))
         nu(ixOO^S) = c_hyp(e_c_) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
                      c_shk(e_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
-        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
+        call second_same_deriv2(ixI^L, ixOO^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
         w(ixO^S,e_c_) = w(ixO^S,e_c_) + qdt * tmp(ixO^S) * Rc/(twofl_gamma-1d0)
+      !print*, "TH C ", maxval(abs(tmp(ixO^S)))
       enddo
     end subroutine add_th_cond_c_hyper_Source   
 
@@ -6187,14 +6188,14 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     subroutine add_th_cond_n_hyper_Source(var2)
       double precision, intent(in) :: var2(ixI^S)
       double precision :: nu(ixI^S), tmp(ixI^S), var(ixI^S)
-      integer :: ixOO2^L
       call twofl_get_temp_n_pert_from_etot(wCT, x, ixI^L, ixI^L, var)
       do ii=1,ndim
-        call hyp_coeff(ixI^L, ixOO2^L, var(ixI^S), ii, tmp(ixI^S))
+        call hyp_coeff(ixI^L, ixOO^L, var(ixI^S), ii, tmp(ixI^S))
         nu(ixOO^S) = c_hyp(e_n_) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
                      c_shk(e_n_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
-        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
+        call second_same_deriv2(ixI^L, ixOO^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
         w(ixO^S,e_n_) = w(ixO^S,e_n_) + qdt * tmp(ixO^S) * Rn/(twofl_gamma-1d0)
+      !print*, "TH N ", maxval(abs(tmp(ixO^S)))
       enddo
     end subroutine add_th_cond_n_hyper_Source   
 #endif
@@ -6204,11 +6205,11 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     integer, intent(in) :: index_mom1, index_e
 
     double precision :: nu(ixI^S,1:ndir,1:ndim), tmp(ixI^S),tmp2(ixI^S)
-    integer :: ixOO2^L,jj
+    integer :: jj
 
     do jj=1,ndir
       do ii=1,ndim
-        call hyp_coeff(ixI^L, ixOO2^L, vel(ixI^S,jj), ii, tmp(ixI^S))
+        call hyp_coeff(ixI^L, ixOO^L, vel(ixI^S,jj), ii, tmp(ixI^S))
         nu(ixOO^S,jj,ii) = c_hyp(index_mom1-1+jj) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
                    c_shk(index_mom1-1+jj) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
       enddo
@@ -6216,19 +6217,23 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     
     do jj=1,ndir
       do ii=1,ndim
-        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S,jj,ii), rho(ixI^S), vel(ixI^S,jj), ii, tmp)
-        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S,jj,ii), wCT(ixI^S,index_mom1-1+jj), vel(ixI^S,jj), ii, tmp2)
+        call second_same_deriv2(ixI^L, ixOO^L, nu(ixI^S,jj,ii), rho(ixI^S), vel(ixI^S,jj), ii, tmp)
+        call second_same_deriv2(ixI^L, ixOO^L, nu(ixI^S,jj,ii), wCT(ixI^S,index_mom1-1+jj), vel(ixI^S,jj), ii, tmp2)
         if(ii .eq. jj) then
           w(ixO^S,index_mom1-1+jj) = w(ixO^S,index_mom1-1+jj) + qdt * tmp(ixO^S)
           w(ixO^S,index_e) = w(ixO^S,index_e) + qdt * tmp2(ixO^S)
 
         else
+      !print*, "mom ", index_mom1, maxval(abs(tmp(ixO^S)))
+      !print*, "eMOM ",index_e, maxval(abs(tmp2(ixO^S)))
           w(ixO^S,index_mom1-1+jj) = w(ixO^S,index_mom1-1+jj) + 0.5*qdt * tmp(ixO^S)
           w(ixO^S,index_e) = w(ixO^S,index_e) + 0.5*qdt * tmp2(ixO^S)
-          call second_cross_deriv2(ixI^L, ixOO2^L, nu(ixI^S,ii,jj), rho(ixI^S), vel(ixI^S,ii), jj, ii, tmp)
+          call second_cross_deriv2(ixI^L, ixOO^L, nu(ixI^S,ii,jj), rho(ixI^S), vel(ixI^S,ii), jj, ii, tmp)
           w(ixO^S,index_mom1-1+jj) = w(ixO^S,index_mom1-1+jj) + 0.5*qdt * tmp(ixO^S)
-          call second_cross_deriv2(ixI^L, ixOO2^L, nu(ixI^S,jj,ii), wCT(ixI^S,index_mom1-1+jj), vel(ixI^S,jj), ii, jj, tmp2)
+          call second_cross_deriv2(ixI^L, ixOO^L, nu(ixI^S,jj,ii), wCT(ixI^S,index_mom1-1+jj), vel(ixI^S,jj), ii, jj, tmp2)
           w(ixO^S,index_e) = w(ixO^S,index_e) + 0.5*qdt * tmp2(ixO^S)
+      !print*, "mom ",index_mom1, maxval(abs(tmp(ixO^S)))
+      !print*, "eMOM  ",index_e, maxval(abs(tmp2(ixO^S)))
         endif
 
       enddo
@@ -6238,12 +6243,12 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
     subroutine add_ohmic_hyper_Source()
     double precision :: nu(ixI^S,1:ndir,1:ndim), tmp(ixI^S)
-    integer :: ixOO2^L,jj
+    integer :: jj
 
     do jj=1,ndir
       do ii=1,ndim
         if(ii .ne. jj) then
-          call hyp_coeff(ixI^L, ixOO2^L, wCT(ixI^S,mag(jj)), ii, tmp(ixI^S))
+          call hyp_coeff(ixI^L, ixOO^L, wCT(ixI^S,mag(jj)), ii, tmp(ixI^S))
           nu(ixOO^S,jj,ii) = c_hyp(mag(jj)) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
                      c_shk(mag(jj)) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
         endif
@@ -6254,14 +6259,18 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       do ii=1,ndim
         if(ii .ne. jj) then
           !mag field
-          call second_same_deriv(ixI^L, ixOO2^L, nu(ixI^S,jj,ii), wCT(ixI^S,mag(jj)), ii, tmp)
+          call second_same_deriv(ixI^L, ixOO^L, nu(ixI^S,jj,ii), wCT(ixI^S,mag(jj)), ii, tmp)
+      !print*, "MAG ", maxval(abs(tmp(ixO^S)))
           w(ixO^S,mag(jj)) = w(ixO^S,mag(jj)) + qdt * tmp(ixO^S)
-          call second_cross_deriv(ixI^L, ixOO2^L, nu(ixI^S,ii,jj),  wCT(ixI^S,mag(ii)), jj, ii, tmp)
+          call second_cross_deriv(ixI^L, ixOO^L, nu(ixI^S,ii,jj),  wCT(ixI^S,mag(ii)), jj, ii, tmp)
+      !print*, "MAG ", maxval(abs(tmp(ixO^S)))
           w(ixO^S,mag(jj)) = w(ixO^S,mag(jj)) + qdt * tmp(ixO^S)
           !in the total energy
-          call second_same_deriv(ixI^L, ixOO2^L, nu(ixI^S,jj,ii), wCT(ixI^S,mag(jj)), ii, tmp)
+          call second_same_deriv(ixI^L, ixOO^L, nu(ixI^S,jj,ii), wCT(ixI^S,mag(jj)), ii, tmp)
+      !print*, "MAG ", maxval(abs(tmp(ixO^S)))
           w(ixO^S,e_c_) = w(ixO^S,e_c_) + qdt * tmp(ixO^S)
-          call second_cross_deriv2(ixI^L, ixOO2^L, nu(ixI^S,ii,jj), wCT(ixI^S,mag(jj)), wCT(ixI^S,mag(ii)), jj, ii, tmp)
+          call second_cross_deriv2(ixI^L, ixOO^L, nu(ixI^S,ii,jj), wCT(ixI^S,mag(jj)), wCT(ixI^S,mag(ii)), jj, ii, tmp)
+      !print*, "MAG ", maxval(abs(tmp(ixO^S)))
           w(ixO^S,e_c_) = w(ixO^S,e_c_) + qdt * tmp(ixO^S)
         endif
 
