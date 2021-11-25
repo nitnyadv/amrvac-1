@@ -4604,6 +4604,31 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     endif
 
   end function twofl_kin_en_n
+
+  subroutine twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    ! store pe1 in res
+    res(ixO^S)=(gamma_1*(w(ixO^S,e_c_)&
+           - twofl_kin_en_c(w,ixI^L,ixO^L))
+    if(has_equi_pe_n0) then
+      res(ixO^S) = res(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,b0i)
+      if(has_equi_rho_n0) then
+        res(ixO^S) = res(ixO^S)/(Rn * (w(ixO^S,rho_n_)+ block%equi_vars(ixO^S,equi_rho_n0_,b0i))) - &
+                      block%equi_vars(ixO^S,equi_pe_n0_,b0i)/(Rn * block%equi_vars(ixO^S,equi_rho_n0_,b0i))
+      else
+        ! infinite equi temperature with p0 and 0 density
+        res(ixO^S) = 0d0
+      endif
+    else
+      res(ixO^S) = res(ixO^S)/(Rn * w(ixO^S,rho_n_))
+    endif
+
+  end subroutine twofl_get_temp_n_pert_from_etot
 #endif
 
   !> compute kinetic energy of charges
@@ -5989,35 +6014,26 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 
 
     ^D&dxarr(^D)=dx^D;
+    maxCoef = smalldouble
+
+    ! charges
     call twofl_get_v_c(w,x,ixI^L,ixI^L,vel)
     call  twofl_get_csound_c(w,x,ixI^L,ixI^L,0,csound)
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
-
-
-
     do ii=1,ndim
       call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
       hxb^L=ixOO^L-kr(ii,^D);
       csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
     enddo
-
-    
-
     call get_rhoc_tot(w,ixI^L,ixO^L,rho)
     call twofl_get_temp_c_pert_from_etot(w, x, ixI^L, ixO^L, temp)
-
-    !calc max coef
-    maxCoef = smalldouble
-
     do ii=1,ndim
-
       !TODO the following is copied
       !rho_c
       call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,rho_c_), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(rho_c_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
                    c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
       maxCoef = max(maxCoef,maxval(nu(ixO^S)))
-
 
       !TH c  
       call hyp_coeff(ixI^L, ixOO2^L, temp(ixI^S), ii, tmp(ixI^S))
@@ -6034,8 +6050,8 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
         nu(ixO^S) = nu(ixO^S) * rho(ixO^S) 
         maxCoef = max(maxCoef,maxval(nu(ixO^S)))
       enddo
-      ! Ohmic
 
+      ! Ohmic
       do jj=1,ndir
         if(ii .ne. jj) then
           call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,mag(jj)), ii, tmp(ixI^S))
@@ -6046,10 +6062,45 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
       enddo
 
     enddo 
+  
+      !TODO the following is copied, as charges, and as in add_source!
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    ! neutrals
+    call twofl_get_v_n(w,x,ixI^L,ixI^L,vel)
+    call  twofl_get_csound_n(w,x,ixI^L,ixI^L,0,csound)
+    csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
+    do ii=1,ndim
+      call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
+      hxb^L=ixOO^L-kr(ii,^D);
+      csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
+    enddo
+    call get_rhon_tot(w,ixI^L,ixO^L,rho)
+    call twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixO^L, temp)
+    do ii=1,ndim
+      !rho_n
+      call hyp_coeff(ixI^L, ixOO2^L, w(ixI^S,rho_n_), ii, tmp(ixI^S))
+      nu(ixO^S) = c_hyp(rho_n_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
+                   c_shk(rho_n_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
+      maxCoef = max(maxCoef,maxval(nu(ixO^S)))
+
+      !TH n  
+      call hyp_coeff(ixI^L, ixOO2^L, temp(ixI^S), ii, tmp(ixI^S))
+      nu(ixO^S) = c_hyp(e_n_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
+                   c_shk(e_n_) * (dxlevel(ii)**2) *divv(ixO^S,ii)
+      nu(ixO^S) = nu(ixO^S) * rho(ixO^S) * Rn/(twofl_gamma-1d0)
+      maxCoef = max(maxCoef,maxval(nu(ixO^S)))
+
+      !visc n
+      do jj=1,ndir
+        call hyp_coeff(ixI^L, ixOO2^L, vel(ixI^S,jj), ii, tmp(ixI^S))
+        nu(ixO^S) = c_hyp(mom_n(jj)) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
+                   c_shk(mom_n(jj)) * (dxlevel(ii)**2) *divv(ixO^S,ii)
+        nu(ixO^S) = nu(ixO^S) * rho(ixO^S) 
+        maxCoef = max(maxCoef,maxval(nu(ixO^S)))
+      enddo
+#endif
 
     dtnew=min(dtdiffpar*minval(dxarr(1:ndim))**2/maxCoef,dtnew)
-
-
   end subroutine hyperdiffusivity_get_dt
 
    subroutine  add_source_hyperdiffusive(qdt,ixI^L,ixO^L,w,wCT,x)
@@ -6070,28 +6121,31 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,vel)
     call  twofl_get_csound_c(wCT,x,ixI^L,ixI^L,0,csound)
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
-
-
-!    print*, "CSOUND ", csound(1:10,1:10)
-!      print*, "rhoSTART LEFT 0  ", w(4:6,4:6,rho_c_)
-!      print*, "rhoEND LEFT 0 ", w(1025:1027,4:6,rho_c_)
-!      print*, "rhoSTART RIGHT 0  ", w(4:6,257:259,rho_c_)
-!      print*, "rhoEND RIGHT 0 ", w(1025:1027,257:259,rho_c_)
-
     do ii=1,ndim
       call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
       hxb^L=ixOO^L-kr(ii,^D);
       csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
     enddo
-
-    !print*, "DIVV 1 ", divv(3:10,3:10,1)
-    !print*, "DIVV 2 ", divv(3:10,3:10,2)
     call add_density_hyper_Source(rho_c_)
     call get_rhoc_tot(w,ixI^L,ixI^L,rho)
     call add_viscosity_hyper_Source(rho,mom_c(1), e_c_)
-    call add_th_cond_c_hyper_Source()
+    call add_th_cond_c_hyper_Source(rho)
     call add_ohmic_hyper_Source()
 
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    call twofl_get_v_n(wCT,x,ixI^L,ixI^L,vel)
+    call  twofl_get_csound_n(wCT,x,ixI^L,ixI^L,0,csound)
+    csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
+    do ii=1,ndim
+      call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
+      hxb^L=ixOO^L-kr(ii,^D);
+      csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
+    enddo
+    call add_density_hyper_Source(rho_n_)
+    call get_rhon_tot(w,ixI^L,ixI^L,rho)
+    call add_viscosity_hyper_Source(rho,mom_n(1), e_n_)
+    call add_th_cond_n_hyper_Source(rho)
+#endif
 
    contains
     subroutine add_density_hyper_Source(index_rho)
@@ -6115,21 +6169,35 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     end subroutine add_density_hyper_Source   
 
 
-    subroutine add_th_cond_c_hyper_Source()
-    double precision :: nu(ixI^S), tmp(ixI^S), var(ixI^S), var2(ixI^S)
-    integer :: ixOO2^L
-    call twofl_get_temp_c_pert_from_etot(wCT, x, ixI^L, ixI^L, var)
-    call get_rhoc_tot(wCT,ixI^L,ixI^L,var2)
-    do ii=1,ndim
-      call hyp_coeff(ixI^L, ixOO2^L, var(ixI^S), ii, tmp(ixI^S))
-      nu(ixOO^S) = c_hyp(e_c_) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
-                   c_shk(e_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
-      call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
-      w(ixO^S,e_c_) = w(ixO^S,e_c_) + qdt * tmp(ixO^S) * Rc/(twofl_gamma-1d0)
-    enddo
-
-
+    subroutine add_th_cond_c_hyper_Source(var2)
+      double precision, intent(in) :: var2(ixI^S)
+      double precision :: nu(ixI^S), tmp(ixI^S), var(ixI^S)
+      integer :: ixOO2^L
+      call twofl_get_temp_c_pert_from_etot(wCT, x, ixI^L, ixI^L, var)
+      do ii=1,ndim
+        call hyp_coeff(ixI^L, ixOO2^L, var(ixI^S), ii, tmp(ixI^S))
+        nu(ixOO^S) = c_hyp(e_c_) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
+                     c_shk(e_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
+        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
+        w(ixO^S,e_c_) = w(ixO^S,e_c_) + qdt * tmp(ixO^S) * Rc/(twofl_gamma-1d0)
+      enddo
     end subroutine add_th_cond_c_hyper_Source   
+
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    subroutine add_th_cond_n_hyper_Source(var2)
+      double precision, intent(in) :: var2(ixI^S)
+      double precision :: nu(ixI^S), tmp(ixI^S), var(ixI^S)
+      integer :: ixOO2^L
+      call twofl_get_temp_n_pert_from_etot(wCT, x, ixI^L, ixI^L, var)
+      do ii=1,ndim
+        call hyp_coeff(ixI^L, ixOO2^L, var(ixI^S), ii, tmp(ixI^S))
+        nu(ixOO^S) = c_hyp(e_n_) * csound_dim(ixOO^S,ii) * dxlevel(ii) *  tmp(ixOO^S) + &
+                     c_shk(e_n_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
+        call second_same_deriv2(ixI^L, ixOO2^L, nu(ixI^S), var2(ixI^S) ,var(ixI^S), ii, tmp)
+        w(ixO^S,e_n_) = w(ixO^S,e_n_) + qdt * tmp(ixO^S) * Rn/(twofl_gamma-1d0)
+      enddo
+    end subroutine add_th_cond_n_hyper_Source   
+#endif
 
     subroutine add_viscosity_hyper_Source(rho,index_mom1, index_e)
     double precision, intent(in) :: rho(ixI^S)

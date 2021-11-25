@@ -23,7 +23,7 @@ contains
       call mpistop("Hyperdiffusivity only implemented for Cartesian uniform grid")
     endif
 
-    nghostcells = 3
+    nghostcells = max(nghostcells,3)
     phys_req_diagonal = .true.
 
   end subroutine hyperdiffusivity_init
@@ -190,7 +190,7 @@ contains
   ! deriv_idimm2(nu * var2 * deriv_idimm (u) )
   !var has cell centered values
   !var2 has cell centered values
-  !nu_hyper is defined at the interfaces
+  !nu_hyper is defined at the interfaces (with numbering index left center): center_i-1 interface_i center_i
   subroutine second_cross_deriv2(ixI^L, ixO^L, nu_hyper, var2, var, idimm, idimm2, res)
     use mod_global_parameters
     integer, intent(in)                :: ixI^L, idimm,idimm2
