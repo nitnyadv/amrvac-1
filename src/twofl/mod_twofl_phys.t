@@ -4613,8 +4613,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(out):: res(ixI^S)
 
     ! store pe1 in res
-    res(ixO^S)=(gamma_1*(w(ixO^S,e_c_)&
-           - twofl_kin_en_c(w,ixI^L,ixO^L))
+    res(ixO^S)=(gamma_1*(w(ixO^S,e_c_)- twofl_kin_en_c(w,ixI^L,ixO^L)))
     if(has_equi_pe_n0) then
       res(ixO^S) = res(ixO^S) + block%equi_vars(ixO^S,equi_pe_n0_,b0i)
       if(has_equi_rho_n0) then
@@ -6098,6 +6097,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
         nu(ixO^S) = nu(ixO^S) * rho(ixO^S) 
         maxCoef = max(maxCoef,maxval(nu(ixO^S)))
       enddo
+    enddo 
 #endif
 
     dtnew=min(dtdiffpar*minval(dxarr(1:ndim))**2/maxCoef,dtnew)
