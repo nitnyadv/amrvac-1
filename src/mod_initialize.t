@@ -20,7 +20,6 @@ contains
     use mod_bc_data, only: bc_data_init
     use mod_trac, only:init_trac_line, init_trac_block
     use mod_init_datafromfile, only: read_data_init
-    use mod_convert, only: init_convert
 
     if (initialized_already) return
 
@@ -40,8 +39,6 @@ contains
     call read_data_init()
 
     if(associated(usr_set_parameters)) call usr_set_parameters()
-    !init_convert is called before phys_check_params where the methods are added in the array
-    call init_convert()
     call phys_check_params()
 
     initialized_already = .true.
