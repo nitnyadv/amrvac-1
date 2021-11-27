@@ -14,7 +14,7 @@ contains
   subroutine hyperdiffusivity_init()
     use mod_global_parameters
     use mod_geometry
-    use mod_physics, only: phys_req_diagonal
+    use mod_physics, only: phys_req_diagonal, phys_wider_stencil
 
     !print*, slab_uniform !!THIS IS FALSE, why??
 
@@ -22,8 +22,10 @@ contains
     if(coordinate .ne. Cartesian) then
       call mpistop("Hyperdiffusivity only implemented for Cartesian uniform grid")
     endif
+    if(nghostcells < 3) then
+      phys_wider_stencil = 3 - nghostcells
+    endif
 
-    nghostcells = max(nghostcells,3)
     phys_req_diagonal = .true.
 
   end subroutine hyperdiffusivity_init
@@ -124,11 +126,14 @@ contains
 
     hxf^L=ixO^L+kr(idimm,^D);
     hxb^L=ixO^L-kr(idimm,^D);
-
+     !print*, "hxf SAME ", hxf^L, " IDIMM ", idimm
+     !print*, "ixO SAME ", ixO^L, " IDIMM ", idimm
     res(ixO^S) = 1d0/(dxlevel(idimm)**2)*&
           (nu_hyper(hxf^S) * (var(hxf^S)-var(ixO^S))-&
           nu_hyper(ixO^S) * (var(ixO^S)-var(hxb^S)))
-   !print*, "SECOND SAME DERIV IXO ", ixO^L 
+   !print*, "SECOND SAME DERIV IXO ", ixO^L
+   !print*, "SECOND SAME DERIV hyper hxf ",nu_hyper(hxf^S) 
+   !print*, "SECOND SAME DERIV hyper ixo ", nu_hyper(ixO^S) 
 
   end subroutine second_same_deriv
 
