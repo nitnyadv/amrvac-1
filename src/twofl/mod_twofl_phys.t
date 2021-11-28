@@ -275,6 +275,7 @@ module mod_twofl_phys
 #endif
   public :: get_current
   public :: twofl_get_pthermal_c
+  public :: twofl_face_to_center
   public :: get_normalized_divb
   public :: b_from_vector_potential
   {^NOONED
@@ -449,7 +450,7 @@ contains
   ! E_neutrals = E_int_neutrals
     phys_internal_e=.false.
 
-  ! For the two fluid phys_energy=.true. and phys_internal_e=.false. means
+  ! For the two fluid phys_energy=.true. and phys_internal_e=.false. and phys_total_energy = .false. means
   ! E_charges = E_kin_charges + E_int_charges
   ! E_neutrals =  E_kin_neutrals + E_int_neutrals
 
@@ -3034,10 +3035,12 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
         ! add -p0 div v source terms when equi are present
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         if(has_equi_pe_n0) then
+          active = .true.
           call add_pe_n0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
         endif
 #endif
         if(has_equi_pe_c0) then
+          active = .true.
           call add_pe_c0_divv(qdt,ixI^L,ixO^L,wCT,w,x)
         endif
 #endif
@@ -3049,6 +3052,7 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
 #if defined(ONE_FLUID) && ONE_FLUID==1
       if((twofl_eq_energy == EQ_ENERGY_KI .or. twofl_eq_energy == EQ_ENERGY_INT)&
            .and. twofl_ambipolar) then
+          active = .true.
         call add_source_ambipolar_internal_energy(qdt,ixI^L,ixO^L,wCT,w,x,e_c_)
       endif
 #endif
@@ -3326,11 +3330,11 @@ subroutine convert_vars_splitting(ixO^L, w, x, wnew, nwc)
     double precision, intent(in)    :: qdt
     double precision, intent(in)    :: wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
-    double precision                :: a(ixI^S,3), b(ixI^S,3)
+    double precision                :: a(ixI^S,3), b(ixI^S,1:ndir)
     
     call get_lorentz(ixI^L, ixO^L,wCT,a)
     call twofl_get_v_c(wCT,x,ixI^L,ixO^L,b)
-    w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*sum(a(ixO^S,1:3)*b(ixO^S,1:3),dim=ndim+1)
+    w(ixO^S,e_c_)=w(ixO^S,e_c_)+qdt*sum(a(ixO^S,1:ndir)*b(ixO^S,1:ndir),dim=ndim+1)
 
 
   end subroutine  add_source_lorentz_work
