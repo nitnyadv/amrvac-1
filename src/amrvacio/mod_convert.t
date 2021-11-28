@@ -8,12 +8,12 @@ module mod_convert
 
   abstract interface
 
-     subroutine sub_convert_vars(ixO^L, w, x, wnew, nwc)
+     subroutine sub_convert_vars(ixI^L, ixO^L, w, x, wnew, nwc)
        use mod_global_parameters
-       integer, intent(in)             :: ixO^L, nwc
-       double precision, intent(in)    :: w(ixO^S, 1:nw)
-       double precision, intent(in)    :: x(ixO^S,1:ndim) 
-       double precision, intent(out)    :: wnew(ixO^S, 1:nwc)
+       integer, intent(in)             :: ixI^L,ixO^L, nwc
+       double precision, intent(in)    :: w(ixI^S, 1:nw)
+       double precision, intent(in)    :: x(ixI^S,1:ndim) 
+       double precision, intent(out)    :: wnew(ixI^S, 1:nwc)
      end subroutine sub_convert_vars
 
 
@@ -40,12 +40,12 @@ contains
     character(len=*), intent(in) :: file_suffix
 
     interface
-     subroutine phys_convert_vars(ixO^L, w, x, wnew, nwc)
+     subroutine phys_convert_vars(ixI^L, ixO^L, w, x, wnew, nwc)
        use mod_global_parameters
-       integer, intent(in)             :: ixO^L, nwc
-       double precision, intent(in)    :: w(ixO^S, 1:nw)
-       double precision, intent(in)    :: x(ixO^S,1:ndim) 
-       double precision, intent(out)    :: wnew(ixO^S, 1:nwc)
+       integer, intent(in)             :: ixI^L, ixO^L, nwc
+       double precision, intent(in)    :: w(ixI^S, 1:nw)
+       double precision, intent(in)    :: x(ixI^S,1:ndim) 
+       double precision, intent(out)    :: wnew(ixI^S, 1:nwc)
      end subroutine phys_convert_vars
     end interface
 
@@ -84,7 +84,7 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
 
     integer                       :: file_handle, igrid, Morton_no, iwrite
     integer                       :: ipe, ix_buffer(2*ndim+1), n_values
-    integer                       :: ixO^L, n_ghost(2*ndim)
+    integer                       :: ixI^L, ixO^L, n_ghost(2*ndim)
     integer                       :: ixOs^L,n_values_stagger
     integer                       :: iorecvstatus(MPI_STATUS_SIZE)
     integer                       :: ioastatus(MPI_STATUS_SIZE)
@@ -107,12 +107,12 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
     character(len=*), intent(in) :: file_suffix 
     interface
 
-      subroutine convert_vars(ixO^L,w,x,wres,nwc)
+      subroutine convert_vars(ixI^L, ixO^L,w,x,wres,nwc)
         use mod_global_parameters
-        integer, intent(in) :: ixO^L, nwc
-        double precision, intent(in) ::  x(ixO^S,1:ndim)
-        double precision, intent(in) :: w(ixO^S,1:nw)
-        double precision, intent(out) :: wres(ixO^S,1:nwc)
+        integer, intent(in) :: ixI^L, ixO^L, nwc
+        double precision, intent(in) ::  x(ixI^S,1:ndim)
+        double precision, intent(in) :: w(ixI^S,1:nw)
+        double precision, intent(out) :: wres(ixI^S,1:nwc)
       end subroutine convert_vars
 
     end interface
@@ -205,12 +205,14 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
   
       {ixOmin^D = ixMlo^D - n_ghost(^D)\}
       {ixOmax^D = ixMhi^D + n_ghost(ndim+^D)\}
+      {ixImin^D = ixGlo^D\}
+      {ixImax^D = ixGhi^D\}
   
       n_values = count_ix(ixO^L) * nwc
       ! end copied from block_shape_io
 
-      allocate(converted_vars(ixO^S, 1:nwc))
-      call convert_vars(ixO^L,ps(igrid)%w(ixO^S, 1:nw), ps(igrid)%x(ixO^S, 1:ndim), converted_vars(ixO^S, 1:nwc),nwc)
+      allocate(converted_vars(ixI^S, 1:nwc))
+      call convert_vars(ixI^L, ixO^L,ps(igrid)%w(ixI^S, 1:nw), ps(igrid)%x(ixI^S, 1:ndim), converted_vars(ixI^S, 1:nwc),nwc)
       w_buffer(1:n_values) = pack(converted_vars(ixO^S, 1:nwc), .true.)
       deallocate(converted_vars)
 
