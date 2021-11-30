@@ -6093,8 +6093,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
     do ii=1,ndim
       call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
-      hxb^L=ixOO^L-kr(ii,^D);
-      csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
+      hxmin^D=ixImin^D+1;
+      hxmax^D=ixImax^D-1;
+      hxb^L=hx^L-kr(ii,^D);
+      csound_dim(hx^S,ii) = (csound(hxb^S)+csound(hx^S))/2d0
     enddo
     call get_rhon_tot(w,ixI^L,ixO^L,rho)
     call twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixI^L, temp)
@@ -6167,8 +6169,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
     do ii=1,ndim
       call div_vel_coeff(ixI^L, ixOO^L, vel, ii, divv(ixI^S,ii))
-      hxb^L=ixOO^L-kr(ii,^D);
-      csound_dim(ixOO^S,ii) = (csound(hxb^S)+csound(ixOO^S))/2d0
+      hxmin^D=ixImin^D+1;
+      hxmax^D=ixImax^D-1;
+      hxb^L=hx^L-kr(ii,^D);
+      csound_dim(hx^S,ii) = (csound(hxb^S)+csound(hx^S))/2d0
     enddo
     call add_density_hyper_Source(rho_n_)
     call get_rhon_tot(wCT,ixI^L,ixI^L,rho)
