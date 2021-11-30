@@ -967,12 +967,15 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   double precision, intent(in)    :: w(ixI^S, 1:nw)
   double precision, intent(in)    :: x(ixI^S,1:ndim) 
   double precision   :: wnew(ixO^S, 1:nwc)
+  double precision   :: rho(ixI^S)
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-  call  get_rhon_tot(w,ixI^L,ixO^L,wnew(ixI^S,rho_n_))
+  call  get_rhon_tot(w,ixI^L,ixO^L,rho(ixI^S))
+  wnew(ixO^S,rho_n_) = rho(ixO^S)
   wnew(ixO^S,mom_n(:)) =  w(ixO^S,mom_n(:))
 #endif
-  call  get_rhoc_tot(w,ixI^L,ixO^L,wnew(ixI^S,rho_c_))
+  call  get_rhoc_tot(w,ixI^L,ixO^L,rho(ixI^S))
+  wnew(ixO^S,rho_c_) = rho(ixO^S)
   wnew(ixO^S,mom_c(:)) =  w(ixO^S,mom_c(:))
 
   if (B0field) then
