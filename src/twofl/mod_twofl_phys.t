@@ -6054,7 +6054,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       !rho_c
       call hyp_coeff(ixI^L, ixOO^L, w(ixI^S,rho_c_), ii, tmp(ixI^S))
       nu(ixO^S) = c_hyp(rho_c_) * csound_dim(ixO^S,ii) * dxlevel(ii) *  tmp(ixO^S) + &
-                   c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixOO^S,ii)
+                   c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixO^S,ii)
       maxCoef = max(maxCoef,maxval(nu(ixO^S)))
 
       !TH c  
@@ -6390,7 +6390,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     !rho_c
     call hyp_coeff(ixI^L, ixOO^L, w(ixI^S,rho_c_), ii, tmp(ixI^S))
     nu(ixO^S) = c_hyp(rho_c_) * csound_dim(ixO^S) * dxlevel(ii) *  tmp(ixO^S) + &
-                 c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixOO^S)
+                 c_shk(rho_c_) * (dxlevel(ii)**2) *divv(ixO^S)
 
     wnew(ixO^S,rho_c_) = nu(ixO^S)
 
