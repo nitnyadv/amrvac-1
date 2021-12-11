@@ -341,9 +341,9 @@ contains
 
       do iw=iwstart,nwflux
         if(flux_type(idims, iw) == flux_tvdlf) then
-          fC(ixC^S,iw,idims) = half*(fLC(ixC^S, iw) + fRC(ixC^S, iw) &
-               -tvdlfeps*max(cmaxC(ixC^S), dabs(cminC(ixC^S))) * &
-               (wRC(ixC^S,iw)-wLC(ixC^S,iw)))
+          if(stagger_grid) cycle
+          fC(ixC^S,iw,idims) = -tvdlfeps*half*max(cmaxC(ixC^S),dabs(cminC(ixC^S))) * &
+               (wRC(ixC^S,iw)-wLC(ixC^S,iw))
         else
          {do ix^DB=ixCmin^DB,ixCmax^DB\} 
            if(cminC(ix^D) >= zero) then
@@ -353,7 +353,7 @@ contains
            else
              ! Add hll dissipation to the flux
              fC(ix^D,iw,idims)=(cmaxC(ix^D)*fLC(ix^D, iw)-cminC(ix^D)*fRC(ix^D,iw)&
-                   +tvdlfeps*cminC(ix^D)*cmaxC(ix^D)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
+                   +cminC(ix^D)*cmaxC(ix^D)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
                    /(cmaxC(ix^D)-cminC(ix^D))
            end if
          {end do\}
@@ -411,9 +411,8 @@ contains
 
       do iw=iwstart,nwflux
          if (flux_type(idims, iw) == flux_tvdlf) then
-            fLC(ixC^S,iw) = 0.5d0 * (fLC(ixC^S,iw) + fRC(ixC^S,iw) - tvdlfeps * &
-                 max(cmaxC(ixC^S), abs(cminC(ixC^S))) * &
-                 (wRC(ixC^S,iw) - wLC(ixC^S,iw)))
+            fLC(ixC^S,iw)=-tvdlfeps*half*max(cmaxC(ixC^S),abs(cminC(ixC^S))) * &
+                 (wRC(ixC^S,iw) - wLC(ixC^S,iw))
          else
             where(patchf(ixC^S)==-2)
                fLC(ixC^S,iw)=fLC(ixC^S,iw)
@@ -628,13 +627,9 @@ contains
       ! get fluxes of intermedate states
       do iw=1,nwflux
         if (flux_type(idims, iw) == flux_tvdlf) then
-          !! hll flux for normal B
-          !f1L(ixC^S,iw)=(sR(ixC^S)*fLC(ixC^S, iw)-sL(ixC^S)*fRC(ixC^S, iw) &
-          !          +sR(ixC^S)*sL(ixC^S)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(sR(ixC^S)-sL(ixC^S))
           ! tvldf flux for normal B
-          f1L(ixC^S,iw)= half*(fLC(ixC^S, iw) + fRC(ixC^S, iw) &
-                 -tvdlfeps*max(sR(ixC^S), dabs(sL(ixC^S))) * &
-                 (wRC(ixC^S,iw)-wLC(ixC^S,iw)))
+          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S), dabs(sL(ixC^S))) * &
+                 (wRC(ixC^S,iw)-wLC(ixC^S,iw))
           f1R(ixC^S,iw)=f1L(ixC^S,iw)
           f2L(ixC^S,iw)=f1L(ixC^S,iw)
           f2R(ixC^S,iw)=f1L(ixC^S,iw)
