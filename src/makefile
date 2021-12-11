@@ -49,6 +49,7 @@ amrini.o: mod_ghostcells_update.mod
 amrini.o: mod_multigrid_coupling.mod
 amrini.o: mod_physics.mod
 amrvac.o: mod_advance.mod
+amrvac.o: mod_convert.mod
 amrvac.o: mod_fix_conserve.mod
 amrvac.o: mod_ghostcells_update.mod
 amrvac.o: mod_initialize.mod
@@ -137,10 +138,11 @@ mod_hd_ppm.o: mod_physics_ppm.mod
 mod_hd_roe.o: mod_hd_phys.mod
 mod_hd_roe.o: mod_physics_roe.mod
 mod_hd_roe.o: mod_tvd.mod
+mod_hyperdiffusivity.o: mod_geometry.mod
+mod_hyperdiffusivity.o: mod_physics.mod
 mod_init_datafromfile.o: mod_lookup_table.mod
 mod_initialize.o: mod_amr_fct.mod
 mod_initialize.o: mod_bc_data.mod
-mod_initialize.o: mod_convert.mod
 mod_initialize.o: mod_fix_conserve.mod
 mod_initialize.o: mod_geometry.mod
 mod_initialize.o: mod_ghostcells_update.mod
@@ -279,9 +281,6 @@ mod_thermal_emission.o: mod_physics.mod
 mod_trac.o: mod_mhd.mod
 mod_trac.o: mod_particle_base.mod
 mod_trac.o: mod_point_searching.mod
-mod_trac_new.o: mod_mhd.mod
-mod_trac_new.o: mod_particle_base.mod
-mod_trac_new.o: mod_point_searching.mod
 mod_trace_Bfield.o: mod_mhd.mod
 mod_trace_Bfield.o: mod_particle_base.mod
 mod_trace_Vfield.o: mod_particle_base.mod
@@ -301,6 +300,7 @@ mod_twofl_phys.o: mod_convert.mod
 mod_twofl_phys.o: mod_fix_conserve.mod
 mod_twofl_phys.o: mod_geometry.mod
 mod_twofl_phys.o: mod_ghostcells_update.mod
+mod_twofl_phys.o: mod_hyperdiffusivity.mod
 mod_twofl_phys.o: mod_multigrid_coupling.mod
 mod_twofl_phys.o: mod_physics.mod
 mod_twofl_phys.o: mod_radiative_cooling.mod

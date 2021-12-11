@@ -297,8 +297,10 @@ contains
     ! default resolution of level-1 mesh (full domain)
     {domain_nx^D = 32\}
 
-    ! default number of ghost-cell layers at each boundary of a block
-    nghostcells = 2
+    !! default number of ghost-cell layers at each boundary of a block
+    ! this is now done when the variable is defined in mod_global_parameters
+    ! the physics modules might set this variable in their init subroutine called earlier
+    !nghostcells = 2
 
     ! Allocate boundary conditions arrays in new and old style
     {
@@ -988,6 +990,8 @@ contains
           t_integrator=rk4
        case ("jameson")
           t_integrator=jameson
+       case ("IMEX_RK4")
+          t_integrator=IMEX_RK4
        case default
           write(unitterm,*) "time_integrator=",time_integrator,"time_stepper=",time_stepper
           call mpistop("unkown fourstep time_integrator in read_par_files")
@@ -1299,55 +1303,55 @@ contains
     }
 
     if(any(limiter(1:nlevelshi)=='mp5')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='weno5')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='weno5nm')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='wenoz5')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='wenoz5nm')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='wenozp5')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='wenozp5nm')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='teno5ad')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='weno5cu6')) then
-      nghostcells=3
+      nghostcells=max(nghostcells,3)
     end if
 
     if(any(limiter(1:nlevelshi)=='ppm')) then
-      nghostcells=4
+      nghostcells=max(nghostcells,4)
     end if
 
     if(any(limiter(1:nlevelshi)=='weno7')) then
-      nghostcells=4
+      nghostcells=max(nghostcells,4)
     end if
 
     if(any(limiter(1:nlevelshi)=='mpweno7')) then
-      nghostcells=4
+      nghostcells=max(nghostcells,4)
     end if
 
     if(any(limiter(1:nlevelshi)=='exeno7')) then
-      nghostcells=4
+      nghostcells=max(nghostcells,4)
     end if
 
     ! If a wider stencil is used, extend the number of ghost cells

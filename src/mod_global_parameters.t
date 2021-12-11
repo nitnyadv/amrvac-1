@@ -98,7 +98,7 @@ module mod_global_parameters
   integer :: ixGshi^D
 
   !> Number of ghost cells surrounding a grid
-  integer :: nghostcells
+  integer :: nghostcells = 2
 
   integer, parameter :: stretch_none = 0 !< No stretching
   integer, parameter :: stretch_uni  = 1 !< Unidirectional stretching from a side
@@ -570,6 +570,7 @@ module mod_global_parameters
 
   integer, parameter :: rk4=17
   integer, parameter :: jameson=18
+  integer, parameter :: IMEX_RK4=19
 
   !> Type of slope limiter used for reconstructing variables on cell edges
   integer, allocatable :: type_limiter(:)

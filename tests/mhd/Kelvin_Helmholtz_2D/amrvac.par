@@ -29,7 +29,6 @@
  &methodlist
         time_stepper=  'threestep'
         flux_scheme=    20*'hll'
-        typepred1=    20*'hll'
         limiter= 20*'cada3'
  /
  &boundlist
@@ -47,10 +46,10 @@
         w_refine_weight(3)=0.3d0
         refine_max_level=3
         refine_threshold=20*0.2d0
-        block_nx1=12
-        block_nx2=12
-        domain_nx1=48
-        domain_nx2=48
+        block_nx1=32
+        block_nx2=32
+        domain_nx1=512
+        domain_nx2=512
         xprobmin1=0
         xprobmax1=4.0d0
         xprobmin2=0
