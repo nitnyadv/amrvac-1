@@ -2112,6 +2112,13 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end if
 
     if(.not. has_equi_pe_n0) then
+      if (fix_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+              pth(ix^D)=small_pressure
+           end if
+        {enddo^D&\}
+      end if
       if (check_small_values) then
         {do ix^DB= ixO^LIM^DB\}
            if(pth(ix^D)<small_pressure) then
@@ -2131,13 +2138,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         {enddo^D&\}
       end if
   
-      if (fix_small_values) then
-        {do ix^DB= ixO^LIM^DB\}
-           if(pth(ix^D)<small_pressure) then
-              pth(ix^D)=small_pressure
-           end if
-        {enddo^D&\}
-      end if
     end if
   end subroutine twofl_get_pthermal_n
 #endif

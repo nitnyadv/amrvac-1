@@ -376,7 +376,7 @@ contains
       do iw=iws,iwe
         if(flux_type(idims, iw) == flux_tvdlf) then
           if(stagger_grid) cycle
-          fC(ixC^S,iw,idims) = -tvdlfeps*half*max(cmaxC(ixC^S),dabs(cminC(ixC^S))) * &
+          fC(ixC^S,iw,idims) = -tvdlfeps*half*max(cmaxC(ixC^S,ii),dabs(cminC(ixC^S,ii))) * &
                (wRC(ixC^S,iw)-wLC(ixC^S,iw))
         else
          {do ix^DB=ixCmin^DB,ixCmax^DB\} 
@@ -386,9 +386,9 @@ contains
              fC(ix^D,iw,idims)=fRC(ix^D,iw)
            else
              ! Add hll dissipation to the flux
-             fC(ix^D,iw,idims)=(cmaxC(ix^D)*fLC(ix^D, iw)-cminC(ix^D)*fRC(ix^D,iw)&
-                   +cminC(ix^D)*cmaxC(ix^D)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
-                   /(cmaxC(ix^D)-cminC(ix^D))
+             fC(ix^D,iw,idims)=(cmaxC(ix^D,ii)*fLC(ix^D, iw)-cminC(ix^D,ii)*fRC(ix^D,iw)&
+                   +cminC(ix^D,ii)*cmaxC(ix^D,ii)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
+                   /(cmaxC(ix^D,ii)-cminC(ix^D,ii))
            end if
          {end do\}
         end if
@@ -425,7 +425,7 @@ contains
 
       !---- calculate speed lambda at CD ----!
       if(any(patchf(ixC^S)==1)) &
-           call phys_get_lCD(wLC,wRC,fLC,fRC,cminC(ixI^S,1),cmaxC(ixI^S,1),idims,ixI^L,ixC^L, &
+           call phys_get_lCD(wLC,wRC,fLC,fRC,cminC(ixI^S,index_v_mag),cmaxC(ixI^S,index_v_mag),idims,ixI^L,ixC^L, &
            whll,Fhll,lambdaCD,patchf)
 
       ! now patchf may be -1 or 1 due to phys_get_lCD
@@ -444,7 +444,7 @@ contains
 
       do iw=iwstart,nwflux
          if (flux_type(idims, iw) == flux_tvdlf) then
-            fLC(ixC^S,iw)=-tvdlfeps*half*max(cmaxC(ixC^S),abs(cminC(ixC^S))) * &
+            fLC(ixC^S,iw)=-tvdlfeps*half*max(cmaxC(ixC^S,index_v_mag),abs(cminC(ixC^S,index_v_mag))) * &
                  (wRC(ixC^S,iw) - wLC(ixC^S,iw))
          else
             where(patchf(ixC^S)==-2)
@@ -661,7 +661,7 @@ contains
       do iw=1,nwflux
         if (flux_type(idims, iw) == flux_tvdlf) then
           ! tvldf flux for normal B
-          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S), dabs(sL(ixC^S))) * &
+          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S,index_v_mag), dabs(sL(ixC^S,index_v_mag))) * &
                  (wRC(ixC^S,iw)-wLC(ixC^S,iw))
           f1R(ixC^S,iw)=f1L(ixC^S,iw)
           f2L(ixC^S,iw)=f1L(ixC^S,iw)
@@ -1002,7 +1002,7 @@ contains
       do iw=1,nwflux
         if (flux_type(idims, iw) == flux_tvdlf) then
           ! tvldf flux for normal B
-          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S), dabs(sL(ixC^S))) * &
+          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S,index_v_mag), dabs(sL(ixC^S,index_v_mag))) * &
                  (wRC(ixC^S,iw)-wLC(ixC^S,iw))
           f1R(ixC^S,iw)=f1L(ixC^S,iw)
           f2L(ixC^S,iw)=f1L(ixC^S,iw)
