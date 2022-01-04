@@ -5846,7 +5846,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision :: jce(ixI^S,7-2*ndim:3)
 
     ! current on cell centers
-    double precision :: jcc(ixI^S,7-2*ndim:3)
+    double precision :: jcc(ixI^S,7-2*ndir:3)
     ! location at cell faces
     double precision :: xs(ixGs^T,1:ndim)
     ! resistivity
@@ -5882,7 +5882,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       jce(ixI^S,:)=jce(ixI^S,:)*twofl_eta
     else
       ixA^L=ixO^L^LADD1;
-      call get_current(wCT,ixI^L,ixO^L,idirmin,jcc)
+      call get_current(wCT,ixI^L,ixA^L,idirmin,jcc)
       call usr_special_resistivity(wCT,ixI^L,ixA^L,idirmin,x,jcc,eta)
       ! calcuate eta on cell edges
       do idir=7-2*ndim,3
