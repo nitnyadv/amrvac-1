@@ -515,7 +515,7 @@ contains
       if(stagger_grid) then
         Bx(ixC^S)=block%ws(ixC^S,ip1)
       else
-        Bx(ixC^S)=(sR(ixC^S)*BR(ixC^S,ip1)-sL(ixC^S)*BL(ixC^S,ip1)-&
+        Bx(ixC^S)=(sR(ixC^S,index_v_mag)*BR(ixC^S,ip1)-sL(ixC^S,index_v_mag)*BL(ixC^S,ip1)-&
                    fLC(ixC^S,mag(ip1))-fRC(ixC^S,mag(ip1)))/(sR(ixC^S,index_v_mag)-sL(ixC^S,index_v_mag))
       end if
       ptR(ixC^S)=wRp(ixC^S,p_)+0.5d0*sum(BR(ixC^S,:)**2,dim=ndim+1)
