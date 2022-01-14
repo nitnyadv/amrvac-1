@@ -4,16 +4,8 @@ VACPP := $(AMRVAC_DIR)/src/vacpp.pl
 .SUFFIXES:
 
 
-#only this uses amrvac.h 
-ifneq ("$(wildcard amrvac.h)","")
-mod_twofl%.o: mod_twofl%.f amrvac.h
-	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
-else
-mod_twofl%.o: ;
-mod_twofl%.mod: ;
-endif
 # How to compile modules into object files
-mod_%.o: mod_%.f
+mod_%.o: mod_%.f amrvac.h
 	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
 
 # How to get .mod files from modules. Modules are automatically updated, and
@@ -24,7 +16,7 @@ m_%.mod: m_%.f m_%.o
 	@test -f $@ || $(F90) $(F90FLAGS) -c $(@:.mod=.f) -o $(@:.mod=.o) $(addprefix -I,$(INC_DIRS))
 
 # How to generate object files
-%.o: %.f
+%.o: %.f amrvac.h
 	$(F90) $(F90FLAGS) -c $< -o $@ $(addprefix -I,$(INC_DIRS))
 
 # How to translate .t source files to normal Fortran

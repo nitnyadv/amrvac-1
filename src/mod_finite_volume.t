@@ -1,5 +1,6 @@
 !> Module with finite volume methods for fluxes
 module mod_finite_volume
+#include "amrvac.h"
   implicit none
   private
 
@@ -218,8 +219,6 @@ contains
          call phys_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixC^L,idims,cmaxC,cminC)
          if(stagger_grid) call phys_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixC^L,idims,cmaxC(ixI^S,index_v_mag),cminC(ixI^S,index_v_mag))
        end if
-
-
 
        ! use approximate Riemann solver to get flux at interfaces
        select case(method)

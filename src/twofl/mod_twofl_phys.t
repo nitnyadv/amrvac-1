@@ -239,7 +239,7 @@ module mod_twofl_phys
   !> B0 field is force-free
   logical, public, protected :: B0field_forcefree=.true.
 
-
+  logical :: twofl_cbounds_species = .false.
 
   !> added from modules: gravity
   !> source split or not
@@ -343,7 +343,7 @@ contains
 #endif
       boundary_divbfix, boundary_divbfix_skip, twofl_divb_4thorder, &
       twofl_boris_method, twofl_boris_c, clean_initial_divb,  &
-      twofl_trac, twofl_trac_type, twofl_trac_mask
+      twofl_trac, twofl_trac_type, twofl_trac_mask,twofl_cbounds_species 
 
     do n = 1, size(files)
        open(unitpar, file=trim(files(n)), status="old")
@@ -620,9 +620,11 @@ contains
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
 
-    number_species = 2
-    allocate(stop_indices(1))
-    stop_indices(1) = nwflux  
+    if (twofl_cbounds_species) then
+      number_species = 2
+      allocate(stop_indices(1))
+      stop_indices(1) = nwflux  
+    endif
 
     ! Determine flux variables
     rho_n_ = var_set_fluxvar("rho_n", "rho_n")
@@ -724,7 +726,13 @@ contains
     phys_get_cmax            => twofl_get_cmax
     phys_get_a2max           => twofl_get_a2max
     !phys_get_tcutoff         => twofl_get_tcutoff
-    phys_get_cbounds         => twofl_get_cbounds
+    if(twofl_cbounds_species) then
+      if (mype .eq. 0) print*, "Using different cbounds for each species nspecies = ", number_species
+      phys_get_cbounds         => twofl_get_cbounds_species
+    else
+      if (mype .eq. 0) print*, "Using same cbounds for all species"
+      phys_get_cbounds         => twofl_get_cbounds_one
+    endif
     phys_get_flux            => twofl_get_flux
     phys_add_source_geom     => twofl_add_source_geom
     phys_add_source          => twofl_add_source
@@ -1728,7 +1736,106 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   end subroutine twofl_get_tcutoff_c
 
   !> Estimating bounds for the minimum and maximum signal velocities
-  subroutine twofl_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
+  subroutine twofl_get_cbounds_one(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
+    use mod_global_parameters
+    use mod_constrained_transport
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wLC(ixI^S, nw), wRC(ixI^S, nw)
+    double precision, intent(in)    :: wLp(ixI^S, nw), wRp(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(inout) :: cmax(ixI^S,number_species)
+    double precision, intent(inout), optional :: cmin(ixI^S,number_species)
+
+    double precision :: wmean(ixI^S,nw)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    double precision :: rhon(ixI^S)
+#endif
+    double precision :: rhoc(ixI^S)
+    double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
+    integer                            :: idimE,idimN
+
+    if (boundspeedEinfeldt) then
+      ! This implements formula (10.52) from "Riemann Solvers and Numerical
+      ! Methods for Fluid Dynamics" by Toro.
+      call get_rhoc_tot(wLP,ixI^L,ixO^L,rhoc)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      call get_rhon_tot(wLP,ixI^L,ixO^L,rhon)
+      tmp1(ixO^S)=sqrt(abs(rhoc(ixO^S)  +rhon(ixO^S)))
+#else
+      tmp1(ixO^S)=sqrt(abs(rhoc(ixO^S)))
+#endif
+
+      call get_rhoc_tot(wRP,ixI^L,ixO^L,rhoc)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      call get_rhon_tot(wRP,ixI^L,ixO^L,rhon)
+      tmp2(ixO^S)=sqrt(abs(rhoc(ixO^S) +rhon(ixO^S)))
+#else
+      tmp2(ixO^S)=sqrt(abs(rhoc(ixO^S)))
+#endif
+
+      tmp3(ixO^S)=1.d0/(tmp1(ixO^S)+tmp2(ixO^S))
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      umean(ixO^S)=(0.5*(wLp(ixO^S,mom_n(idim))+wLp(ixO^S,mom_c(idim)))*tmp1(ixO^S) + &
+                    0.5*(wRp(ixO^S,mom_n(idim))+wRp(ixO^S,mom_c(idim)))*tmp2(ixO^S))*tmp3(ixO^S)
+#else
+      umean(ixO^S)=(wLp(ixO^S,mom_c(idim))*tmp1(ixO^S)+wRp(ixO^S,mom_c(idim))*tmp2(ixO^S))*tmp3(ixO^S)
+#endif
+      call twofl_get_csound_prim(wLp,x,ixI^L,ixO^L,idim,csoundL)
+      call twofl_get_csound_prim(wRp,x,ixI^L,ixO^L,idim,csoundR)
+
+
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      dmean(ixO^S)=(tmp1(ixO^S)*csoundL(ixO^S)**2+tmp2(ixO^S)*csoundR(ixO^S)**2)*tmp3(ixO^S)+&
+       0.5d0*tmp1(ixO^S)*tmp2(ixO^S)*tmp3(ixO^S)**2*(&
+       0.5*(wRp(ixO^S,mom_n(idim))+wRp(ixO^S,mom_c(idim)))- & 
+       0.5*(wLp(ixO^S,mom_n(idim))+wLp(ixO^S,mom_c(idim))))**2
+#else
+      dmean(ixO^S)=(tmp1(ixO^S)*csoundL(ixO^S)**2+tmp2(ixO^S)*csoundR(ixO^S)**2)*tmp3(ixO^S)+&
+       0.5d0*tmp1(ixO^S)*tmp2(ixO^S)*tmp3(ixO^S)**2*&
+       (wRp(ixO^S,mom_c(idim)) - wLp(ixO^S,mom_c(idim)))**2
+#endif
+      dmean(ixO^S)=sqrt(dmean(ixO^S))
+      if(present(cmin)) then
+        cmin(ixO^S,1)=umean(ixO^S)-dmean(ixO^S)
+        cmax(ixO^S,1)=umean(ixO^S)+dmean(ixO^S)
+      else
+        cmax(ixO^S,1)=abs(umean(ixO^S))+dmean(ixO^S)
+      end if
+    else
+    ! typeboundspeed=='cmaxmean'
+      wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      call get_rhon_tot(wmean,ixI^L,ixO^L,rhon)
+      tmp2(ixO^S)=wmean(ixO^S,mom_n(idim))/rhon(ixO^S)
+#endif
+      call get_rhoc_tot(wmean,ixI^L,ixO^L,rhoc)
+      tmp1(ixO^S)=wmean(ixO^S,mom_c(idim))/rhoc(ixO^S)
+      call twofl_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
+      if(present(cmin)) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        cmax(ixO^S,1)=max(max(abs(tmp2(ixO^S)), abs(tmp1(ixO^S)) ) +csoundR(ixO^S),zero)
+        cmin(ixO^S,1)=min(min(abs(tmp2(ixO^S)),  abs(tmp1(ixO^S)) ) -csoundR(ixO^S),zero)
+#else
+        cmax(ixO^S,1)=max(abs(tmp1(ixO^S))+csoundR(ixO^S),zero)
+        cmin(ixO^S,1)=min(abs(tmp1(ixO^S))-csoundR(ixO^S),zero)
+#endif
+      else
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        cmax(ixO^S,1)= max(abs(tmp2(ixO^S)),abs(tmp1(ixO^S)))+csoundR(ixO^S)
+#else
+        cmax(ixO^S,1)= abs(tmp1(ixO^S))+csoundR(ixO^S)
+
+#endif
+
+      end if
+    end if
+
+  end subroutine twofl_get_cbounds_one
+
+
+  !> Estimating bounds for the minimum and maximum signal velocities
+  subroutine twofl_get_cbounds_species(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
     use mod_global_parameters
     use mod_constrained_transport
     use mod_variables
@@ -1828,7 +1935,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #endif
     end if
 
-  end subroutine twofl_get_cbounds
+  end subroutine twofl_get_cbounds_species
 
   !> prepare velocities for ct methods
   subroutine twofl_get_ct_velocity(vcts,wLp,wRp,ixI^L,ixO^L,idim,cmax,cmin)
@@ -1943,6 +2050,218 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end if
 
   end subroutine twofl_get_csound_c_idim
+
+  !> Calculate fast magnetosonic wave speed when cbounds_species=false
+  subroutine twofl_get_csound_prim(w,x,ixI^L,ixO^L,idim,csound)
+    use mod_global_parameters
+
+    integer, intent(in)          :: ixI^L, ixO^L, idim
+    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
+    double precision, intent(out):: csound(ixI^S)
+    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
+    double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
+    double precision :: rhoc(ixI^S)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    double precision :: rhon(ixI^S)
+#endif
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
+#else
+    inv_rho=1.d0/rhoc(ixO^S)
+#endif
+
+    if (twofl_boris_type == boris_reduced_force) then
+      call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
+    else
+      gamma_A2 = 1.0d0
+    end if
+
+    if(phys_energy) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+       call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,w(ixI^S,e_c_),w(ixI^S,e_n_),csound)
+#else
+       call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,w(ixI^S,e_c_),csound)
+#endif
+            
+    else
+       call twofl_get_csound2_adiab(w,x,ixI^L,ixO^L,csound)
+    end if
+    ! store |B|^2 in v
+    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
+         * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
+         * inv_rho * gamma_A2
+
+    where(AvMinCs2(ixO^S)<zero)
+       AvMinCs2(ixO^S)=zero
+    end where
+
+    AvMinCs2(ixO^S)=sqrt(AvMinCs2(ixO^S))
+
+    if (.not. twofl_Hall) then
+       csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
+       if (twofl_boris_type == boris_simplification) then
+          csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
+       end if
+    else
+       ! take the Hall velocity into account:
+       ! most simple estimate, high k limit:
+       ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
+       kmax = dpi/min({dxlevel(^D)},bigdouble)*half
+       csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+    end if
+
+  end subroutine twofl_get_csound_prim
+
+  subroutine twofl_get_csound2(w,x,ixI^L,ixO^L,csound2)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: csound2(ixI^S)
+    double precision  :: pe_c1(ixI^S)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    double precision  :: pe_n1(ixI^S)
+#endif
+
+    if(phys_energy) then
+      call twofl_get_pthermal_c(w,x,ixI^L,ixO^L,pe_c1)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+      call twofl_get_pthermal_n(w,x,ixI^L,ixO^L,pe_n1)
+      call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,pe_n1,csound2)
+#else
+      call twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,csound2)
+#endif
+    else
+      call twofl_get_csound2_adiab(w,x,ixI^L,ixO^L,csound2)
+    endif
+  end subroutine twofl_get_csound2
+
+
+  subroutine twofl_get_csound2_adiab(w,x,ixI^L,ixO^L,csound2)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: csound2(ixI^S)
+    double precision  :: rhoc(ixI^S)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    double precision  :: rhon(ixI^S)
+#endif
+
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    csound2(ixO^S)=twofl_gamma*twofl_adiab*&
+                  max((rhoc(ixO^S)**twofl_gamma + rhon(ixO^S)**twofl_gamma)/(rhoc(ixO^S)+ rhon(ixO^S)),&
+                  rhon(ixO^S)**gamma_1,rhoc(ixO^S)**gamma_1) 
+#else
+    csound2(ixO^S)=twofl_gamma*twofl_adiab* rhoc(ixO^S)**gamma_1
+#endif
+  end subroutine twofl_get_csound2_adiab
+
+  subroutine twofl_get_csound(w,x,ixI^L,ixO^L,idim,csound)
+    use mod_global_parameters
+
+    integer, intent(in)          :: ixI^L, ixO^L, idim
+    double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
+    double precision, intent(out):: csound(ixI^S)
+    double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
+    double precision :: inv_rho(ixO^S), gamma2(ixO^S)
+    double precision :: rhoc(ixI^S)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    double precision :: rhon(ixI^S)
+#endif
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+#if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
+#else
+    inv_rho=1.d0/rhoc(ixO^S)
+#endif
+    if (twofl_boris_type == boris_reduced_force) then
+      call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
+    else
+      gamma2 = 1.0d0
+    end if
+
+    call twofl_get_csound2(w,x,ixI^L,ixO^L,csound)
+
+    ! store |B|^2 in v
+    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2
+
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
+         * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
+         * inv_rho * gamma2
+
+    where(AvMinCs2(ixO^S)<zero)
+       AvMinCs2(ixO^S)=zero
+    end where
+
+    AvMinCs2(ixO^S)=sqrt(AvMinCs2(ixO^S))
+
+    if (.not. twofl_Hall) then
+       csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
+       if (twofl_boris_type == boris_simplification) then
+          csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
+       end if
+    else
+       ! take the Hall velocity into account:
+       ! most simple estimate, high k limit:
+       ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
+       kmax = dpi/min({dxlevel(^D)},bigdouble)*half
+       csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+    end if
+
+  end subroutine twofl_get_csound
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+  subroutine twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,pe_n1,csound2)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(in)    :: pe_c1(ixI^S)
+    double precision, intent(in)    :: pe_n1(ixI^S)
+    double precision, intent(out)   :: csound2(ixI^S)
+    double precision  :: csound1(ixI^S),rhon(ixI^S),rhoc(ixI^S)
+
+    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_pen_tot(w,ixI^L,ixO^L,pe_n1, csound1)
+
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_pec_tot(w,ixI^L,ixO^L,pe_c1, csound2)
+#if !defined(C_TOT) || C_TOT == 0
+    csound2(ixO^S)=twofl_gamma*max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
+                      csound1(ixO^S)/rhon(ixO^S), csound2(ixO^S)/rhoc(ixO^S))
+#else
+    csound2(ixO^S)=twofl_gamma*(csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S))
+
+#endif
+  end subroutine twofl_get_csound2_from_pe
+
+#else
+  subroutine twofl_get_csound2_from_pe(w,x,ixI^L,ixO^L,pe_c1,csound2)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(in)    :: w(ixI^S,nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(in)    :: pe_c1(ixI^S)
+    double precision, intent(out)   :: csound2(ixI^S)
+    double precision                :: rhoc(ixI^S)
+
+    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_pec_tot(w,ixI^L,ixO^L,pe_c1, csound2)
+    csound2(ixO^S)=twofl_gamma* &
+                      csound2(ixO^S)/rhoc(ixO^S)
+  end subroutine twofl_get_csound2_from_pe
+#endif
+! end cbounds_species=false
 
 
   !> Calculate fast magnetosonic wave speed
