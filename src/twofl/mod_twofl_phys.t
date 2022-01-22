@@ -5,6 +5,7 @@ module mod_twofl_phys
 
   use mod_global_parameters, only: std_len
   use mod_physics
+  use mod_thermal_conduction, only: tc_fluid
   implicit none
   private
 
@@ -39,6 +40,10 @@ module mod_twofl_phys
 
   !> Whether thermal conduction is used
   logical, public, protected              :: twofl_thermal_conduction_c = .false.
+  !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
+  integer, parameter, private             :: MHD_TC =1
+  integer, parameter, private             :: HD_TC =2
+  integer, protected                      :: use_twofl_tc_c = MHD_TC
 
 
   !> Whether radiative cooling is added
@@ -55,6 +60,9 @@ module mod_twofl_phys
 
   !> Whether Hall-MHD is used
   logical, public, protected              :: twofl_Hall = .false.
+
+  type(tc_fluid), allocatable :: tc_fl_c
+
 #if defined(ONE_FLUID) && ONE_FLUID==1
   !> Whether Ambipolar term is used
   logical, public, protected              :: twofl_ambipolar = .false.
@@ -67,6 +75,9 @@ module mod_twofl_phys
 
   !> The MHD ambipolar coefficient
   double precision, public                :: twofl_eta_ambi = 0.0d0
+#else
+  type(tc_fluid), allocatable :: tc_fl_n
+
 #endif
 
   !> Whether TRAC method is used
@@ -239,7 +250,7 @@ module mod_twofl_phys
   !> B0 field is force-free
   logical, public, protected :: B0field_forcefree=.true.
 
-  logical :: twofl_cbounds_species = .false.
+  logical :: twofl_cbounds_species = .true.
 
   !> added from modules: gravity
   !> source split or not
@@ -417,7 +428,8 @@ contains
     use mod_radiative_cooling
     use mod_viscosity, only: viscosity_init
     !use mod_gravity, only: gravity_init
-    use mod_supertimestepping, only: sts_init, add_sts_method
+    use mod_supertimestepping, only: sts_init, add_sts_method,&
+            set_conversion_methods_to_head, set_error_handling_to_head
 
     {^NOONED
     use mod_multigrid_coupling
@@ -804,34 +816,99 @@ contains
     end if
 
     ! initialize thermal conduction module
-!!TODO
-!    if (twofl_thermal_conduction) then
-!      phys_req_diagonal = .true.
-!      if(use_twofl_tc .eq. MHD_TC) then
-!
-!        if(twofl_internal_e) then
-!          call tc_init_twofl_for_internal_energy(twofl_gamma,[rho_,e_,mag(1)],twofl_get_temperature_from_eint)
-!        else
-!          if(twofl_solve_eaux) then
-!            call tc_init_twofl_for_total_energy(twofl_gamma,[rho_,e_,mag(1),eaux_],twofl_get_temperature_from_etot, twofl_get_temperature_from_eint)
-!          else
-!            call tc_init_twofl_for_total_energy(twofl_gamma,[rho_,e_,mag(1)],twofl_get_temperature_from_etot, twofl_get_temperature_from_eint)
-!          endif
-!        endif
-!
-!      else if(use_twofl_tc .eq. HD_TC) then
-!        if(twofl_internal_e) then
-!          call tc_init_hd_for_internal_energy(twofl_gamma,[rho_,e_],twofl_get_temperature_from_eint)
-!        else
-!          if(twofl_solve_eaux) then
-!            call tc_init_hd_for_total_energy(twofl_gamma,[rho_,e_,eaux_],twofl_get_temperature_from_etot, twofl_get_temperature_from_eint)
-!          else
-!            call tc_init_hd_for_total_energy(twofl_gamma,[rho_,e_],twofl_get_temperature_from_etot, twofl_get_temperature_from_eint)
-!          endif
-!        endif
-!      endif
-!    end if
+    if (twofl_thermal_conduction_c &
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        .or. twofl_thermal_conduction_n&
+#endif
+    ) then
 
+      call sts_init()
+      call tc_init_params(twofl_gamma)
+      phys_req_diagonal = .true.
+    endif
+    if (twofl_thermal_conduction_c) then
+      allocate(tc_fl_c)
+      if(use_twofl_tc_c .eq. MHD_TC) then
+        call tc_get_mhd_params(tc_fl_c,tc_c_params_read_mhd)
+        if(phys_internal_e) then
+          if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_eint_c_with_equi
+            tc_fl_c%get_temperature_pert_from_tot => twofl_get_temperature_c_pert_from_tot
+          else
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_eint_c
+          endif 
+          call add_sts_method(twofl_get_tc_dt_mhd_c,twofl_sts_set_source_tc_c_mhd,e_c_,1,e_c_,1,.false.)
+        else
+          if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_etot_c_with_equi
+            tc_fl_c%get_temperature_pert_from_tot => twofl_get_temperature_c_pert_from_tot
+          else
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_etot_c
+          endif 
+          call add_sts_method(twofl_get_tc_dt_mhd_c,twofl_sts_set_source_tc_c_mhd,e_c_,1,e_c_,1,.false.)
+          call set_conversion_methods_to_head(twofl_e_to_ei_c, twofl_ei_to_e_c)
+        endif
+      else if(use_twofl_tc_c .eq. HD_TC) then
+        call tc_get_hd_params(tc_fl_c,tc_c_params_read_hd)
+        if(phys_internal_e) then
+          if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_eint_c_with_equi
+            tc_fl_c%get_temperature_pert_from_tot => twofl_get_temperature_c_pert_from_tot
+          else
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_eint_c
+          endif 
+          call add_sts_method(twofl_get_tc_dt_hd_c,twofl_sts_set_source_tc_c_hd,e_c_,1,e_c_,1,.false.)
+        else
+          if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_etot_c_with_equi
+            tc_fl_c%get_temperature_pert_from_tot => twofl_get_temperature_c_pert_from_tot
+          else
+            tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_etot_c
+          endif 
+          call add_sts_method(twofl_get_tc_dt_hd_c,twofl_sts_set_source_tc_c_hd,e_c_,1,e_c_,1,.false.)
+          call set_conversion_methods_to_head(twofl_e_to_ei_c, twofl_ei_to_e_c)
+        endif
+      endif
+      call set_error_handling_to_head(twofl_handle_small_e_c)
+      tc_fl_c%get_temperature_from_eint => twofl_get_temperature_from_eint_c
+      tc_fl_c%get_rho => get_rhoc_tot
+      tc_fl_c%get_vel => twofl_get_v_c
+      tc_fl_c%e_ = e_c_
+      tc_fl_c%Tcoff_ = Tcoff_c_
+      tc_fl_c%mom(1:ndir) = mom_c(1:ndir)
+    end if
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    if (twofl_thermal_conduction_n) then
+      allocate(tc_fl_n)
+      call tc_get_hd_params(tc_fl_n,tc_n_params_read_hd)
+      if(phys_internal_e) then
+        if(has_equi_pe_n0 .and. has_equi_rho_n0) then
+          tc_fl_n%get_temperature_from_conserved => twofl_get_temperature_from_eint_n_with_equi
+          tc_fl_n%get_temperature_pert_from_tot => twofl_get_temperature_n_pert_from_tot
+        else
+          tc_fl_n%get_temperature_from_conserved => twofl_get_temperature_from_eint_n
+        endif 
+        call add_sts_method(twofl_get_tc_dt_hd_n,twofl_sts_set_source_tc_n_hd,e_n_,1,e_n_,1,.false.)
+      else
+        if(has_equi_pe_n0 .and. has_equi_rho_n0) then
+          tc_fl_n%get_temperature_from_conserved => twofl_get_temperature_from_etot_n_with_equi
+          tc_fl_n%get_temperature_pert_from_tot => twofl_get_temperature_n_pert_from_tot
+        else
+          tc_fl_n%get_temperature_from_conserved => twofl_get_temperature_from_etot_n
+        endif 
+        call add_sts_method(twofl_get_tc_dt_hd_n,twofl_sts_set_source_tc_n_hd,e_n_,1,e_n_,1,.false.)
+        call set_conversion_methods_to_head(twofl_e_to_ei_n, twofl_ei_to_e_n)
+      endif
+      call set_error_handling_to_head(twofl_handle_small_e_n)
+      tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n
+      tc_fl_n%get_rho => get_rhon_tot
+      tc_fl_n%get_vel => twofl_get_v_n
+      tc_fl_n%e_ = e_n_
+      tc_fl_n%Tcoff_ = Tcoff_n_
+      tc_fl_n%mom(1:ndir) = mom_n(1:ndir)
+    end if
+
+#endif
     ! Initialize radiative cooling module
     !TODO
     !if (twofl_radiative_cooling) then
@@ -902,7 +979,196 @@ contains
 
 
   endif
+
   end subroutine twofl_phys_init
+
+
+  ! wrappers for STS functions in thermal_conductivity module
+  ! which take as argument the tc_fluid (defined in the physics module)
+  subroutine  twofl_sts_set_source_tc_c_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_mhd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl_c)
+  end subroutine twofl_sts_set_source_tc_c_mhd
+
+  subroutine  twofl_sts_set_source_tc_c_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_hd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl_c)
+  end subroutine twofl_sts_set_source_tc_c_hd
+
+
+  function twofl_get_tc_dt_mhd_c(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_mhd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x,tc_fl_c) 
+  end function twofl_get_tc_dt_mhd_c
+
+  function twofl_get_tc_dt_hd_c(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_hd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl_c) 
+  end function twofl_get_tc_dt_hd_c
+
+
+  subroutine twofl_handle_small_e_c(w, x, ixI^L, ixO^L, step)
+    use mod_global_parameters
+    use mod_thermal_conduction, only: handle_small_e
+    use mod_small_values
+
+    integer, intent(in)             :: ixI^L,ixO^L
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    integer, intent(in)    :: step
+
+    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl_c)
+  end subroutine twofl_handle_small_e_c
+
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+
+  subroutine  twofl_sts_set_source_tc_n_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_hd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl_n)
+  end subroutine twofl_sts_set_source_tc_n_hd
+
+  subroutine twofl_handle_small_e_n(w, x, ixI^L, ixO^L, step)
+    use mod_global_parameters
+    use mod_thermal_conduction, only: handle_small_e
+    use mod_small_values
+
+    integer, intent(in)             :: ixI^L,ixO^L
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    integer, intent(in)    :: step
+
+    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl_n)
+  end subroutine twofl_handle_small_e_n
+
+  function twofl_get_tc_dt_hd_n(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_hd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl_n) 
+  end function twofl_get_tc_dt_hd_n
+
+#endif
+
+  !end wrappers
+
+    ! fill in tc_fluid fields from namelist
+    subroutine tc_c_params_read_mhd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      type(tc_fluid), intent(inout) :: fl
+
+      integer                      :: n
+
+      ! list parameters
+      logical :: tc_perpendicular=.true.
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+      double precision :: tc_k_perp=0d0
+      character(len=std_len)  :: tc_slope_limiter="MC"
+ 
+      namelist /tc_c_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
+
+      do n = 1, size(par_files)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, tc_c_list, end=111)
+111     close(unitpar)
+      end do
+
+      fl%tc_perpendicular = tc_perpendicular
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+      fl%tc_k_perp = tc_k_perp
+      fl%tc_slope_limiter = tc_slope_limiter
+    end subroutine tc_c_params_read_mhd
+
+    subroutine tc_c_params_read_hd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_global_parameters, only: unitpar
+      type(tc_fluid), intent(inout) :: fl
+      integer                      :: n
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+
+      namelist /tc_c_list/ tc_saturate, tc_k_para
+
+      do n = 1, size(par_files)
+         open(unitpar, file=trim(par_files(n)), status="old")
+         read(unitpar, tc_c_list, end=111)
+111      close(unitpar)
+      end do
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+
+    end subroutine tc_c_params_read_hd
+
+    subroutine tc_n_params_read_hd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_global_parameters, only: unitpar
+      type(tc_fluid), intent(inout) :: fl
+      integer                      :: n
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+
+      namelist /tc_n_list/ tc_saturate, tc_k_para
+
+      do n = 1, size(par_files)
+         open(unitpar, file=trim(par_files(n)), status="old")
+         read(unitpar, tc_n_list, end=111)
+111      close(unitpar)
+      end do
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+
+    end subroutine tc_n_params_read_hd
+
 
   !> sets the equilibrium variables
   subroutine set_equi_vars_grid_faces(igrid,x,ixI^L,ixO^L)
@@ -1344,35 +1610,62 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
 
 !!USED IN TC
-!  !> Transform internal energy to total energy
-!  subroutine twofl_ei_to_e(ixI^L,ixO^L,w,x)
-!    use mod_global_parameters
-!    integer, intent(in)             :: ixI^L, ixO^L
-!    double precision, intent(inout) :: w(ixI^S, nw)
-!    double precision, intent(in)    :: x(ixI^S, 1:ndim)
-! 
-!    ! Calculate total energy from internal, kinetic and magnetic energy
-!    if(twofl_solve_eaux) w(ixI^S,eaux_)=w(ixI^S,e_)
-!    w(ixO^S,e_)=w(ixO^S,e_)&
-!               +twofl_kin_en(w,ixI^L,ixO^L)&
-!               +twofl_mag_en(w,ixI^L,ixO^L)
-!
-!  end subroutine twofl_ei_to_e
-!
-!  !> Transform total energy to internal energy
-!  subroutine twofl_e_to_ei(ixI^L,ixO^L,w,x)
-!    use mod_global_parameters
-!    integer, intent(in)             :: ixI^L, ixO^L
-!    double precision, intent(inout) :: w(ixI^S, nw)
-!    double precision, intent(in)    :: x(ixI^S, 1:ndim)
-!
-!    ! Calculate ei = e - ek - eb
-!    w(ixO^S,e_)=w(ixO^S,e_)&
-!                -twofl_kin_en(w,ixI^L,ixO^L)&
-!                -twofl_mag_en(w,ixI^L,ixO^L)
-!
-!  end subroutine twofl_e_to_ei
-!!USED IN TC END
+  !> Transform internal energy to total energy
+  subroutine twofl_ei_to_e_c(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+ 
+    ! Calculate total energy from internal, kinetic and magnetic energy
+    if(phys_solve_eaux) w(ixI^S,eaux_c_)=w(ixI^S,e_c_)
+    w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+               +twofl_kin_en_c(w,ixI^L,ixO^L)&
+               +twofl_mag_en(w,ixI^L,ixO^L)
+
+  end subroutine twofl_ei_to_e_c
+
+  !> Transform total energy to internal energy
+  subroutine twofl_e_to_ei_c(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+
+    ! Calculate ei = e - ek - eb
+    w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+                -twofl_kin_en_c(w,ixI^L,ixO^L)&
+                -twofl_mag_en(w,ixI^L,ixO^L)
+
+  end subroutine twofl_e_to_ei_c
+
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+   !Neutrals 
+  subroutine twofl_ei_to_e_n(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+ 
+    ! Calculate total energy from internal and kinetic  energy
+    w(ixO^S,e_n_)=w(ixO^S,e_n_)+twofl_kin_en_n(w,ixI^L,ixO^L)
+
+  end subroutine twofl_ei_to_e_n
+
+  !> Transform total energy to internal energy
+  subroutine twofl_e_to_ei_n(ixI^L,ixO^L,w,x)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L
+    double precision, intent(inout) :: w(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S, 1:ndim)
+
+    ! Calculate ei = e - ek 
+    w(ixO^S,e_n_)=w(ixO^S,e_n_)-twofl_kin_en_n(w,ixI^L,ixO^L)
+
+  end subroutine twofl_e_to_ei_n
+#endif
+
+
 
   subroutine twofl_energy_synchro(ixI^L,ixO^L,w,x)
     use mod_global_parameters
@@ -2459,69 +2752,132 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   
     end if
   end subroutine twofl_get_pthermal_n
+
+
+
+
+
+
+  !> separate routines so that it is faster
+  !> Calculate temperature=p/rho when in e_ the internal energy is stored
+  subroutine twofl_get_temperature_from_eint_n(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    res(ixO^S) = 1d0/Rn * gamma_1 * w(ixO^S, e_n_) /w(ixO^S,rho_n_)
+
+  end subroutine twofl_get_temperature_from_eint_n
+
+  subroutine twofl_get_temperature_from_eint_n_with_equi(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+      res(ixO^S) = 1d0/Rn * (gamma_1 * w(ixO^S, e_n_) + block%equi_vars(ixO^S,equi_pe_n0_,0)) /&
+                (w(ixO^S,rho_n_) +block%equi_vars(ixO^S,equi_rho_n0_,0))
+  end subroutine twofl_get_temperature_from_eint_n_with_equi
+
+  subroutine twofl_get_temperature_n_pert_from_tot(Te, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: Te(ixI^S)
+    double precision, intent(out):: res(ixI^S)
+      res(ixO^S) = Te(ixO^S) -1d0/Rn * &
+                block%equi_vars(ixO^S,equi_pe_n0_,0)/block%equi_vars(ixO^S,equi_rho_n0_,0)
+  end subroutine twofl_get_temperature_n_pert_from_tot
+
+  !> Calculate temperature=p/rho when in e_ the total energy is stored
+  !> this does not check the values of twofl_energy and twofl_internal_e, 
+  !>  twofl_energy = .true. and twofl_internal_e = .false.
+  !> also check small_values is avoided
+  subroutine twofl_get_temperature_from_etot_n(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+    res(ixO^S)=1d0/Rn * (gamma_1*(w(ixO^S,e_n_)&
+           - twofl_kin_en_n(w,ixI^L,ixO^L)))/w(ixO^S,rho_n_)
+  end subroutine twofl_get_temperature_from_etot_n
+
+  subroutine twofl_get_temperature_from_etot_n_with_equi(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+    res(ixO^S)=1d0/Rn * (gamma_1*(w(ixO^S,e_n_)&
+           - twofl_kin_en_n(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_n0_,0))&
+            /(w(ixO^S,rho_n_) +block%equi_vars(ixO^S,equi_rho_n0_,0))
+            
+  end subroutine twofl_get_temperature_from_etot_n_with_equi
 #endif
 
-!  !> Calculate temperature=p/rho when in e_ the internal energy is stored
-!  subroutine twofl_get_temperature_from_eint_n(w, x, ixI^L, ixO^L, res)
-!    use mod_global_parameters
-!    integer, intent(in)          :: ixI^L, ixO^L
-!    double precision, intent(in) :: w(ixI^S, 1:nw)
-!    double precision, intent(in) :: x(ixI^S, 1:ndim)
-!    double precision, intent(out):: res(ixI^S)
-!    res(ixO^S) = gamma_1 * w(ixO^S, e_n_) /w(ixO^S,rho_n_)
-!  end subroutine twofl_get_temperature_from_eint_n
-!
-!  !> Calculate temperature=p/rho when in e_ the internal energy is stored
-!  subroutine twofl_get_temperature_from_eint_c(w, x, ixI^L, ixO^L, res)
-!    use mod_global_parameters
-!    integer, intent(in)          :: ixI^L, ixO^L
-!    double precision, intent(in) :: w(ixI^S, 1:nw)
-!    double precision, intent(in) :: x(ixI^S, 1:ndim)
-!    double precision, intent(out):: res(ixI^S)
-!    res(ixO^S) = gamma_1 * w(ixO^S, e_c_) /w(ixO^S,rho_c_)
-!  end subroutine twofl_get_temperature_from_eint_c
-!
-!  !> Calculate temperature=p/rho when in e_ the total energy is stored
-!  !> this does not check the values of twofl_energy and twofl_internal_e, 
-!  !>  twofl_energy = .true. and twofl_internal_e = .false.
-!  !> also check small_values is avoided
-!  subroutine twofl_get_temperature_from_etot_n(w, x, ixI^L, ixO^L, res)
-!    use mod_global_parameters
-!    integer, intent(in)          :: ixI^L, ixO^L
-!    double precision, intent(in) :: w(ixI^S, 1:nw)
-!    double precision, intent(in) :: x(ixI^S, 1:ndim)
-!    double precision, intent(out):: res(ixI^S)
-!    res(ixO^S)=(gamma_1*(w(ixO^S,e_)&
-!           - twofl_kin_en(w,ixI^L,ixO^L)&
-!           - twofl_mag_en(w,ixI^L,ixO^L)))/w(ixO^S,rho_)
-!  end subroutine twofl_get_temperature_from_etot_n
-!  !> Calculate temperature=p/rho when in e_ the total energy is stored
-!  !> this does not check the values of twofl_energy and twofl_internal_e, 
-!  !>  twofl_energy = .true. and twofl_internal_e = .false.
-!  !> also check small_values is avoided
-!  subroutine twofl_get_temperature_from_etot_n(w, x, ixI^L, ixO^L, res)
-!    use mod_global_parameters
-!    integer, intent(in)          :: ixI^L, ixO^L
-!    double precision, intent(in) :: w(ixI^S, 1:nw)
-!    double precision, intent(in) :: x(ixI^S, 1:ndim)
-!    double precision, intent(out):: res(ixI^S)
-!    res(ixO^S)=(gamma_1*(w(ixO^S,e_)&
-!           - twofl_kin_en(w,ixI^L,ixO^L)&
-!  end subroutine twofl_get_temperature_from_etot_n
-!  !> Calculate temperature=p/rho when in e_ the total energy is stored
-!  !> this does not check the values of twofl_energy and twofl_internal_e, 
-!  !>  twofl_energy = .true. and twofl_internal_e = .false.
-!  !> also check small_values is avoided
-!  subroutine twofl_get_temperature_from_etot_c(w, x, ixI^L, ixO^L, res)
-!    use mod_global_parameters
-!    integer, intent(in)          :: ixI^L, ixO^L
-!    double precision, intent(in) :: w(ixI^S, 1:nw)
-!    double precision, intent(in) :: x(ixI^S, 1:ndim)
-!    double precision, intent(out):: res(ixI^S)
-!    res(ixO^S)=(gamma_1*(w(ixO^S,e_)&
-!           - twofl_kin_en(w,ixI^L,ixO^L)&
-!           - twofl_mag_en(w,ixI^L,ixO^L)))/w(ixO^S,rho_)
-!  end subroutine twofl_get_temperature_from_etot_c
+
+  !> separate routines so that it is faster
+  !> Calculate temperature=p/rho when in e_ the internal energy is stored
+  subroutine twofl_get_temperature_from_eint_c(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+
+    res(ixO^S) = 1d0/Rc * gamma_1 * w(ixO^S, e_c_) /w(ixO^S,rho_c_)
+
+  end subroutine twofl_get_temperature_from_eint_c
+
+  subroutine twofl_get_temperature_from_eint_c_with_equi(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+      res(ixO^S) = 1d0/Rc * (gamma_1 * w(ixO^S, e_c_) + block%equi_vars(ixO^S,equi_pe_c0_,0)) /&
+                (w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,0))
+  end subroutine twofl_get_temperature_from_eint_c_with_equi
+
+  subroutine twofl_get_temperature_c_pert_from_tot(Te, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: Te(ixI^S)
+    double precision, intent(out):: res(ixI^S)
+      res(ixO^S) = Te(ixO^S) -1d0/Rc * &
+                block%equi_vars(ixO^S,equi_pe_c0_,0)/block%equi_vars(ixO^S,equi_rho_c0_,0)
+  end subroutine twofl_get_temperature_c_pert_from_tot
+
+  !> Calculate temperature=p/rho when in e_ the total energy is stored
+  !> this does not check the values of twofl_energy and twofl_internal_e, 
+  !>  twofl_energy = .true. and twofl_internal_e = .false.
+  !> also check small_values is avoided
+  subroutine twofl_get_temperature_from_etot_c(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+    res(ixO^S)=1d0/Rc * (gamma_1*(w(ixO^S,e_c_)&
+           - twofl_kin_en_c(w,ixI^L,ixO^L)&
+           - twofl_mag_en(w,ixI^L,ixO^L)))/w(ixO^S,rho_c_)
+  end subroutine twofl_get_temperature_from_etot_c
+
+  subroutine twofl_get_temperature_from_etot_c_with_equi(w, x, ixI^L, ixO^L, res)
+    use mod_global_parameters
+    integer, intent(in)          :: ixI^L, ixO^L
+    double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
+    double precision, intent(out):: res(ixI^S)
+    res(ixO^S)=1d0/Rc * (gamma_1*(w(ixO^S,e_c_)&
+           - twofl_kin_en_c(w,ixI^L,ixO^L)&
+           - twofl_mag_en(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_c0_,0))&
+            /(w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,0))
+            
+  end subroutine twofl_get_temperature_from_etot_c_with_equi
+
 
   !> Calculate the square of the thermal sound speed csound2 within ixO^L.
   !> csound2=gamma*p_tot/rho_tot

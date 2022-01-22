@@ -41,35 +41,14 @@ module mod_thermal_conduction
   use mod_global_parameters, only: std_len
   use mod_geometry
   implicit none
-  private
-  !> Coefficient of thermal conductivity (parallel to magnetic field)
-  double precision, public :: tc_k_para
 
-  !> Coefficient of thermal conductivity perpendicular to magnetic field
-  double precision, public :: tc_k_perp
+    !> The adiabatic index
+    double precision :: tc_gamma_1
+  
+    !> small_e, see if it is worth having this a global var
+    ! or it is fine to recalculate it inside handle_small_e  
+    double precision :: small_e
 
-  !> The adiabatic index
-  double precision :: tc_gamma_1
-
-  !> small_e, see if it is worth having this a global var
-  ! or it is fine to recalculate it inside handle_small_e  
-  double precision :: small_e
-  !> Name of slope limiter for transverse component of thermal flux 
-  character(len=std_len)  :: tc_slope_limiter
-
-
-  !> Logical switch for test constant conductivity
-  logical :: tc_constant
-  !> Calculate thermal conduction perpendicular to magnetic field (.true.) or not (.false.)
-  logical, public :: tc_perpendicular=.false.
-
-  !> Consider thermal conduction saturation effect (.true.) or not (.false.)
-  logical :: tc_saturate=.true.
- 
-   !> Indices of the variables
-   integer :: rho_=-1,mag(1:3)=-1,e_=-1,eaux_=-1,Tcoff_=-1
-
-  public :: tc_init_mhd_for_total_energy, tc_init_mhd_for_internal_energy, tc_init_hd_for_total_energy, tc_init_hd_for_internal_energy  
   abstract interface
     subroutine get_temperature_subr(w,x,ixI^L,ixO^L,res)
       use mod_global_parameters
@@ -78,274 +57,170 @@ module mod_thermal_conduction
       double precision, intent(in) :: x(ixI^S,1:ndim)
       double precision, intent(out):: res(ixI^S)
     end subroutine get_temperature_subr
+
+    subroutine get_temperature_subr2(Te,ixI^L,ixO^L,res)
+      use mod_global_parameters
+      integer, intent(in)          :: ixI^L, ixO^L
+      double precision, intent(in) :: Te(ixI^S)
+      double precision, intent(out):: res(ixI^S)
+    end subroutine get_temperature_subr2
+
+    subroutine get_rho_subr(w,ixI^L,ixO^L,rho)
+      use mod_global_parameters
+      integer, intent(in)           :: ixI^L, ixO^L
+      double precision, intent(in)  :: w(ixI^S,1:nw)
+      double precision, intent(out) :: rho(ixI^S)
+    end subroutine get_rho_subr
+
+    subroutine get_v_subr(w,x,ixI^L,ixO^L,v)
+      use mod_global_parameters
+  
+      integer, intent(in)           :: ixI^L, ixO^L
+      double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
+      double precision, intent(out) :: v(ixI^S,ndir)
+  
+    end subroutine get_v_subr
   end interface
-  procedure(get_temperature_subr), pointer :: get_temperature_from_eint => null()
-  procedure(get_temperature_subr), pointer :: get_temperature_from_conserved => null()
+
+  type tc_fluid
+
+    ! the following are set in physics module
+    procedure (get_rho_subr), pointer, nopass :: get_rho => null()
+    procedure (get_v_subr), pointer, nopass :: get_vel => null()
+    procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_eint => null()
+    procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_conserved => null()
+    procedure(get_temperature_subr2), pointer,nopass :: get_temperature_pert_from_tot => null()
+     !> Indices of the variables
+     integer,allocatable :: mom(:)
+     integer :: e_=-1,Tcoff_=-1
+    ! END the following are set in physics module
+  
+    ! the following are read from param file or set in tc_read_hd_params or tc_read_mhd_params
+    !> Coefficient of thermal conductivity (parallel to magnetic field)
+    double precision :: tc_k_para
+  
+    !> Coefficient of thermal conductivity perpendicular to magnetic field
+    double precision :: tc_k_perp
+  
+    !> Name of slope limiter for transverse component of thermal flux 
+    character(len=std_len)  :: tc_slope_limiter
+    !> Logical switch for test constant conductivity
+    logical :: tc_constant
+    !> Calculate thermal conduction perpendicular to magnetic field (.true.) or not (.false.)
+    logical :: tc_perpendicular=.false.
+  
+    !> Consider thermal conduction saturation effect (.true.) or not (.false.)
+    logical :: tc_saturate=.true.
+    ! END the following are read from param file or set in tc_read_hd_params or tc_read_mhd_params
+  end type tc_fluid
+
+
+  public :: tc_get_mhd_params
+  public :: tc_get_hd_params
+  public :: get_tc_dt_mhd
+  public :: get_tc_dt_hd
+  public :: sts_set_source_tc_mhd
+  public :: sts_set_source_tc_hd
+  public :: handle_small_e
 
 contains
 
-  !> Init  TC coeffiecients: MHD case
-  subroutine tc_init_mhd_params(phys_gamma, ixArray)
+
+
+  subroutine tc_init_params(phys_gamma)
     use mod_global_parameters
     double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
-    rho_ = ixArray(1)
-    e_ = ixArray(2)
-    mag(1) = ixArray(3)
-    mag(2) = mag(1) + 1
-    mag(3) = mag(2) + 1
-    if(size(ixArray).eq.4) eaux_ = ixArray(4)
-    if(phys_trac) Tcoff_=iw_tcoff
 
     tc_gamma_1=phys_gamma-1d0
     small_e = small_pressure/tc_gamma_1
-    tc_slope_limiter='MC'
+  end subroutine tc_init_params
 
-    tc_k_para=0.d0
 
-    tc_k_perp=0.d0
+  !> Init  TC coeffiecients: MHD case
+  subroutine tc_get_mhd_params(fl,read_mhd_params)
 
-    call tc_params_read_mhd(par_files)
+    use mod_global_parameters
+
+    interface 
+    subroutine read_mhd_params(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      import tc_fluid
+      type(tc_fluid), intent(inout) :: fl
+
+    end subroutine read_mhd_params
+    end interface  
+
+    type(tc_fluid), intent(out) :: fl
+
+    allocate(fl%mom(1:ndir))
+    fl%tc_slope_limiter='MC'
+
+    fl%tc_k_para=0.d0
+
+    fl%tc_k_perp=0.d0
+
+    call read_mhd_params(fl)
   
-    if(tc_k_para==0.d0 .and. tc_k_perp==0.d0) then
+    if(fl%tc_k_para==0.d0 .and. fl%tc_k_perp==0.d0) then
       if(SI_unit) then
         ! Spitzer thermal conductivity with SI units
-        tc_k_para=8.d-12*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
+        fl%tc_k_para=8.d-12*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
         ! thermal conductivity perpendicular to magnetic field
-        tc_k_perp=4.d-30*unit_numberdensity**2/unit_magneticfield**2/unit_temperature**3*tc_k_para
+        fl%tc_k_perp=4.d-30*unit_numberdensity**2/unit_magneticfield**2/unit_temperature**3*fl%tc_k_para
       else
         ! Spitzer thermal conductivity with cgs units
-        tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
+        fl%tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
         ! thermal conductivity perpendicular to magnetic field
-        tc_k_perp=4.d-10*unit_numberdensity**2/unit_magneticfield**2/unit_temperature**3*tc_k_para
+        fl%tc_k_perp=4.d-10*unit_numberdensity**2/unit_magneticfield**2/unit_temperature**3*fl%tc_k_para
       end if
     else
-      tc_constant=.true.
+      fl%tc_constant=.true.
     end if
 
     contains 
 
     !> Read tc module parameters from par file: MHD case
-    subroutine tc_params_read_mhd(files)
-      use mod_global_parameters, only: unitpar
-      character(len=*), intent(in) :: files(:)
-      integer                      :: n
 
-      namelist /tc_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
+  end subroutine tc_get_mhd_params
 
-      do n = 1, size(files)
-        open(unitpar, file=trim(files(n)), status="old")
-        read(unitpar, tc_list, end=111)
-111     close(unitpar)
-      end do
 
-    end subroutine tc_params_read_mhd
-
-  end subroutine tc_init_mhd_params
-
-  !> Initialize the module
-  !> this adds the term in the STS methods linked lists when the total energy equation is used
-  !> Params: 
-  !> gamma
-  !> ixArray : an array with the indices of the variables
-  !> mhd_get_temperature_from_etot, mhd_get_temperature_from_eint subroutines which calculates temperature
-  !> mhd_ei_to_e, mhd_e_to_ei subroutines which calculates e_tot from e_int and e_int from e_tot
-  subroutine tc_init_mhd_for_total_energy(phys_gamma, ixArray, mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
+  subroutine tc_get_hd_params(fl,read_hd_params)
     use mod_global_parameters
-    use mod_supertimestepping, only: add_sts_method,sts_init,set_error_handling_to_head,set_conversion_methods_to_head
-    use mod_physics, only: phys_ei_to_e, phys_e_to_ei
-    double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
 
-    interface
-      subroutine mhd_get_temperature_from_etot(w,x,ixI^L,ixO^L,res)
-        use mod_global_parameters
+    interface 
+      subroutine read_hd_params(fl)
+        use mod_global_parameters, only: unitpar,par_files
+        import tc_fluid
+        type(tc_fluid), intent(inout) :: fl
   
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S,nw)
-        double precision, intent(in) :: x(ixI^S,1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine mhd_get_temperature_from_etot
-
-      subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
-        use mod_global_parameters
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S, 1:nw)
-        double precision, intent(in) :: x(ixI^S, 1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine mhd_get_temperature_from_eint
+      end subroutine read_hd_params
     end interface
+    type(tc_fluid), intent(out) :: fl
 
-    call tc_init_mhd_params(phys_gamma, ixArray)
-    call sts_init()
-    get_temperature_from_conserved => mhd_get_temperature_from_etot
-    get_temperature_from_eint => mhd_get_temperature_from_eint
-    call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,e_,1,e_,1,.false.)
-    call set_conversion_methods_to_head(phys_e_to_ei, phys_ei_to_e)
-
-    call set_error_handling_to_head(handle_small_e)
-
-  end subroutine tc_init_mhd_for_total_energy
-
-  !> Initialize tc module: MHD case
-  !> this adds the term in the STS methods linked lists when the internal energy equation is used
-  !> Params: 
-  !> gamma
-  !> ixArray : an array with the indices of the variables
-  !> mhd_get_temperature_from_eint subroutines which calculates temperature
-  subroutine tc_init_mhd_for_internal_energy(phys_gamma, ixArray, mhd_get_temperature_from_eint)
-    use mod_global_parameters
-    use mod_supertimestepping, only: add_sts_method,sts_init,set_error_handling_to_head
-    double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
-    interface
-      subroutine mhd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
-        use mod_global_parameters
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S, 1:nw)
-        double precision, intent(in) :: x(ixI^S, 1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine mhd_get_temperature_from_eint
-    end interface
-
-    call tc_init_mhd_params(phys_gamma, ixArray)
-    call sts_init()
-    get_temperature_from_conserved => mhd_get_temperature_from_eint
-    get_temperature_from_eint => mhd_get_temperature_from_eint
-    call add_sts_method(get_tc_dt_mhd,sts_set_source_tc_mhd,e_,1,e_,1,.false.)
-
-    call set_error_handling_to_head(handle_small_e)
-
-  end subroutine tc_init_mhd_for_internal_energy
-
-  subroutine tc_init_hd_params(phys_gamma, ixArray)
-    use mod_global_parameters
-    double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
-    rho_ = ixArray(1)
-    e_ = ixArray(2)
-    if(size(ixArray).eq.3) eaux_ = ixArray(3)
-    if(phys_trac) Tcoff_=iw_tcoff
-
-    tc_gamma_1=phys_gamma - 1d0
-    small_e = small_pressure/tc_gamma_1
-    tc_k_para=0.d0
-    call tc_params_read_hd(par_files)
-    if(tc_k_para==0.d0 ) then
+    allocate(fl%mom(1:ndir))
+    fl%tc_k_para=0.d0
+    !> Read tc parameters from par file: HD case
+    call read_hd_params(fl)
+    if(fl%tc_k_para==0.d0 ) then
       if(SI_unit) then
         ! Spitzer thermal conductivity with SI units
-        tc_k_para=8.d-12*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
+        fl%tc_k_para=8.d-12*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
       else
         ! Spitzer thermal conductivity with cgs units
-        tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
+        fl%tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
       end if
     end if
+  end subroutine tc_get_hd_params
 
-  contains
-
-    !> Read tc parameters from par file: HD case
-    subroutine tc_params_read_hd(files)
-      use mod_global_parameters, only: unitpar
-      character(len=*), intent(in) :: files(:)
-      integer                      :: n
-
-      namelist /tc_list/ tc_saturate, tc_k_para
-
-      do n = 1, size(files)
-         open(unitpar, file=trim(files(n)), status="old")
-         read(unitpar, tc_list, end=111)
-111      close(unitpar)
-      end do
-
-    end subroutine tc_params_read_hd
-  end subroutine tc_init_hd_params
-
-  !> Initialize the module for the HD
-  !> this adds the term in the STS methods linked lists when the total energy equation is used
-  !> Params: 
-  !> gamma
-  !> ixArray : an array with the indices of the variables
-  !> mhd_get_temperature_from_etot, mhd_get_temperature_from_eint subroutines which calculates temperature
-  !> mhd_ei_to_e, mhd_e_to_ei subroutines which calculates e_tot from e_int and e_int from e_tot
-  subroutine tc_init_hd_for_total_energy(phys_gamma,ixArray,hd_get_temperature_from_etot,hd_get_temperature_from_eint)
-    use mod_global_parameters
-    use mod_supertimestepping, only: add_sts_method,sts_init,set_conversion_methods_to_head,set_error_handling_to_head
-    use mod_physics, only: phys_ei_to_e, phys_e_to_ei
-
-    double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
-
-    interface
-      subroutine hd_get_temperature_from_etot(w, x, ixI^L, ixO^L, res)
-        use mod_global_parameters
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S, 1:nw)
-        double precision, intent(in) :: x(ixI^S, 1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine hd_get_temperature_from_etot
-  
-      subroutine hd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
-        use mod_global_parameters
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S, 1:nw)
-        double precision, intent(in) :: x(ixI^S, 1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine hd_get_temperature_from_eint
-    end interface
-
-    call tc_init_hd_params(phys_gamma, ixArray)
-    
-    get_temperature_from_eint => hd_get_temperature_from_eint
-    get_temperature_from_conserved => hd_get_temperature_from_etot
-    call sts_init()
-    call add_sts_method(get_tc_dt_hd,sts_set_source_tc_hd,e_,1,e_,1,.false.)
-    call set_conversion_methods_to_head(phys_e_to_ei, phys_ei_to_e)
-
-    call set_error_handling_to_head(handle_small_e)
-
-  end subroutine tc_init_hd_for_total_energy
-
-  !> Initialize the module
-  !> this adds the term in the STS methods linked lists when the internal energy equation is used
-  !> Params: 
-  !> gamma
-  !> ixArray : an array with the indices of the variables
-  !> mhd_get_temperature_from_eint subroutines which calculates temperature
-  subroutine tc_init_hd_for_internal_energy(phys_gamma,ixArray,hd_get_temperature_from_eint)
-    use mod_global_parameters
-    use mod_supertimestepping, only: add_sts_method,sts_init,set_conversion_methods_to_head,set_error_handling_to_head
-    use mod_physics, only: phys_ei_to_e, phys_e_to_ei
-
-    double precision, intent(in) :: phys_gamma
-    integer, intent(in) :: ixArray(:)
-
-    interface
-      subroutine hd_get_temperature_from_eint(w, x, ixI^L, ixO^L, res)
-        use mod_global_parameters
-        integer, intent(in)          :: ixI^L, ixO^L
-        double precision, intent(in) :: w(ixI^S, 1:nw)
-        double precision, intent(in) :: x(ixI^S, 1:ndim)
-        double precision, intent(out):: res(ixI^S)
-      end subroutine hd_get_temperature_from_eint
-    end interface
-
-    call tc_init_hd_params(phys_gamma, ixArray)
-    get_temperature_from_eint => hd_get_temperature_from_eint
-    get_temperature_from_conserved => hd_get_temperature_from_eint
-    call sts_init()
-    call add_sts_method(get_tc_dt_hd,sts_set_source_tc_hd,e_,1,e_,1,.false.)
-
-    call set_error_handling_to_head(handle_small_e)
-
-  end subroutine tc_init_hd_for_internal_energy
 
   !> Get the explicut timestep for the TC (mhd implementation)
-  function get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
+  function get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x,fl) result(dtnew)
     !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
     !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
     !and                        T=p/rho
     use mod_global_parameters
  
+    type(tc_fluid), intent(in)  ::  fl
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
     double precision, intent(in) :: w(ixI^S,1:nw)
@@ -359,13 +234,14 @@ contains
     ^D&dxinv(^D)=one/dx^D;
 
     !temperature
-    call get_temperature_from_conserved(w,x,ixI^L,ixO^L,Te)
+    call fl%get_temperature_from_conserved(w,x,ixI^L,ixO^L,Te)
 
     !tc_k_para_i
-    if(tc_constant) then
-      tmp(ixO^S)=tc_k_para
+    if(fl%tc_constant) then
+      tmp(ixO^S)=fl%tc_k_para
     else
-      tmp(ixO^S)=tc_k_para*dsqrt(Te(ixO^S)**5)/w(ixO^S,rho_)
+      call fl%get_rho(w,ixI^L,ixO^L,tmp2)
+      tmp(ixO^S)=fl%tc_k_para*dsqrt(Te(ixO^S)**5)/tmp2(ixO^S)
     end if
 
     ! B
@@ -383,11 +259,11 @@ contains
       ^D&mf(ixO^S,^D)=1.d0;
     end where
 
-    if(tc_saturate) B2(ixO^S)=22.d0*dsqrt(Te(ixO^S))
+    if(fl%tc_saturate) B2(ixO^S)=22.d0*dsqrt(Te(ixO^S))
     dtnew=bigdouble
     do idim=1,ndim
       tmp2(ixO^S)=tmp(ixO^S)*mf(ixO^S,idim)
-      if(tc_saturate) then
+      if(fl%tc_saturate) then
         where(tmp2(ixO^S)>B2(ixO^S))
           tmp2(ixO^S)=B2(ixO^S)
         end where
@@ -405,18 +281,19 @@ contains
 
   !> anisotropic thermal conduction with slope limited symmetric scheme
   !> Sharma 2007 Journal of Computational Physics 227, 123
-  subroutine sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+  subroutine sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,fl)
     use mod_global_parameters
     use mod_fix_conserve
-
     integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
     double precision, intent(in) ::  x(ixI^S,1:ndim)
     double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
     double precision, intent(in) :: my_dt
     logical, intent(in) :: fix_conserve_at_step
+    type(tc_fluid), intent(in) :: fl
 
     !! qd store the heat conduction energy changing rate
     double precision :: qd(ixI^S)
+    double precision :: rho(ixI^S)
     double precision :: qvec(ixI^S,1:ndim)
  
     double precision, dimension(ixI^S,1:ndir) :: mf,Bc,Bcf
@@ -437,7 +314,8 @@ contains
 
     dxinv=1.d0/dxlevel
 
-    call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+    call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+    call fl%get_rho(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
     ! T gradient at cell faces
     ! B vector
     if(B0field) then
@@ -468,29 +346,35 @@ contains
     Bc(ixC^S,1:ndim)=Bc(ixC^S,1:ndim)*0.5d0**ndim
     ! T gradient at cell faces
     gradT=0.d0
+    ! reuse maxq for Te pert
+    if(associated(fl%get_temperature_pert_from_tot)) then
+      call fl%get_temperature_pert_from_tot(Te,ixI^L,ixI^L,maxq)
+    else
+      maxq = Te
+    endif
     do idims=1,ndim
       ixBmin^D=ixmin^D;
       ixBmax^D=ixmax^D-kr(idims,^D);
-      call gradientC(Te,ixI^L,ixB^L,idims,minq)
+      call gradientC(maxq,ixI^L,ixB^L,idims,minq)
       gradT(ixB^S,idims)=minq(ixB^S)
     end do
-    if(tc_constant) then
-      if(tc_perpendicular) then
-        ka(ixC^S)=tc_k_para-tc_k_perp
-        ke(ixC^S)=tc_k_perp
+    if(fl%tc_constant) then
+      if(fl%tc_perpendicular) then
+        ka(ixC^S)=fl%tc_k_para-fl%tc_k_perp
+        ke(ixC^S)=fl%tc_k_perp
       else
-        ka(ixC^S)=tc_k_para
+        ka(ixC^S)=fl%tc_k_para
       end if
     else
       ! conductivity at cell center
       if(phys_trac) then
         minq(ix^S)=Te(ix^S)
-        where(minq(ix^S) < w(ix^S,Tcoff_))
-          minq(ix^S)=w(ix^S,Tcoff_)
+        where(minq(ix^S) < w(ix^S,fl%Tcoff_))
+          minq(ix^S)=w(ix^S,fl%Tcoff_)
         end where
-        minq(ix^S)=tc_k_para*sqrt(minq(ix^S)**5)
+        minq(ix^S)=fl%tc_k_para*sqrt(minq(ix^S)**5)
       else
-        minq(ix^S)=tc_k_para*sqrt(Te(ix^S)**5)
+        minq(ix^S)=fl%tc_k_para*sqrt(Te(ix^S)**5)
       end if
       ka=0.d0
       {do ix^DB=0,1\}
@@ -501,8 +385,8 @@ contains
       ! cell corner conductivity
       ka(ixC^S)=0.5d0**ndim*ka(ixC^S)
       ! compensate with perpendicular conductivity
-      if(tc_perpendicular) then
-        minq(ix^S)=tc_k_perp*w(ix^S,rho_)**2*Binv(ix^S)**2/dsqrt(Te(ix^S))
+      if(fl%tc_perpendicular) then
+        minq(ix^S)=fl%tc_k_perp*rho(ix^S)**2*Binv(ix^S)**2/dsqrt(Te(ix^S))
         ke=0.d0
         {do ix^DB=0,1\}
           ixBmin^D=ixCmin^D+ix^D;
@@ -519,7 +403,7 @@ contains
         end where
       end if
     end if
-    if(tc_slope_limiter=='no') then
+    if(fl%tc_slope_limiter=='no') then
       ! calculate thermal conduction flux with symmetric scheme
       do idims=1,ndim
         !qd corner values
@@ -539,7 +423,7 @@ contains
       do idims=1,ndim
         ! TC flux at cell corner
         gradT(ixC^S,idims)=ka(ixC^S)*Bc(ixC^S,idims)*qd(ixC^S)
-        if(tc_perpendicular) gradT(ixC^S,idims)=gradT(ixC^S,idims)+ke(ixC^S)*qvec(ixC^S,idims)
+        if(fl%tc_perpendicular) gradT(ixC^S,idims)=gradT(ixC^S,idims)+ke(ixC^S)*qvec(ixC^S,idims)
       end do
       ! TC flux at cell face
       qvec=0.d0
@@ -554,7 +438,7 @@ contains
            end if
         {end do\}
         qvec(ixA^S,idims)=qvec(ixA^S,idims)*0.5d0**(ndim-1)
-        if(tc_saturate) then
+        if(fl%tc_saturate) then
           ! consider saturation (Cowie and Mckee 1977 ApJ, 211, 135)
           ! unsigned saturated TC flux = 5 phi rho c**3, c is isothermal sound speed
           Bcf=0.d0
@@ -568,7 +452,7 @@ contains
           ! averaged b at face centers
           Bcf(ixA^S,idims)=Bcf(ixA^S,idims)*0.5d0**(ndim-1)
           ixB^L=ixA^L+kr(idims,^D);
-          qd(ixA^S)=2.75d0*(w(ixA^S,rho_)+w(ixB^S,rho_))*dsqrt(0.5d0*(Te(ixA^S)+Te(ixB^S)))**3*dabs(Bcf(ixA^S,idims))
+          qd(ixA^S)=2.75d0*(rho(ixA^S)+rho(ixB^S))*dsqrt(0.5d0*(Te(ixA^S)+Te(ixB^S)))**3*dabs(Bcf(ixA^S,idims))
          {do ix^DB=ixAmin^DB,ixAmax^DB\}
             if(dabs(qvec(ix^D,idims))>qd(ix^D)) then
               qvec(ix^D,idims)=sign(1.d0,qvec(ix^D,idims))*qd(ix^D)
@@ -594,14 +478,14 @@ contains
              ixBmax^D=ixAmax^D-ix^D;
              Bcf(ixA^S,1:ndim)=Bcf(ixA^S,1:ndim)+Bc(ixB^S,1:ndim)
              kaf(ixA^S)=kaf(ixA^S)+ka(ixB^S)
-             if(tc_perpendicular) kef(ixA^S)=kef(ixA^S)+ke(ixB^S)
+             if(fl%tc_perpendicular) kef(ixA^S)=kef(ixA^S)+ke(ixB^S)
            end if
         {end do\}
         ! averaged b at face centers
         Bcf(ixA^S,1:ndim)=Bcf(ixA^S,1:ndim)*0.5d0**(ndim-1)
         ! averaged thermal conductivity at face centers
         kaf(ixA^S)=kaf(ixA^S)*0.5d0**(ndim-1)
-        if(tc_perpendicular) kef(ixA^S)=kef(ixA^S)*0.5d0**(ndim-1)
+        if(fl%tc_perpendicular) kef(ixA^S)=kef(ixA^S)*0.5d0**(ndim-1)
         ! limited normal component
         minq(ixA^S)=min(alpha*gradT(ixA^S,idims),gradT(ixA^S,idims)/alpha)
         maxq(ixA^S)=max(alpha*gradT(ixA^S,idims),gradT(ixA^S,idims)/alpha)
@@ -630,19 +514,19 @@ contains
                qd(ixB^S)=maxq(ixA^S)
              end where
              qvec(ixA^S,idims)=qvec(ixA^S,idims)+Bc(ixB^S,idims)**2*qd(ixB^S)
-             if(tc_perpendicular) qe(ixA^S)=qe(ixA^S)+qd(ixB^S) 
+             if(fl%tc_perpendicular) qe(ixA^S)=qe(ixA^S)+qd(ixB^S) 
            end if
         {end do\}
         qvec(ixA^S,idims)=kaf(ixA^S)*qvec(ixA^S,idims)*0.5d0**(ndim-1)
         ! add normal flux from perpendicular conduction
-        if(tc_perpendicular) qvec(ixA^S,idims)=qvec(ixA^S,idims)+kef(ixA^S)*qe(ixA^S)*0.5d0**(ndim-1)
+        if(fl%tc_perpendicular) qvec(ixA^S,idims)=qvec(ixA^S,idims)+kef(ixA^S)*qe(ixA^S)*0.5d0**(ndim-1)
         ! limited transverse component, eq (17)
         ixBmin^D=ixAmin^D;
         ixBmax^D=ixAmax^D+kr(idims,^D);
         do idir=1,ndim
           if(idir==idims) cycle
-          qd(ixI^S)=slope_limiter(gradT(ixI^S,idir),ixI^L,ixB^L,idir,-1)
-          qd(ixI^S)=slope_limiter(qd,ixI^L,ixA^L,idims,1)
+          qd(ixI^S)=slope_limiter(gradT(ixI^S,idir),ixI^L,ixB^L,idir,-1,fl%tc_slope_limiter)
+          qd(ixI^S)=slope_limiter(qd,ixI^L,ixA^L,idims,1,fl%tc_slope_limiter)
           qvec(ixA^S,idims)=qvec(ixA^S,idims)+kaf(ixA^S)*Bnorm(ixA^S)*Bcf(ixA^S,idir)*qd(ixA^S)
         end do
 
@@ -651,15 +535,15 @@ contains
         !  qvec(ixA^S,idims)=tc_k_para*(0.5d0*(Te(ixA^S)+Te(ixB^S)))**2.5d0*gradT(ixA^S,idims)
         !end where
 
-        if(tc_saturate) then
+        if(fl%tc_saturate) then
           ! consider saturation (Cowie and Mckee 1977 ApJ, 211, 135)
           ! unsigned saturated TC flux = 5 phi rho c**3, c is isothermal sound speed
           ixB^L=ixA^L+kr(idims,^D);
-          qd(ixA^S)=2.75d0*(w(ixA^S,rho_)+w(ixB^S,rho_))*dsqrt(0.5d0*(Te(ixA^S)+Te(ixB^S)))**3*dabs(Bnorm(ixA^S))
+          qd(ixA^S)=2.75d0*(rho(ixA^S)+rho(ixB^S))*dsqrt(0.5d0*(Te(ixA^S)+Te(ixB^S)))**3*dabs(Bnorm(ixA^S))
          {do ix^DB=ixAmin^DB,ixAmax^DB\}
             if(dabs(qvec(ix^D,idims))>qd(ix^D)) then
         !      write(*,*) 'it',it,qvec(ix^D,idims),qd(ix^D),' TC saturated at ',&
-        !      x(ix^D,:),' rho',w(ix^D,rho_),' Te',Te(ix^D)
+        !      x(ix^D,:),' rho',rho(ix^D),' Te',Te(ix^D)
               qvec(ix^D,idims)=sign(1.d0,qvec(ix^D,idims))*qd(ix^D)
             end if
          {end do\}
@@ -690,15 +574,16 @@ contains
       deallocate(fluxall)
     end if
 
-    wres(ixO^S,e_)=qd(ixO^S)
+    wres(ixO^S,fl%e_)=qd(ixO^S)
 
   end subroutine sts_set_source_tc_mhd
 
-  function slope_limiter(f,ixI^L,ixO^L,idims,pm) result(lf)
+  function slope_limiter(f,ixI^L,ixO^L,idims,pm,tc_slope_limiter) result(lf)
     use mod_global_parameters
     integer, intent(in) :: ixI^L, ixO^L, idims, pm
     double precision, intent(in) :: f(ixI^S)
     double precision :: lf(ixI^S)
+    character(len=*), intent(in)  :: tc_slope_limiter
 
     double precision :: signf(ixI^S)
     integer :: ixB^L
@@ -773,30 +658,32 @@ contains
     end associate
   end subroutine gradientC
 
-  function get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x)  result(dtnew)
+  function get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,fl)  result(dtnew)
     ! Check diffusion time limit dt < dx_i**2 / ((gamma-1)*tc_k_para_i/rho)
     use mod_global_parameters
 
     integer, intent(in) :: ixI^L, ixO^L
     double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
     double precision, intent(in) :: w(ixI^S,1:nw)
+    type(tc_fluid), intent(in) :: fl
     double precision :: dtnew
 
-    double precision :: dxinv(1:ndim), tmp(ixI^S), Te(ixI^S)
+    double precision :: dxinv(1:ndim), tmp(ixI^S), Te(ixI^S), rho(ixI^S)
     double precision :: dtdiff_tcond,dtdiff_tsat
     integer          :: idim,ix^D
 
     ^D&dxinv(^D)=one/dx^D;
 
-    call get_temperature_from_conserved(w,x,ixI^L,ixO^L,Te)
+    call fl%get_temperature_from_conserved(w,x,ixI^L,ixO^L,Te)
+    call fl%get_rho(w,ixI^L,ixO^L,rho)
 
-    tmp(ixO^S)=tc_gamma_1*tc_k_para*dsqrt((Te(ixO^S))**5)/w(ixO^S,rho_)
+    tmp(ixO^S)=tc_gamma_1*fl%tc_k_para*dsqrt((Te(ixO^S))**5)/rho(ixO^S)
     dtnew = bigdouble
 
     do idim=1,ndim
        ! dt< dx_idim**2/((gamma-1)*tc_k_para_idim/rho)
        dtdiff_tcond=1d0/maxval(tmp(ixO^S)*dxinv(idim)**2)
-       if(tc_saturate) then
+       if(fl%tc_saturate) then
          ! dt< dx_idim**2/((gamma-1)*sqrt(Te)*5*phi)
          dtdiff_tsat=1d0/maxval(tc_gamma_1*dsqrt(Te(ixO^S))*&
                      5.d0*dxinv(idim)**2)
@@ -810,7 +697,7 @@ contains
 
   end function get_tc_dt_hd
 
-  subroutine sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+  subroutine sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,fl)
     use mod_global_parameters
     use mod_fix_conserve
 
@@ -819,8 +706,9 @@ contains
     double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
     double precision, intent(in) :: my_dt
     logical, intent(in) :: fix_conserve_at_step
+    type(tc_fluid), intent(in)    :: fl
 
-    double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S)
+    double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S),rho(ixI^S)
     double precision :: qvec(ixI^S,1:ndim),qd(ixI^S)
     double precision, allocatable, dimension(:^D&,:,:) :: fluxall
 
@@ -835,7 +723,7 @@ contains
     dxinv=1.d0/dxlevel
 
     !calculate Te in whole domain (+ghosts)
-    call get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
+    call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
 
     ! cell corner temperature in ke
     ke=0.d0
@@ -856,19 +744,22 @@ contains
     end do
     ! transition region adaptive conduction
     if(phys_trac) then
-      where(ke(ixI^S) < w(ixI^S,Tcoff_))
-        ke(ixI^S)=w(ixI^S,Tcoff_)
+      where(ke(ixI^S) < w(ixI^S,fl%Tcoff_))
+        ke(ixI^S)=w(ixI^S,fl%Tcoff_)
       end where
     end if
     ! cell corner conduction flux
     do idims=1,ndim
-      gradT(ixC^S,idims)=gradT(ixC^S,idims)*tc_k_para*sqrt(ke(ixC^S)**5)
+      gradT(ixC^S,idims)=gradT(ixC^S,idims)*fl%tc_k_para*sqrt(ke(ixC^S)**5)
     end do
 
-    if(tc_saturate) then
+    if(fl%tc_saturate) then
       ! consider saturation with unsigned saturated TC flux = 5 phi rho c**3
       ! saturation flux at cell center
-      qd(ix^S)=5.d0*w(ix^S,rho_)*dsqrt(Te(ix^S)**3)
+      !calculate rho 
+      call fl%get_rho(w, ixI^L, ix^L, rho)
+
+      qd(ix^S)=5.d0*rho(ix^S)*dsqrt(Te(ix^S)**3)
       !cell corner values of qd in ke
       ke=0.d0
       {do ix^DB=0,1\}
@@ -929,36 +820,39 @@ contains
       deallocate(fluxall)
     end if
 
-    wres(ixO^S,e_)=qd(ixO^S)
+    wres(ixO^S,fl%e_)=qd(ixO^S)
 
   end subroutine sts_set_source_tc_hd
 
-  subroutine handle_small_e(w, x, ixI^L, ixO^L, step)
+  subroutine handle_small_e(w, x, ixI^L, ixO^L, step,fl)
     use mod_global_parameters
     use mod_small_values
+
     integer, intent(in)             :: ixI^L,ixO^L
     double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     integer, intent(in)    :: step
+    type(tc_fluid), intent(in)    :: fl
 
     integer :: idir
     logical :: flag(ixI^S,1:nw)
     character(len=140) :: error_msg
+    double precision, allocatable, dimension(:^D&,:)    :: vel
 
     flag=.false.
-    where(w(ixO^S,e_)<small_e) flag(ixO^S,e_)=.true.
-    if(any(flag(ixO^S,e_))) then
+    where(w(ixO^S,fl%e_)<small_e) flag(ixO^S,fl%e_)=.true.
+    if(any(flag(ixO^S,fl%e_))) then
       select case (small_values_method)
       case ("replace")
-        where(flag(ixO^S,e_)) w(ixO^S,e_)=small_e
+        where(flag(ixO^S,fl%e_)) w(ixO^S,fl%e_)=small_e
       case ("average")
-        call small_values_average(ixI^L, ixO^L, w, x, flag, e_)
+        call small_values_average(ixI^L, ixO^L, w, x, flag, fl%e_)
       case default
         ! small values error shows primitive variables
-        w(ixO^S,e_)=w(ixO^S,e_)*tc_gamma_1
-        do idir = 1, ndir
-           w(ixO^S, iw_mom(idir)) = w(ixO^S, iw_mom(idir))/w(ixO^S,rho_)
-        end do
+        w(ixO^S,fl%e_)=w(ixO^S,fl%e_)*tc_gamma_1
+        allocate(vel(ixI^S,1:ndir))
+        call fl%get_vel(w,x,ixI^L,ixO^L,vel)
+        w(ixO^S,fl%mom(1:ndir)) = vel(ixO^S,1:ndir)   
         write(error_msg,"(a,i3)") "Thermal conduction step ", step
         call small_values_error(w, x, ixI^L, ixO^L, flag, error_msg)
       end select

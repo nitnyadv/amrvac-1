@@ -123,6 +123,7 @@ mod_hd_hllc.o: mod_dust.mod
 mod_hd_hllc.o: mod_hd_phys.mod
 mod_hd_hllc.o: mod_physics_hllc.mod
 mod_hd_phys.o: mod_dust.mod
+mod_hd_phys.o: mod_fix_conserve.mod
 mod_hd_phys.o: mod_geometry.mod
 mod_hd_phys.o: mod_gravity.mod
 mod_hd_phys.o: mod_particles.mod
@@ -130,6 +131,7 @@ mod_hd_phys.o: mod_physics.mod
 mod_hd_phys.o: mod_radiative_cooling.mod
 mod_hd_phys.o: mod_rotating_frame.mod
 mod_hd_phys.o: mod_small_values.mod
+mod_hd_phys.o: mod_supertimestepping.mod
 mod_hd_phys.o: mod_thermal_conduction.mod
 mod_hd_phys.o: mod_viscosity.mod
 mod_hd_ppm.o: mod_geometry.mod
@@ -274,9 +276,7 @@ mod_supertimestepping.o: mod_physics.mod
 mod_supertimestepping.o: mod_small_values.mod
 mod_thermal_conduction.o: mod_fix_conserve.mod
 mod_thermal_conduction.o: mod_geometry.mod
-mod_thermal_conduction.o: mod_physics.mod
 mod_thermal_conduction.o: mod_small_values.mod
-mod_thermal_conduction.o: mod_supertimestepping.mod
 mod_thermal_emission.o: mod_physics.mod
 mod_trac.o: mod_mhd.mod
 mod_trac.o: mod_particle_base.mod

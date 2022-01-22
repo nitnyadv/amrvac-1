@@ -1,6 +1,7 @@
 !> Magneto-hydrodynamics module
 module mod_mhd_phys
   use mod_global_parameters, only: std_len
+  use mod_thermal_conduction, only: tc_fluid
   implicit none
   private
 
@@ -9,6 +10,7 @@ module mod_mhd_phys
 
   !> Whether thermal conduction is used
   logical, public, protected              :: mhd_thermal_conduction = .false.
+  type(tc_fluid), allocatable :: tc_fl
 
   !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
   integer, parameter, private             :: MHD_TC =1
@@ -305,7 +307,9 @@ contains
     use mod_particles, only: particles_init, particles_eta, particles_etah
     use mod_magnetofriction, only: magnetofriction_init
     use mod_physics
-    use mod_supertimestepping, only: sts_init, add_sts_method
+    use mod_supertimestepping, only: sts_init, add_sts_method,&
+            set_conversion_methods_to_head, set_error_handling_to_head
+
 
     {^NOONED
     use mod_multigrid_coupling
@@ -577,29 +581,39 @@ contains
     ! initialize thermal conduction module
     if (mhd_thermal_conduction) then
       phys_req_diagonal = .true.
+
+      call sts_init()
+      call tc_init_params(mhd_gamma)
+
+      allocate(tc_fl)
       if(use_mhd_tc .eq. MHD_TC) then
-
-        if(mhd_internal_e) then
-          call tc_init_mhd_for_internal_energy(mhd_gamma,[rho_,e_,mag(1)],mhd_get_temperature_from_eint)
+        call tc_get_mhd_params(tc_fl,tc_params_read_mhd)
+        if(phys_internal_e) then
+          tc_fl%get_temperature_from_conserved => mhd_get_temperature_from_eint
+          call add_sts_method(mhd_get_tc_dt_mhd,mhd_sts_set_source_tc_mhd,e_,1,e_,1,.false.)
         else
-          if(mhd_solve_eaux) then
-            call tc_init_mhd_for_total_energy(mhd_gamma,[rho_,e_,mag(1),eaux_],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
-          else
-            call tc_init_mhd_for_total_energy(mhd_gamma,[rho_,e_,mag(1)],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
-          endif
+          tc_fl%get_temperature_from_conserved => mhd_get_temperature_from_etot
+          call add_sts_method(mhd_get_tc_dt_mhd,mhd_sts_set_source_tc_mhd,e_,1,e_,1,.false.)
+          call set_conversion_methods_to_head(mhd_e_to_ei, mhd_ei_to_e)
         endif
-
       else if(use_mhd_tc .eq. HD_TC) then
-        if(mhd_internal_e) then
-          call tc_init_hd_for_internal_energy(mhd_gamma,[rho_,e_],mhd_get_temperature_from_eint)
+        call tc_get_hd_params(tc_fl,tc_params_read_hd)
+        if(phys_internal_e) then
+          tc_fl%get_temperature_from_conserved => mhd_get_temperature_from_eint
+          call add_sts_method(mhd_get_tc_dt_hd,mhd_sts_set_source_tc_hd,e_,1,e_,1,.false.)
         else
-          if(mhd_solve_eaux) then
-            call tc_init_hd_for_total_energy(mhd_gamma,[rho_,e_,eaux_],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
-          else
-            call tc_init_hd_for_total_energy(mhd_gamma,[rho_,e_],mhd_get_temperature_from_etot, mhd_get_temperature_from_eint)
-          endif
+          tc_fl%get_temperature_from_conserved => mhd_get_temperature_from_etot
+          call add_sts_method(mhd_get_tc_dt_hd,mhd_sts_set_source_tc_hd,e_,1,e_,1,.false.)
+          call set_conversion_methods_to_head(mhd_e_to_ei, mhd_ei_to_e)
         endif
       endif
+      call set_error_handling_to_head(mhd_handle_small_e)
+      tc_fl%get_temperature_from_eint => mhd_get_temperature_from_eint
+      tc_fl%get_rho => mhd_get_rho
+      tc_fl%get_vel => mhd_get_v
+      tc_fl%e_ = e_
+      tc_fl%Tcoff_ = Tcoff_
+      tc_fl%mom(1:ndir) = mom(1:ndir)
     end if
 
     ! Initialize radiative cooling module
@@ -668,6 +682,138 @@ contains
     end if
 
   end subroutine mhd_phys_init
+
+!!start th cond
+  ! wrappers for STS functions in thermal_conductivity module
+  ! which take as argument the tc_fluid (defined in the physics module)
+  subroutine  mhd_sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_mhd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_mhd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl)
+  end subroutine mhd_sts_set_source_tc_mhd
+
+  subroutine  mhd_sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_hd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl)
+  end subroutine mhd_sts_set_source_tc_hd
+
+
+  function mhd_get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_mhd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_mhd(w,ixI^L,ixO^L,dx^D,x,tc_fl) 
+  end function mhd_get_tc_dt_mhd
+
+  function mhd_get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_hd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl) 
+  end function mhd_get_tc_dt_hd
+
+
+  subroutine mhd_handle_small_e(w, x, ixI^L, ixO^L, step)
+    use mod_global_parameters
+    use mod_thermal_conduction, only: handle_small_e
+    use mod_small_values
+
+    integer, intent(in)             :: ixI^L,ixO^L
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    integer, intent(in)    :: step
+
+    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl)
+  end subroutine mhd_handle_small_e
+
+    ! fill in tc_fluid fields from namelist
+    subroutine tc_params_read_mhd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      type(tc_fluid), intent(inout) :: fl
+
+      integer                      :: n
+
+      ! list parameters
+      logical :: tc_perpendicular=.true.
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+      double precision :: tc_k_perp=0d0
+      character(len=std_len)  :: tc_slope_limiter="MC"
+ 
+      namelist /tc_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
+
+      do n = 1, size(par_files)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, tc_list, end=111)
+111     close(unitpar)
+      end do
+
+      fl%tc_perpendicular = tc_perpendicular
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+      fl%tc_k_perp = tc_k_perp
+      fl%tc_slope_limiter = tc_slope_limiter
+    end subroutine tc_params_read_mhd
+
+    subroutine tc_params_read_hd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_global_parameters, only: unitpar
+      type(tc_fluid), intent(inout) :: fl
+      integer                      :: n
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+
+      namelist /tc_list/ tc_saturate, tc_k_para
+
+      do n = 1, size(par_files)
+         open(unitpar, file=trim(par_files(n)), status="old")
+         read(unitpar, tc_list, end=111)
+111      close(unitpar)
+      end do
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+
+    end subroutine tc_params_read_hd
+
+  subroutine mhd_get_rho(w,ixI^L,ixO^L,rho)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L
+    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(out) :: rho(ixI^S)
+
+    rho(ixO^S) = w(ixO^S,rho_) 
+
+  end subroutine mhd_get_rho
+!!end th cond
 
   subroutine mhd_check_params
     use mod_global_parameters

@@ -1,5 +1,6 @@
 !> Hydrodynamics physics module
 module mod_hd_phys
+  use mod_thermal_conduction, only: tc_fluid
   implicit none
   private
 
@@ -8,6 +9,7 @@ module mod_hd_phys
 
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
+  type(tc_fluid), allocatable :: tc_fl
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
@@ -187,6 +189,8 @@ contains
     use mod_particles, only: particles_init
     use mod_rotating_frame, only:rotating_frame_init
     use mod_physics
+    use mod_supertimestepping, only: sts_init, add_sts_method,&
+            set_conversion_methods_to_head, set_error_handling_to_head
 
     integer :: itr, idir
 
@@ -296,6 +300,21 @@ contains
            call mpistop("thermal conduction needs hd_energy=T")
       phys_req_diagonal = .true.
       call tc_init_hd_for_total_energy(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint)
+
+      call sts_init()
+      call tc_init_params(hd_gamma)
+
+      allocate(tc_fl)
+      call tc_get_hd_params(tc_fl,tc_params_read_hd)
+      tc_fl%get_temperature_from_conserved => hd_get_temperature_from_etot
+      call add_sts_method(hd_get_tc_dt_hd,hd_sts_set_source_tc_hd,e_,1,e_,1,.false.)
+      call set_conversion_methods_to_head(hd_e_to_ei, hd_ei_to_e)
+      call set_error_handling_to_head(hd_handle_small_e)
+      tc_fl%get_temperature_from_eint => hd_get_temperature_from_eint
+      tc_fl%get_rho => hd_get_rho
+      tc_fl%get_vel => hd_get_v_alldim
+      tc_fl%e_ = e_
+      tc_fl%mom(1:ndir) = mom(1:ndir)
     end if
 
     ! Initialize radiative cooling module
@@ -333,6 +352,101 @@ contains
     iw_vector(1) = mom(1) - 1
 
   end subroutine hd_phys_init
+
+!!start th cond
+  ! wrappers for STS functions in thermal_conductivity module
+  ! which take as argument the tc_fluid (defined in the physics module)
+  subroutine  hd_sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux)
+    use mod_global_parameters
+    use mod_fix_conserve
+    use mod_thermal_conduction, only: sts_set_source_tc_hd
+    integer, intent(in) :: ixI^L, ixO^L, igrid, nflux
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(inout) ::  wres(ixI^S,1:nw), w(ixI^S,1:nw)
+    double precision, intent(in) :: my_dt
+    logical, intent(in) :: fix_conserve_at_step
+    call sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl)
+  end subroutine hd_sts_set_source_tc_hd
+
+
+  function hd_get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
+    !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
+    !where                      tc_k_para_i=tc_k_para*B_i**2/B**2
+    !and                        T=p/rho
+    use mod_global_parameters
+    use mod_thermal_conduction, only: get_tc_dt_hd
+ 
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) :: dx^D, x(ixI^S,1:ndim)
+    double precision, intent(in) :: w(ixI^S,1:nw)
+    double precision :: dtnew
+
+    dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl) 
+  end function hd_get_tc_dt_hd
+
+
+  subroutine hd_handle_small_e(w, x, ixI^L, ixO^L, step)
+    use mod_global_parameters
+    use mod_thermal_conduction, only: handle_small_e
+    use mod_small_values
+
+    integer, intent(in)             :: ixI^L,ixO^L
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    integer, intent(in)    :: step
+
+    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl)
+  end subroutine hd_handle_small_e
+
+    ! fill in tc_fluid fields from namelist
+    subroutine tc_params_read_hd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_global_parameters, only: unitpar
+      type(tc_fluid), intent(inout) :: fl
+      integer                      :: n
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+
+      namelist /tc_list/ tc_saturate, tc_k_para
+
+      do n = 1, size(par_files)
+         open(unitpar, file=trim(par_files(n)), status="old")
+         read(unitpar, tc_list, end=111)
+111      close(unitpar)
+      end do
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+
+    end subroutine tc_params_read_hd
+
+  subroutine hd_get_rho(w,ixI^L,ixO^L,rho)
+    use mod_global_parameters
+    integer, intent(in)           :: ixI^L, ixO^L
+    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(out) :: rho(ixI^S)
+
+    rho(ixO^S) = w(ixO^S,rho_) 
+
+  end subroutine hd_get_rho
+
+  !> Calculate v vector
+  subroutine hd_get_v_alldim(w,x,ixI^L,ixO^L,v)
+    use mod_global_parameters
+
+    integer, intent(in)           :: ixI^L, ixO^L
+    double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
+    double precision, intent(out) :: v(ixI^S,ndir)
+
+    integer :: idir
+
+    do idir=1,ndir
+      v(ixO^S,idir) = w(ixO^S, mom(idir)) / w(ixO^S,rho_)
+    end do
+
+  end subroutine hd_get_v_alldim
+
+
+!!end th cond
 
   subroutine hd_check_params
     use mod_global_parameters
