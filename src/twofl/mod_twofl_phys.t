@@ -43,7 +43,7 @@ module mod_twofl_phys
   !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
   integer, parameter, private             :: MHD_TC =1
   integer, parameter, private             :: HD_TC =2
-  integer, protected                      :: use_twofl_tc_c = HD_TC
+  integer, protected                      :: use_twofl_tc_c = MHD_TC
 
 
   !> Whether radiative cooling is added
@@ -122,7 +122,7 @@ module mod_twofl_phys
   integer, allocatable, public, protected :: mom_c(:)
 
   !> Index of the energy density (-1 if not present)
-  integer, public, protected              :: e_c_
+  integer, public, protected              :: e_c_=-1
 
   !> Index of the cutoff temperature for the TRAC method
   integer, public, protected              :: Tcoff_c_
@@ -182,6 +182,7 @@ module mod_twofl_phys
 
   !> Index of the energy density (-1 if not present)
   integer, public, protected              :: e_
+  integer, public, protected              :: p_
 
   !> Index of the cutoff temperature for the TRAC method
   integer, public, protected              :: Tcoff_
@@ -690,9 +691,10 @@ contains
   allocate(mom(ndir))
   mom(:)=mom_c(:)
   e_ = e_c_
+  p_ = e_c_
   Tcoff_=Tcoff_c_
   Tweight_ = Tweight_c_
-  eaux_=eauc_c_ 
+  eaux_=eaux_c_ 
 
 #endif
 
@@ -1153,23 +1155,11 @@ contains
       character(len=std_len)  :: tc_slope_limiter="MC"
  
       namelist /tc_c_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
-    ! add  the list as in mhd
-#if defined(ONE_FLUID) && ONE_FLUID==1
-      namelist /tc_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
-#endif
       do n = 1, size(par_files)
         open(unitpar, file=trim(par_files(n)), status="old")
         read(unitpar, tc_c_list, end=111)
 111     close(unitpar)
       end do
-     ! read tc_list after tc_c_list! 
-#if defined(ONE_FLUID) && ONE_FLUID==1
-      do n = 1, size(par_files)
-        open(unitpar, file=trim(par_files(n)), status="old")
-        read(unitpar, tc_list, end=111)
-111     close(unitpar)
-      end do
-#endif
 
       fl%tc_perpendicular = tc_perpendicular
       fl%tc_saturate = tc_saturate
@@ -4385,6 +4375,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
 
 
+#if !defined(ONE_FLUID) || ONE_FLUID==0
   !> handle small or negative internal energy
   subroutine twofl_handle_small_ei_n(w, x, ixI^L, ixO^L, ie, subname)
     use mod_global_parameters
@@ -4397,9 +4388,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     integer :: idir
     logical :: flag(ixI^S,1:nw)
     double precision              :: rhoc(ixI^S)
-#if !defined(ONE_FLUID) || ONE_FLUID==0
     double precision              :: rhon(ixI^S)
-#endif
 
     flag=.false.
     if(has_equi_pe_n0) then
@@ -4421,16 +4410,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         call small_values_average(ixI^L, ixO^L, w, x, flag, ie)
       case default
         ! small values error shows primitive variables
-#if !defined(ONE_FLUID) || ONE_FLUID==0
         w(ixO^S,e_n_)=w(ixO^S,e_n_)*gamma_1
         call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-#endif
         w(ixO^S,e_c_)=w(ixO^S,e_c_)*gamma_1
         call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
         do idir = 1, ndir
-#if !defined(ONE_FLUID) || ONE_FLUID==0
            w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
-#endif
            w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
         end do
         call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
@@ -4438,6 +4423,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end if
 
   end subroutine twofl_handle_small_ei_n
+#endif
 
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)

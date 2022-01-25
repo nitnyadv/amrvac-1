@@ -9,10 +9,11 @@ module mod_twofl_roe
 
   implicit none
   private
-  integer :: rho_
-  integer :: e_,p_
-  !make it static
-  integer :: mom(1:3)
+  ! defined in phys NOW
+  !integer :: rho_
+  !integer :: e_,p_
+  !!make it static
+  !integer :: mom(1:3)
 
   integer, parameter :: fastRW_ = 3,fastLW_=4,slowRW_=5,slowLW_=6 ! Characteristic
   integer, parameter :: entroW_ = 8,diverW_=7,alfvRW_=1,alfvLW_=2 ! waves
@@ -27,10 +28,10 @@ contains
     use mod_global_parameters
     integer :: il
 
-    mom(1:ndir) = mom_c(1:ndir)
-    rho_ = rho_c_
-    e_ = e_c_
-    p_ = e_c_
+    !mom(1:ndir) = mom_c(1:ndir)
+    !rho_ = rho_c_
+    !e_ = e_c_
+    !p_ = e_c_
 
     phys_average => twofl_average
     phys_get_eigenjump => twofl_get_eigenjump

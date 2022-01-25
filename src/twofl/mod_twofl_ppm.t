@@ -6,10 +6,11 @@ module mod_twofl_ppm
 
   implicit none
   private
-  integer :: rho_
-  integer :: e_,p_
-  !make it static
-  integer :: mom(1:3)
+  !THESE are now defined in phys module
+  !integer :: rho_
+  !integer :: e_,p_
+  !!make it static
+  !integer :: mom(1:3)
 
   public :: twofl_ppm_init
 
@@ -18,10 +19,10 @@ contains
   subroutine twofl_ppm_init()
     use mod_physics_ppm
     use mod_global_parameters
-    mom(1:ndir) = mom_c(1:ndir)
-    rho_ = rho_c_
-    e_ = e_c_
-    p_ = e_c_
+    !mom(1:ndir) = mom_c(1:ndir)
+    !rho_ = rho_c_
+    !e_ = e_c_
+    !p_ = e_c_
     phys_ppm_flatcd => twofl_ppm_flatcd
     phys_ppm_flatsh => twofl_ppm_flatsh
   end subroutine twofl_ppm_init

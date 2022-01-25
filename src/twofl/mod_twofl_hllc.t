@@ -5,10 +5,12 @@ module mod_twofl_hllc
 
   implicit none
   private
-  integer :: rho_
-  integer :: e_
-  !make it static
-  integer :: mom(1:3)
+
+! TODO these are now defined in mod_twofl_phys
+!  integer :: rho_
+!  integer :: e_
+!  !make it static
+!  integer :: mom(1:3)
 
   public :: twofl_hllc_init
 
@@ -19,9 +21,9 @@ contains
   subroutine twofl_hllc_init()
     use mod_physics_hllc
     use mod_global_parameters
-    mom(1:ndir) = mom_c(1:ndir)
-    rho_ = rho_c_
-    e_ = e_c_
+    !mom(1:ndir) = mom_c(1:ndir)
+    !rho_ = rho_c_
+    !e_ = e_c_
 
     phys_diffuse_hllcd => twofl_diffuse_hllcd
     phys_get_lCD => twofl_get_lCD
