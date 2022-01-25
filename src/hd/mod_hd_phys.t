@@ -309,10 +309,9 @@ contains
       tc_fl%get_temperature_from_conserved => hd_get_temperature_from_etot
       call add_sts_method(hd_get_tc_dt_hd,hd_sts_set_source_tc_hd,e_,1,e_,1,.false.)
       call set_conversion_methods_to_head(hd_e_to_ei, hd_ei_to_e)
-      call set_error_handling_to_head(hd_handle_small_e)
+      call set_error_handling_to_head(hd_tc_handle_small_e)
       tc_fl%get_temperature_from_eint => hd_get_temperature_from_eint
       tc_fl%get_rho => hd_get_rho
-      tc_fl%get_vel => hd_get_v_alldim
       tc_fl%e_ = e_
       tc_fl%mom(1:ndir) = mom(1:ndir)
     end if
@@ -384,10 +383,10 @@ contains
     dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl) 
   end function hd_get_tc_dt_hd
 
-
-  subroutine hd_handle_small_e(w, x, ixI^L, ixO^L, step)
+  
+  subroutine hd_tc_handle_small_e(w, x, ixI^L, ixO^L, step)
+    ! move this in a different  routine as in mhd if needed in more places
     use mod_global_parameters
-    use mod_thermal_conduction, only: handle_small_e
     use mod_small_values
 
     integer, intent(in)             :: ixI^L,ixO^L
@@ -395,8 +394,29 @@ contains
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     integer, intent(in)    :: step
 
-    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl)
-  end subroutine hd_handle_small_e
+    integer :: idir
+    logical :: flag(ixI^S,1:nw)
+    character(len=140) :: error_msg
+
+    flag=.false.
+    where(w(ixO^S,e_)<small_e) flag(ixO^S,e_)=.true.
+    if(any(flag(ixO^S,e_))) then
+      select case (small_values_method)
+      case ("replace")
+        where(flag(ixO^S,e_)) w(ixO^S,e_)=small_e
+      case ("average")
+        call small_values_average(ixI^L, ixO^L, w, x, flag, e_)
+      case default
+        ! small values error shows primitive variables
+        w(ixO^S,e_)=w(ixO^S,e_)*(hd_gamma - 1.0d0)
+        do idir = 1, ndir
+           w(ixO^S, iw_mom(idir)) = w(ixO^S, iw_mom(idir))/w(ixO^S,rho_)
+        end do
+        write(error_msg,"(a,i3)") "Thermal conduction step ", step
+        call small_values_error(w, x, ixI^L, ixO^L, flag, error_msg)
+      end select
+    end if
+  end subroutine hd_tc_handle_small_e
 
     ! fill in tc_fluid fields from namelist
     subroutine tc_params_read_hd(fl)
@@ -428,23 +448,6 @@ contains
     rho(ixO^S) = w(ixO^S,rho_) 
 
   end subroutine hd_get_rho
-
-  !> Calculate v vector
-  subroutine hd_get_v_alldim(w,x,ixI^L,ixO^L,v)
-    use mod_global_parameters
-
-    integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
-    double precision, intent(out) :: v(ixI^S,ndir)
-
-    integer :: idir
-
-    do idir=1,ndir
-      v(ixO^S,idir) = w(ixO^S, mom(idir)) / w(ixO^S,rho_)
-    end do
-
-  end subroutine hd_get_v_alldim
-
 
 !!end th cond
 

@@ -44,10 +44,6 @@ module mod_thermal_conduction
 
     !> The adiabatic index
     double precision :: tc_gamma_1
-  
-    !> small_e, see if it is worth having this a global var
-    ! or it is fine to recalculate it inside handle_small_e  
-    double precision :: small_e
 
   abstract interface
     subroutine get_temperature_subr(w,x,ixI^L,ixO^L,res)
@@ -72,21 +68,12 @@ module mod_thermal_conduction
       double precision, intent(out) :: rho(ixI^S)
     end subroutine get_rho_subr
 
-    subroutine get_v_subr(w,x,ixI^L,ixO^L,v)
-      use mod_global_parameters
-  
-      integer, intent(in)           :: ixI^L, ixO^L
-      double precision, intent(in)  :: w(ixI^S,nw), x(ixI^S,1:ndim)
-      double precision, intent(out) :: v(ixI^S,ndir)
-  
-    end subroutine get_v_subr
   end interface
 
   type tc_fluid
 
     ! the following are set in physics module
     procedure (get_rho_subr), pointer, nopass :: get_rho => null()
-    procedure (get_v_subr), pointer, nopass :: get_vel => null()
     procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_eint => null()
     procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_conserved => null()
     procedure(get_temperature_subr2), pointer,nopass :: get_temperature_pert_from_tot => null()
@@ -121,7 +108,6 @@ module mod_thermal_conduction
   public :: get_tc_dt_hd
   public :: sts_set_source_tc_mhd
   public :: sts_set_source_tc_hd
-  public :: handle_small_e
 
 contains
 
@@ -132,7 +118,6 @@ contains
     double precision, intent(in) :: phys_gamma
 
     tc_gamma_1=phys_gamma-1d0
-    small_e = small_pressure/tc_gamma_1
   end subroutine tc_init_params
 
 
@@ -708,7 +693,7 @@ contains
     logical, intent(in) :: fix_conserve_at_step
     type(tc_fluid), intent(in)    :: fl
 
-    double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S),rho(ixI^S)
+    double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S),tmp(ixI^S)
     double precision :: qvec(ixI^S,1:ndim),qd(ixI^S)
     double precision, allocatable, dimension(:^D&,:,:) :: fluxall
 
@@ -725,13 +710,19 @@ contains
     !calculate Te in whole domain (+ghosts)
     call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
 
-    ! cell corner temperature in ke
+    ! use temperature perturbation only for temperature gradient
+    if(associated(fl%get_temperature_pert_from_tot)) then
+      call fl%get_temperature_pert_from_tot(Te,ixI^L,ixI^L,tmp)
+    else
+      tmp = Te
+    endif
+    ! cell corner temperature perturbation in ke
     ke=0.d0
     ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
     {do ix^DB=0,1\}
       ixBmin^D=ixAmin^D+ix^D;
       ixBmax^D=ixAmax^D+ix^D;
-      ke(ixA^S)=ke(ixA^S)+Te(ixB^S)
+      ke(ixA^S)=ke(ixA^S)+tmp(ixB^S)
     {end do\}
     ke(ixA^S)=0.5d0**ndim*ke(ixA^S)
     ! T gradient (central difference) at cell corners
@@ -742,6 +733,17 @@ contains
       call gradient(ke,ixI^L,ixB^L,idims,qd)
       gradT(ixB^S,idims)=qd(ixB^S)
     end do
+    ! now recalcuate ke with full temperature when splitting is used
+    if(associated(fl%get_temperature_pert_from_tot)) then
+      ke=0.d0
+      ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
+      {do ix^DB=0,1\}
+        ixBmin^D=ixAmin^D+ix^D;
+        ixBmax^D=ixAmax^D+ix^D;
+        ke(ixA^S)=ke(ixA^S)+Te(ixB^S)
+      {end do\}
+      ke(ixA^S)=0.5d0**ndim*ke(ixA^S)
+    endif
     ! transition region adaptive conduction
     if(phys_trac) then
       where(ke(ixI^S) < w(ixI^S,fl%Tcoff_))
@@ -757,9 +759,9 @@ contains
       ! consider saturation with unsigned saturated TC flux = 5 phi rho c**3
       ! saturation flux at cell center
       !calculate rho 
-      call fl%get_rho(w, ixI^L, ix^L, rho)
+      call fl%get_rho(w, ixI^L, ix^L, tmp)
 
-      qd(ix^S)=5.d0*rho(ix^S)*dsqrt(Te(ix^S)**3)
+      qd(ix^S)=5.d0*tmp(ix^S)*dsqrt(Te(ix^S)**3)
       !cell corner values of qd in ke
       ke=0.d0
       {do ix^DB=0,1\}
@@ -819,44 +821,8 @@ contains
       call store_flux(igrid,fluxall,1,ndim,nflux)
       deallocate(fluxall)
     end if
-
     wres(ixO^S,fl%e_)=qd(ixO^S)
 
   end subroutine sts_set_source_tc_hd
-
-  subroutine handle_small_e(w, x, ixI^L, ixO^L, step,fl)
-    use mod_global_parameters
-    use mod_small_values
-
-    integer, intent(in)             :: ixI^L,ixO^L
-    double precision, intent(inout) :: w(ixI^S,1:nw)
-    double precision, intent(in)    :: x(ixI^S,1:ndim)
-    integer, intent(in)    :: step
-    type(tc_fluid), intent(in)    :: fl
-
-    integer :: idir
-    logical :: flag(ixI^S,1:nw)
-    character(len=140) :: error_msg
-    double precision, allocatable, dimension(:^D&,:)    :: vel
-
-    flag=.false.
-    where(w(ixO^S,fl%e_)<small_e) flag(ixO^S,fl%e_)=.true.
-    if(any(flag(ixO^S,fl%e_))) then
-      select case (small_values_method)
-      case ("replace")
-        where(flag(ixO^S,fl%e_)) w(ixO^S,fl%e_)=small_e
-      case ("average")
-        call small_values_average(ixI^L, ixO^L, w, x, flag, fl%e_)
-      case default
-        ! small values error shows primitive variables
-        w(ixO^S,fl%e_)=w(ixO^S,fl%e_)*tc_gamma_1
-        allocate(vel(ixI^S,1:ndir))
-        call fl%get_vel(w,x,ixI^L,ixO^L,vel)
-        w(ixO^S,fl%mom(1:ndir)) = vel(ixO^S,1:ndir)   
-        write(error_msg,"(a,i3)") "Thermal conduction step ", step
-        call small_values_error(w, x, ixI^L, ixO^L, flag, error_msg)
-      end select
-    end if
-  end subroutine handle_small_e
 
 end module mod_thermal_conduction

@@ -607,10 +607,9 @@ contains
           call set_conversion_methods_to_head(mhd_e_to_ei, mhd_ei_to_e)
         endif
       endif
-      call set_error_handling_to_head(mhd_handle_small_e)
+      call set_error_handling_to_head(mhd_tc_handle_small_e)
       tc_fl%get_temperature_from_eint => mhd_get_temperature_from_eint
       tc_fl%get_rho => mhd_get_rho
-      tc_fl%get_vel => mhd_get_v
       tc_fl%e_ = e_
       tc_fl%Tcoff_ = Tcoff_
       tc_fl%mom(1:ndir) = mom(1:ndir)
@@ -742,18 +741,18 @@ contains
   end function mhd_get_tc_dt_hd
 
 
-  subroutine mhd_handle_small_e(w, x, ixI^L, ixO^L, step)
+  subroutine mhd_tc_handle_small_e(w, x, ixI^L, ixO^L, step)
     use mod_global_parameters
-    use mod_thermal_conduction, only: handle_small_e
-    use mod_small_values
 
     integer, intent(in)             :: ixI^L,ixO^L
     double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     integer, intent(in)    :: step
+    character(len=140) :: error_msg
 
-    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl)
-  end subroutine mhd_handle_small_e
+    write(error_msg,"(a,i3)") "Thermal conduction step ", step
+    call mhd_handle_small_ei(w,x,ixI^L,ixO^L,e_,error_msg)
+  end subroutine mhd_tc_handle_small_e
 
     ! fill in tc_fluid fields from namelist
     subroutine tc_params_read_mhd(fl)

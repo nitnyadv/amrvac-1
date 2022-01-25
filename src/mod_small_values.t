@@ -30,8 +30,6 @@ contains
     logical, intent(in)          :: w_flag(ixI^S,1:nw)
     character(len=*), intent(in) :: subname
     integer                      :: iw,iiw,ix^D
-    !TODO 
-    return
 
     if (.not.crash) then
       do iw=1,nw
@@ -65,8 +63,6 @@ contains
     integer, optional, intent(in)   :: windex
     integer                         :: iw, kxO^L, ix^D, i, nwstart, nwend
 
-    !TODO 
-    return
 
     if(present(windex)) then
       nwstart=windex

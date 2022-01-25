@@ -43,7 +43,7 @@ module mod_twofl_phys
   !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
   integer, parameter, private             :: MHD_TC =1
   integer, parameter, private             :: HD_TC =2
-  integer, protected                      :: use_twofl_tc_c = MHD_TC
+  integer, protected                      :: use_twofl_tc_c = HD_TC
 
 
   !> Whether radiative cooling is added
@@ -172,6 +172,23 @@ module mod_twofl_phys
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
   !> whether dump collisional terms in a separte dat file
   logical, public, protected              :: twofl_dump_coll_terms = .false.
+#else
+  ! Define the same indices as they were in MHD
+  !> Index of the density (in the w array)
+  integer, public, protected              :: rho_
+
+  !> Indices of the momentum density
+  integer, allocatable, public, protected :: mom(:)
+
+  !> Index of the energy density (-1 if not present)
+  integer, public, protected              :: e_
+
+  !> Index of the cutoff temperature for the TRAC method
+  integer, public, protected              :: Tcoff_
+  integer, public, protected              :: Tweight_
+
+  !> Indices of auxiliary internal energy
+  integer, public, protected :: eaux_
 #endif
 
   double precision, public, protected  :: Rc  ! defined for compat with the new eq of state, it is set to 1 for ONE_FLUID
@@ -337,7 +354,7 @@ contains
 
     namelist /twofl_list/ twofl_eq_energy, twofl_gamma, twofl_adiab,&
       twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha,& 
-      twofl_thermal_conduction_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
+      twofl_thermal_conduction_c, use_twofl_tc_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
       twofl_viscosity, twofl_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, divbwave, SI_unit, B0field,&
       B0field_forcefree, Bdip, Bquad, Boct, Busr,&
@@ -385,7 +402,6 @@ contains
       print*, "Using Hyperdiffusivity"
       print*, "C_SHK ", c_shk(:)
       print*, "C_HYP ", c_hyp(:)
-      print*, "GHOSTCELLS CHANGED? ", nghostcells
     endif
 
   end subroutine twofl_init_hyper
@@ -632,6 +648,8 @@ contains
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
 
+    ! TODO so far number_species is only used to treat them differently
+    ! in the solvers (different cbounds)
     if (twofl_cbounds_species) then
       number_species = 2
       allocate(stop_indices(1))
@@ -665,6 +683,16 @@ contains
     else
       Tcoff_n_ = -1
     end if
+
+#else
+  ! set here the MHD indices
+  rho_=rho_c_
+  allocate(mom(ndir))
+  mom(:)=mom_c(:)
+  e_ = e_c_
+  Tcoff_=Tcoff_c_
+  Tweight_ = Tweight_c_
+  eaux_=eauc_c_ 
 
 #endif
 
@@ -869,10 +897,13 @@ contains
           call set_conversion_methods_to_head(twofl_e_to_ei_c, twofl_ei_to_e_c)
         endif
       endif
-      call set_error_handling_to_head(twofl_handle_small_e_c)
-      tc_fl_c%get_temperature_from_eint => twofl_get_temperature_from_eint_c
+      call set_error_handling_to_head(twofl_tc_handle_small_e_c)
+      if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+        tc_fl_c%get_temperature_from_eint => twofl_get_temperature_from_eint_c_with_equi
+      else
+        tc_fl_c%get_temperature_from_eint => twofl_get_temperature_from_eint_c
+      endif
       tc_fl_c%get_rho => get_rhoc_tot
-      tc_fl_c%get_vel => twofl_get_v_c
       tc_fl_c%e_ = e_c_
       tc_fl_c%Tcoff_ = Tcoff_c_
       tc_fl_c%mom(1:ndir) = mom_c(1:ndir)
@@ -899,10 +930,13 @@ contains
         call add_sts_method(twofl_get_tc_dt_hd_n,twofl_sts_set_source_tc_n_hd,e_n_,1,e_n_,1,.false.)
         call set_conversion_methods_to_head(twofl_e_to_ei_n, twofl_ei_to_e_n)
       endif
-      call set_error_handling_to_head(twofl_handle_small_e_n)
-      tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n
+      call set_error_handling_to_head(twofl_tc_handle_small_e_n)
+      if(has_equi_pe_n0 .and. has_equi_rho_n0) then
+        tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n_with_equi
+      else
+        tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n
+      endif
       tc_fl_n%get_rho => get_rhon_tot
-      tc_fl_n%get_vel => twofl_get_v_n
       tc_fl_n%e_ = e_n_
       tc_fl_n%Tcoff_ = Tcoff_n_
       tc_fl_n%mom(1:ndir) = mom_n(1:ndir)
@@ -1037,13 +1071,13 @@ contains
     double precision, intent(in) :: w(ixI^S,1:nw)
     double precision :: dtnew
 
+
     dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl_c) 
   end function twofl_get_tc_dt_hd_c
 
 
-  subroutine twofl_handle_small_e_c(w, x, ixI^L, ixO^L, step)
+  subroutine twofl_tc_handle_small_e_c(w, x, ixI^L, ixO^L, step)
     use mod_global_parameters
-    use mod_thermal_conduction, only: handle_small_e
     use mod_small_values
 
     integer, intent(in)             :: ixI^L,ixO^L
@@ -1051,8 +1085,11 @@ contains
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     integer, intent(in)    :: step
 
-    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl_c)
-  end subroutine twofl_handle_small_e_c
+    character(len=140) :: error_msg
+
+    write(error_msg,"(a,i3)") "Charges thermal conduction step ", step
+    call twofl_handle_small_ei_c(w,x,ixI^L,ixO^L,e_c_,error_msg)
+  end subroutine twofl_tc_handle_small_e_c
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
 
@@ -1068,18 +1105,19 @@ contains
     call sts_set_source_tc_hd(ixI^L,ixO^L,w,x,wres,fix_conserve_at_step,my_dt,igrid,nflux,tc_fl_n)
   end subroutine twofl_sts_set_source_tc_n_hd
 
-  subroutine twofl_handle_small_e_n(w, x, ixI^L, ixO^L, step)
+  subroutine twofl_tc_handle_small_e_n(w, x, ixI^L, ixO^L, step)
     use mod_global_parameters
-    use mod_thermal_conduction, only: handle_small_e
-    use mod_small_values
 
     integer, intent(in)             :: ixI^L,ixO^L
     double precision, intent(inout) :: w(ixI^S,1:nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     integer, intent(in)    :: step
 
-    call handle_small_e(w, x, ixI^L, ixO^L, step, tc_fl_n)
-  end subroutine twofl_handle_small_e_n
+    character(len=140) :: error_msg
+
+    write(error_msg,"(a,i3)") "Neutral thermal conduction step ", step
+    call twofl_handle_small_ei_n(w,x,ixI^L,ixO^L,e_n_,error_msg)
+  end subroutine twofl_tc_handle_small_e_n
 
   function twofl_get_tc_dt_hd_n(w,ixI^L,ixO^L,dx^D,x) result(dtnew)
     !Check diffusion time limit dt < dx_i**2/((gamma-1)*tc_k_para_i/rho)
@@ -1115,12 +1153,23 @@ contains
       character(len=std_len)  :: tc_slope_limiter="MC"
  
       namelist /tc_c_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
-
+    ! add  the list as in mhd
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      namelist /tc_list/ tc_perpendicular, tc_saturate, tc_slope_limiter, tc_k_para, tc_k_perp
+#endif
       do n = 1, size(par_files)
         open(unitpar, file=trim(par_files(n)), status="old")
         read(unitpar, tc_c_list, end=111)
 111     close(unitpar)
       end do
+     ! read tc_list after tc_c_list! 
+#if defined(ONE_FLUID) && ONE_FLUID==1
+      do n = 1, size(par_files)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, tc_list, end=111)
+111     close(unitpar)
+      end do
+#endif
 
       fl%tc_perpendicular = tc_perpendicular
       fl%tc_saturate = tc_saturate
@@ -1619,10 +1668,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
  
     ! Calculate total energy from internal, kinetic and magnetic energy
     if(phys_solve_eaux) w(ixI^S,eaux_c_)=w(ixI^S,e_c_)
-    w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+    if(twofl_eq_energy == EQ_ENERGY_KI) then
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+                +twofl_kin_en_c(w,ixI^L,ixO^L)
+    else
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)&
                +twofl_kin_en_c(w,ixI^L,ixO^L)&
                +twofl_mag_en(w,ixI^L,ixO^L)
-
+    endif
   end subroutine twofl_ei_to_e_c
 
   !> Transform total energy to internal energy
@@ -1632,11 +1685,15 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(inout) :: w(ixI^S, nw)
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
 
+    if(twofl_eq_energy == EQ_ENERGY_KI) then
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+                -twofl_kin_en_c(w,ixI^L,ixO^L)
+    else
     ! Calculate ei = e - ek - eb
-    w(ixO^S,e_c_)=w(ixO^S,e_c_)&
+      w(ixO^S,e_c_)=w(ixO^S,e_c_)&
                 -twofl_kin_en_c(w,ixI^L,ixO^L)&
                 -twofl_mag_en(w,ixI^L,ixO^L)
-
+    endif
   end subroutine twofl_e_to_ei_c
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -1648,6 +1705,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
  
     ! Calculate total energy from internal and kinetic  energy
+
     w(ixO^S,e_n_)=w(ixO^S,e_n_)+twofl_kin_en_n(w,ixI^L,ixO^L)
 
   end subroutine twofl_ei_to_e_n
@@ -1662,6 +1720,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! Calculate ei = e - ek 
     w(ixO^S,e_n_)=w(ixO^S,e_n_)-twofl_kin_en_n(w,ixI^L,ixO^L)
 
+    call twofl_handle_small_ei_n(w,x,ixI^L,ixO^L,e_n_,"e_to_ei_n")
   end subroutine twofl_e_to_ei_n
 #endif
 
@@ -1717,9 +1776,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     integer :: idir
     logical :: flag(ixI^S,1:nw)
-    double precision :: rhoc(ixI^S)
+    double precision :: tmp2(ixI^S)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    double precision :: rhon(ixI^S)
+    double precision :: tmp1(ixI^S)
 #endif
 
 
@@ -1730,9 +1789,19 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     if(any(flag)) then
       select case (small_values_method)
       case ("replace")
-        where(flag(ixO^S,rho_c_)) w(ixO^S,rho_c_) = small_density
+        if(has_equi_rho_c0) then
+          where(flag(ixO^S,rho_c_)) w(ixO^S,rho_c_) = &
+                    small_density-block%equi_vars(ixO^S,equi_rho_c0_,0)
+        else
+          where(flag(ixO^S,rho_c_)) w(ixO^S,rho_c_) = small_density
+        endif
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-        where(flag(ixO^S,rho_n_)) w(ixO^S,rho_n_) = small_density
+        if(has_equi_rho_n0) then
+          where(flag(ixO^S,rho_n_)) w(ixO^S,rho_n_) = &
+                  small_density-block%equi_vars(ixO^S,equi_rho_n0_,0)
+        else
+          where(flag(ixO^S,rho_n_)) w(ixO^S,rho_n_) = small_density
+        endif
 #endif
         do idir = 1, ndir
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -1753,35 +1822,47 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
             where(flag(ixO^S,e_c_)) w(ixO^S,e_c_) = small_pressure
           else if(phys_internal_e) then
 #if !defined(ONE_FLUID) || ONE_FLUID==0
+           if(has_equi_pe_n0) then 
+            tmp1(ixO^S) = small_e - &
+              block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1 
+           else
+            tmp1(ixO^S) = small_e
+           endif  
             where(flag(ixO^S,e_n_))
-              w(ixO^S,e_n_)=small_e
+              w(ixO^S,e_n_)=tmp1(ixO^S)
             end where
 #endif
+           if(has_equi_pe_c0) then 
+            tmp2(ixO^S) = small_e - &
+                block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
+           else
+            tmp2(ixO^S) = small_e
+           endif  
             where(flag(ixO^S,e_c_))
-              w(ixO^S,e_c_)=small_e
+              w(ixO^S,e_c_)=tmp2(ixO^S)
             end where
           else
 #if !defined(ONE_FLUID) || ONE_FLUID==0
             where(flag(ixO^S,e_n_))
-              w(ixO^S,e_n_) = small_e+&
+              w(ixO^S,e_n_) = tmp1(ixO^S)+&
                  twofl_kin_en_n(w,ixI^L,ixO^L)
             end where
 #endif
             if(phys_total_energy) then
               where(flag(ixO^S,e_c_))
-                w(ixO^S,e_c_) = small_e+&
+                w(ixO^S,e_c_) = tmp2(ixO^S)+&
                    twofl_kin_en_c(w,ixI^L,ixO^L)+&
                    twofl_mag_en(w,ixI^L,ixO^L)
               end where
             else
               where(flag(ixO^S,e_c_))
-                w(ixO^S,e_c_) = small_e+&
+                w(ixO^S,e_c_) = tmp2(ixO^S)+&
                    twofl_kin_en_c(w,ixI^L,ixO^L)
               end where
             endif
             if(phys_solve_eaux) then
               where(flag(ixO^S,e_c_))
-                w(ixO^S,eaux_c_)=small_e
+                w(ixO^S,eaux_c_)=tmp2(ixO^S)
               end where
             end if
           end if
@@ -1818,22 +1899,22 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
           ! Convert momentum to velocity
 #if !defined(ONE_FLUID) || ONE_FLUID==0
           if(has_equi_rho_n0) then
-            rhon(ixG^T) = w(ixG^T,rho_n_) + block%equi_vars(ixG^T,equi_rho_n0_,0)
+            tmp1(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
           else  
-            rhon(ixG^T) = w(ixG^T,rho_n_) 
+            tmp1(ixO^S) = w(ixO^S,rho_n_) 
           endif
 #endif
     
           if(has_equi_rho_c0) then
-            rhoc(ixG^T) = w(ixG^T,rho_c_) + block%equi_vars(ixG^T,equi_rho_c0_,0)
+            tmp2(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
           else  
-            rhoc(ixG^T) = w(ixG^T,rho_c_) 
+            tmp2(ixO^S) = w(ixO^S,rho_c_) 
           endif
           do idir = 1, ndir
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-             w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
+             w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/tmp1(ixO^S)
 #endif
-             w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
+             w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/tmp2(ixO^S)
           end do
         end if
         call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
@@ -2777,6 +2858,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
+
       res(ixO^S) = 1d0/Rn * (gamma_1 * w(ixO^S, e_n_) + block%equi_vars(ixO^S,equi_pe_n0_,0)) /&
                 (w(ixO^S,rho_n_) +block%equi_vars(ixO^S,equi_rho_n0_,0))
   end subroutine twofl_get_temperature_from_eint_n_with_equi
@@ -4158,7 +4240,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,e_n_)
 
     if(fix_small_values .and. .not. has_equi_pe_n0) then
-      call twofl_handle_small_ei(w,x,ixI^L,ixO^L,e_n_,'internal_energy_add_source')
+      call twofl_handle_small_ei_n(w,x,ixI^L,ixO^L,e_n_,'internal_energy_add_source')
     end if
   end subroutine internal_energy_add_source_n
 #endif
@@ -4241,13 +4323,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,v)
     call add_geom_PdivV(qdt,ixI^L,ixO^L,v,-pth,w,x,ie)
     if(fix_small_values .and. .not. has_equi_pe_c0) then
-      call twofl_handle_small_ei(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
+      call twofl_handle_small_ei_c(w,x,ixI^L,ixO^L,ie,'internal_energy_add_source')
     end if
   end subroutine internal_energy_add_source_c
 
-
   !> handle small or negative internal energy
-  subroutine twofl_handle_small_ei(w, x, ixI^L, ixO^L, ie, subname)
+  subroutine twofl_handle_small_ei_c(w, x, ixI^L, ixO^L, ie, subname)
     use mod_global_parameters
     use mod_small_values
     integer, intent(in)             :: ixI^L,ixO^L, ie
@@ -4263,16 +4344,27 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #endif
 
     flag=.false.
-    where(w(ixO^S,ie)<small_e) flag(ixO^S,ie)=.true.
+    if(has_equi_pe_c0) then
+      where(w(ixO^S,ie)+block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1<small_e)&
+             flag(ixO^S,ie)=.true.
+    else
+      where(w(ixO^S,ie)<small_e) flag(ixO^S,ie)=.true.
+    endif  
     if(any(flag(ixO^S,ie))) then
       select case (small_values_method)
       case ("replace")
-        where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e
+        if(has_equi_pe_c0) then
+          where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e - &
+                  block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1
+        else
+          where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e
+        endif
       case ("average")
         call small_values_average(ixI^L, ixO^L, w, x, flag, ie)
       case default
         ! small values error shows primitive variables
-        ! TODO is this what was meant to be?
+        ! to_primitive subroutine cannot be used as this error handling
+        ! is also used in TC where e_to_ei is explicitly called
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         w(ixO^S,e_n_)=w(ixO^S,e_n_)*gamma_1
         call get_rhon_tot(w,ixI^L,ixO^L,rhon)
@@ -4289,7 +4381,63 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       end select
     end if
 
-  end subroutine twofl_handle_small_ei
+  end subroutine twofl_handle_small_ei_c
+
+
+
+  !> handle small or negative internal energy
+  subroutine twofl_handle_small_ei_n(w, x, ixI^L, ixO^L, ie, subname)
+    use mod_global_parameters
+    use mod_small_values
+    integer, intent(in)             :: ixI^L,ixO^L, ie
+    double precision, intent(inout) :: w(ixI^S,1:nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    character(len=*), intent(in)    :: subname
+
+    integer :: idir
+    logical :: flag(ixI^S,1:nw)
+    double precision              :: rhoc(ixI^S)
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    double precision              :: rhon(ixI^S)
+#endif
+
+    flag=.false.
+    if(has_equi_pe_n0) then
+      where(w(ixO^S,ie)+block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1<small_e)&
+                         flag(ixO^S,ie)=.true.
+    else
+      where(w(ixO^S,ie)<small_e) flag(ixO^S,ie)=.true.
+    endif
+    if(any(flag(ixO^S,ie))) then
+      select case (small_values_method)
+      case ("replace")
+        if(has_equi_pe_n0) then
+          where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e - &
+                block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1
+        else
+          where(flag(ixO^S,ie)) w(ixO^S,ie)=small_e
+        endif
+      case ("average")
+        call small_values_average(ixI^L, ixO^L, w, x, flag, ie)
+      case default
+        ! small values error shows primitive variables
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        w(ixO^S,e_n_)=w(ixO^S,e_n_)*gamma_1
+        call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+#endif
+        w(ixO^S,e_c_)=w(ixO^S,e_c_)*gamma_1
+        call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+        do idir = 1, ndir
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+           w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
+#endif
+           w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
+        end do
+        call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
+      end select
+    end if
+
+  end subroutine twofl_handle_small_ei_n
 
   !> Source terms after split off time-independent magnetic field
   subroutine add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
