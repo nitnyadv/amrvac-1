@@ -1483,13 +1483,13 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         tmp(ixO^S) = w(ixO^S,e_n_)
         if(has_equi_pe_n0) then
-          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_,0)*gamma_1
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_,0)
         endif
         where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_n_) = .true.
 #endif
         tmp(ixO^S) = w(ixO^S,e_c_)
         if(has_equi_pe_c0) then
-          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)*gamma_1
+          tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)
         endif
         where(tmp(ixO^S) < small_pressure) flag(ixO^S,e_c_) = .true.
         if(twofl_eq_energy == EQ_ENERGY_TOT2) then 
@@ -1498,14 +1498,25 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       else
         if(phys_internal_e) then
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-          where(w(ixO^S,e_n_) < small_e) flag(ixO^S,e_n_) = .true.
+          tmp(ixO^S)=w(ixO^S,e_n_)
+          if(has_equi_pe_n0) then
+            tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1
+          endif
+          where(tmp(ixO^S) < small_e) flag(ixO^S,e_n_) = .true.
 #endif
-          where(w(ixO^S,e_c_) < small_e) flag(ixO^S,e_c_) = .true.
+          tmp(ixO^S)=w(ixO^S,e_c_)
+          if(has_equi_pe_c0) then
+            tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1
+          endif
+          where(tmp(ixO^S) < small_e) flag(ixO^S,e_c_) = .true.
         else
 #if !defined(ONE_FLUID) || ONE_FLUID==0
           !neutrals
           tmp(ixO^S)=w(ixO^S,e_n_)-&
                 twofl_kin_en_n(w,ixI^L,ixO^L)
+          if(has_equi_pe_n0) then
+            tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1
+          endif
           where(tmp(ixO^S) < small_e) flag(ixO^S,e_n_) = .true.
 #endif
           if(phys_total_energy) then
@@ -1515,9 +1526,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
             tmp(ixO^S)=w(ixO^S,e_c_)-&
                 twofl_kin_en_c(w,ixI^L,ixO^L)
           end if
+          if(has_equi_pe_c0) then
+            tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1
+          endif
           where(tmp(ixO^S) < small_e) flag(ixO^S,e_c_) = .true.
           if(twofl_eq_energy == EQ_ENERGY_TOT2) then 
-            where(w(ixO^S,eaux_c_) < small_e) flag(ixO^S,e_c_) = .true.
+            tmp(ixO^S)=w(ixO^S,eaux_c_)
+            if(has_equi_pe_c0) then
+              tmp(ixO^S) = tmp(ixO^S)+block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1
+            endif
+            where(tmp(ixO^S) < small_e) flag(ixO^S,e_c_) = .true.
           endif
         end if
       endif
