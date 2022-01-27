@@ -92,7 +92,7 @@ module mod_thermal_conduction
     !> Name of slope limiter for transverse component of thermal flux 
     character(len=std_len)  :: tc_slope_limiter
     !> Logical switch for test constant conductivity
-    logical :: tc_constant
+    logical :: tc_constant=.false.
     !> Calculate thermal conduction perpendicular to magnetic field (.true.) or not (.false.)
     logical :: tc_perpendicular=.false.
   
@@ -158,6 +158,8 @@ contains
         ! thermal conductivity perpendicular to magnetic field
         fl%tc_k_perp=4.d-10*unit_numberdensity**2/unit_magneticfield**2/unit_temperature**3*fl%tc_k_para
       end if
+      if(mype .eq. 0) print*, "Spitzer MHD: par: ",fl%tc_k_para, &
+          " ,perp: ",fl%tc_k_perp
     else
       fl%tc_constant=.true.
     end if
@@ -194,6 +196,7 @@ contains
         ! Spitzer thermal conductivity with cgs units
         fl%tc_k_para=8.d-7*unit_temperature**3.5d0/unit_length/unit_density/unit_velocity**3 
       end if
+      if(mype .eq. 0) print*, "Spitzer HD par: ",fl%tc_k_para
     end if
   end subroutine tc_get_hd_params
 
