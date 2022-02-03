@@ -1,6 +1,7 @@
 !> Hydrodynamics physics module
 module mod_hd_phys
   use mod_thermal_conduction, only: tc_fluid
+  use mod_radiative_cooling, only: rc_fluid
   implicit none
   private
 
@@ -13,6 +14,7 @@ module mod_hd_phys
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
+  type(rc_fluid), allocatable :: rc_fl
 
   !> Whether dust is added
   logical, public, protected              :: hd_dust = .false.
@@ -313,14 +315,19 @@ contains
       tc_fl%get_temperature_from_eint => hd_get_temperature_from_eint
       tc_fl%get_rho => hd_get_rho
       tc_fl%e_ = e_
-      tc_fl%mom(1:ndir) = mom(1:ndir)
     end if
 
     ! Initialize radiative cooling module
     if (hd_radiative_cooling) then
       if (.not. hd_energy) &
            call mpistop("radiative cooling needs hd_energy=T")
-      call radiative_cooling_init(hd_gamma,He_abundance)
+      call radiative_cooling_init_params(hd_gamma,He_abundance)
+      allocate(rc_fl)
+      call radiative_cooling_init(rc_fl,rc_params_read)
+      rc_fl%get_rho => hd_get_rho
+      rc_fl%get_pthermal => hd_get_pthermal
+      rc_fl%e_ = e_
+      rc_fl%Tcoff_ = Tcoff_
     end if
 
     ! Initialize viscosity module
@@ -450,6 +457,50 @@ contains
   end subroutine hd_get_rho
 
 !!end th cond
+!!rad cool
+    subroutine rc_params_read(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_constants, only: bigdouble
+      use mod_basic_types, only: std_len
+      type(rc_fluid), intent(inout) :: fl
+      integer                      :: n
+      ! list parameters
+      integer :: ncool = 4000
+      double precision :: cfrac=0.1d0
+    
+      !> Name of cooling curve
+      character(len=std_len)  :: coolcurve='JCorona'
+    
+      !> Name of cooling method
+      character(len=std_len)  :: coolmethod='exact'
+    
+      !> Fixed temperature not lower than tlow
+      logical    :: Tfix=.false.
+    
+      !> Lower limit of temperature
+      double precision   :: tlow=bigdouble
+    
+      !> Add cooling source in a split way (.true.) or un-split way (.false.)
+      logical    :: rc_split=.false.
+
+
+      namelist /rc_list/ coolcurve, coolmethod, ncool, cfrac, tlow, Tfix, rc_split
+  
+      do n = 1, size(par_files)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, rc_list, end=111)
+111     close(unitpar)
+      end do
+
+      fl%ncool=ncool
+      fl%coolcurve=coolcurve
+      fl%coolmethod=coolmethod
+      fl%tlow=tlow
+      fl%Tfix=Tfix
+      fl%rc_split=rc_split
+      fl%cfrac=cfrac
+    end subroutine rc_params_read
+!! end rad cool
 
   subroutine hd_check_params
     use mod_global_parameters
@@ -1202,7 +1253,7 @@ contains
 
     if(hd_radiative_cooling) then
       call radiative_cooling_add_source(qdt,ixI^L,ixO^L,wCT,w,x,&
-           qsourcesplit,active)
+           qsourcesplit,active, rc_fl)
     end if
 
     if(hd_viscosity) then
@@ -1248,7 +1299,7 @@ contains
     end if
 
     if(hd_radiative_cooling) then
-      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
+      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x,rc_fl)
     end if
 
     if(hd_viscosity) then

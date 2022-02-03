@@ -30,7 +30,7 @@ ifeq ("$(wildcard amrvac.h)","")
 	touch amrvac.h
 endif
 	@mkdir -p $(LIB_DIR)	# Prevent error message
-	cp -u amrvac.h $(LIB_DIR)
+	rsync -c amrvac.h $(LIB_DIR)/amrvac.h
 
 # Include architecture and compilation rules
 include $(AMRVAC_DIR)/arch/$(ARCH).defs

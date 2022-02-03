@@ -54,13 +54,6 @@ module mod_thermal_conduction
       double precision, intent(out):: res(ixI^S)
     end subroutine get_temperature_subr
 
-    subroutine get_temperature_subr2(Te,ixI^L,ixO^L,res)
-      use mod_global_parameters
-      integer, intent(in)          :: ixI^L, ixO^L
-      double precision, intent(in) :: Te(ixI^S)
-      double precision, intent(out):: res(ixI^S)
-    end subroutine get_temperature_subr2
-
     subroutine get_rho_subr(w,ixI^L,ixO^L,rho)
       use mod_global_parameters
       integer, intent(in)           :: ixI^L, ixO^L
@@ -72,15 +65,15 @@ module mod_thermal_conduction
 
   type tc_fluid
 
-    ! the following are set in physics module
     procedure (get_rho_subr), pointer, nopass :: get_rho => null()
+    procedure (get_rho_subr), pointer, nopass :: get_rho_equi => null()
     procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_eint => null()
     procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_conserved => null()
-    procedure(get_temperature_subr2), pointer,nopass :: get_temperature_pert_from_tot => null()
+    procedure(get_temperature_subr), pointer,nopass :: get_temperature_equi => null()
      !> Indices of the variables
-     integer,allocatable :: mom(:)
-     integer :: e_=-1,Tcoff_=-1
-    ! END the following are set in physics module
+    integer :: e_=-1,Tcoff_=-1
+    ! if has_equi = .true. get_temperature_equi and get_rho_equi have to be set
+    logical :: has_equi=.false.
   
     ! the following are read from param file or set in tc_read_hd_params or tc_read_mhd_params
     !> Coefficient of thermal conductivity (parallel to magnetic field)
@@ -135,9 +128,8 @@ contains
     end subroutine read_mhd_params
     end interface  
 
-    type(tc_fluid), intent(out) :: fl
+    type(tc_fluid), intent(inout) :: fl
 
-    allocate(fl%mom(1:ndir))
     fl%tc_slope_limiter='MC'
 
     fl%tc_k_para=0.d0
@@ -182,9 +174,8 @@ contains
   
       end subroutine read_hd_params
     end interface
-    type(tc_fluid), intent(out) :: fl
+    type(tc_fluid), intent(inout) :: fl
 
-    allocate(fl%mom(1:ndir))
     fl%tc_k_para=0.d0
     !> Read tc parameters from par file: HD case
     call read_hd_params(fl)
@@ -281,15 +272,12 @@ contains
 
     !! qd store the heat conduction energy changing rate
     double precision :: qd(ixI^S)
-    double precision :: rho(ixI^S)
+    double precision :: rho(ixI^S),Te(ixI^S)
     double precision :: qvec(ixI^S,1:ndim)
+    double precision, allocatable, dimension(:^D&,:) :: qvec_equi
  
-    double precision, dimension(ixI^S,1:ndir) :: mf,Bc,Bcf
-    double precision, dimension(ixI^S,1:ndim) :: gradT
-    double precision, dimension(ixI^S) :: Te,ka,kaf,ke,kef,qdd,qe,Binv,minq,maxq,Bnorm
     double precision, allocatable, dimension(:^D&,:,:) :: fluxall
     double precision :: alpha,dxinv(ndim)
-    integer, dimension(ndim) :: lowindex
     integer :: idims,idir,ix^D,ix^L,ixC^L,ixA^L,ixB^L
 
     ! coefficient of limiting on normal component
@@ -304,6 +292,68 @@ contains
 
     call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
     call fl%get_rho(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+    call set_source_tc_mhd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te,alpha)
+    if(fl%has_equi) then
+      allocate(qvec_equi(ixI^S,1:ndim))
+      call fl%get_temperature_equi(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+      call fl%get_rho_equi(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+      call set_source_tc_mhd(ixI^L,ixO^L,w,x,fl,qvec_equi,rho,Te,alpha)
+      do idims=1,ndim
+        qvec(ix^S,idims)=qvec(ix^S,idims) - qvec_equi(ix^S,idims)
+      end do
+      deallocate(qvec_equi)
+    endif
+
+    qd=0.d0
+    if(slab_uniform) then
+      do idims=1,ndim
+        qvec(ix^S,idims)=dxinv(idims)*qvec(ix^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
+      end do
+    else
+      do idims=1,ndim
+        qvec(ix^S,idims)=qvec(ix^S,idims)*block%surfaceC(ix^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
+      end do
+      qd(ixO^S)=qd(ixO^S)/block%dvolume(ixO^S)
+    end if
+
+    if(fix_conserve_at_step) then
+      allocate(fluxall(ixI^S,1,1:ndim))
+      fluxall(ixI^S,1,1:ndim)=my_dt*qvec(ixI^S,1:ndim)
+      call store_flux(igrid,fluxall,1,ndim,nflux)
+      deallocate(fluxall)
+    end if
+
+    wres(ixO^S,fl%e_)=qd(ixO^S)
+
+  end subroutine sts_set_source_tc_mhd
+
+  subroutine set_source_tc_mhd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te,alpha)
+    use mod_global_parameters
+    use mod_fix_conserve
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision ::  w(ixI^S,1:nw)
+    type(tc_fluid), intent(in) :: fl
+    double precision, intent(in) :: rho(ixI^S),Te(ixI^S)
+    double precision, intent(in) :: alpha
+    double precision, intent(out) :: qvec(ixI^S,1:ndim)
+
+    !! qd store the heat conduction energy changing rate
+    double precision :: qd(ixI^S)
+ 
+    double precision, dimension(ixI^S,1:ndir) :: mf,Bc,Bcf
+    double precision, dimension(ixI^S,1:ndim) :: gradT
+    double precision, dimension(ixI^S) :: ka,kaf,ke,kef,qdd,qe,Binv,minq,maxq,Bnorm
+    double precision, allocatable, dimension(:^D&,:,:) :: fluxall
+    integer, dimension(ndim) :: lowindex
+    integer :: idims,idir,ix^D,ix^L,ixC^L,ixA^L,ixB^L
+
+    ix^L=ixO^L^LADD1;
+
     ! T gradient at cell faces
     ! B vector
     if(B0field) then
@@ -334,16 +384,10 @@ contains
     Bc(ixC^S,1:ndim)=Bc(ixC^S,1:ndim)*0.5d0**ndim
     ! T gradient at cell faces
     gradT=0.d0
-    ! reuse maxq for Te pert
-    if(associated(fl%get_temperature_pert_from_tot)) then
-      call fl%get_temperature_pert_from_tot(Te,ixI^L,ixI^L,maxq)
-    else
-      maxq = Te
-    endif
     do idims=1,ndim
       ixBmin^D=ixmin^D;
       ixBmax^D=ixmax^D-kr(idims,^D);
-      call gradientC(maxq,ixI^L,ixB^L,idims,minq)
+      call gradientC(Te,ixI^L,ixB^L,idims,minq)
       gradT(ixB^S,idims)=minq(ixB^S)
     end do
     if(fl%tc_constant) then
@@ -539,32 +583,7 @@ contains
       end do
     end if
 
-    qd=0.d0
-    if(slab_uniform) then
-      do idims=1,ndim
-        qvec(ix^S,idims)=dxinv(idims)*qvec(ix^S,idims)
-        ixB^L=ixO^L-kr(idims,^D);
-        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
-      end do
-    else
-      do idims=1,ndim
-        qvec(ix^S,idims)=qvec(ix^S,idims)*block%surfaceC(ix^S,idims)
-        ixB^L=ixO^L-kr(idims,^D);
-        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
-      end do
-      qd(ixO^S)=qd(ixO^S)/block%dvolume(ixO^S)
-    end if
-
-    if(fix_conserve_at_step) then
-      allocate(fluxall(ixI^S,1,1:ndim))
-      fluxall(ixI^S,1,1:ndim)=my_dt*qvec(ixI^S,1:ndim)
-      call store_flux(igrid,fluxall,1,ndim,nflux)
-      deallocate(fluxall)
-    end if
-
-    wres(ixO^S,fl%e_)=qd(ixO^S)
-
-  end subroutine sts_set_source_tc_mhd
+  end subroutine set_source_tc_mhd
 
   function slope_limiter(f,ixI^L,ixO^L,idims,pm,tc_slope_limiter) result(lf)
     use mod_global_parameters
@@ -696,12 +715,75 @@ contains
     logical, intent(in) :: fix_conserve_at_step
     type(tc_fluid), intent(in)    :: fl
 
-    double precision :: gradT(ixI^S,1:ndim),Te(ixI^S),ke(ixI^S),tmp(ixI^S)
+    double precision :: Te(ixI^S),rho(ixI^S)
     double precision :: qvec(ixI^S,1:ndim),qd(ixI^S)
+    double precision, allocatable, dimension(:^D&,:) :: qvec_equi
     double precision, allocatable, dimension(:^D&,:,:) :: fluxall
 
     double precision :: dxinv(ndim)
-    integer, dimension(ndim)       :: lowindex
+    integer :: idims,ix^L,ixB^L
+
+    ix^L=ixO^L^LADD1;
+
+    dxinv=1.d0/dxlevel
+
+    !calculate Te in whole domain (+ghosts)
+    call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
+    call fl%get_rho(w, ixI^L, ixI^L, rho)
+    call set_source_tc_hd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te)
+    if(fl%has_equi) then
+      allocate(qvec_equi(ixI^S,1:ndim))
+      call fl%get_temperature_equi(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
+      call fl%get_rho_equi(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+      call set_source_tc_hd(ixI^L,ixO^L,w,x,fl,qvec_equi,rho,Te)
+      do idims=1,ndim
+        qvec(ix^S,idims)=qvec(ix^S,idims) - qvec_equi(ix^S,idims)
+      end do
+      deallocate(qvec_equi)
+    endif
+
+
+    qd=0.d0
+    if(slab_uniform) then
+      do idims=1,ndim
+        qvec(ix^S,idims)=dxinv(idims)*qvec(ix^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
+      end do
+    else
+      do idims=1,ndim
+        qvec(ix^S,idims)=qvec(ix^S,idims)*block%surfaceC(ix^S,idims)
+        ixB^L=ixO^L-kr(idims,^D);
+        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
+      end do
+      qd(ixO^S)=qd(ixO^S)/block%dvolume(ixO^S)
+    end if
+
+    if(fix_conserve_at_step) then
+      allocate(fluxall(ixI^S,1,1:ndim))
+      fluxall(ixI^S,1,1:ndim)=my_dt*qvec(ixI^S,1:ndim)
+      call store_flux(igrid,fluxall,1,ndim,nflux)
+      deallocate(fluxall)
+    end if
+    wres(ixO^S,fl%e_)=qd(ixO^S)
+
+  end subroutine sts_set_source_tc_hd
+
+  subroutine set_source_tc_hd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te)
+    use mod_global_parameters
+    use mod_fix_conserve
+
+    integer, intent(in) :: ixI^L, ixO^L
+    double precision, intent(in) ::  x(ixI^S,1:ndim)
+    double precision, intent(in) ::  w(ixI^S,1:nw)
+    type(tc_fluid), intent(in)    :: fl
+    double precision, intent(in) :: Te(ixI^S),rho(ixI^S)
+    double precision, intent(out) :: qvec(ixI^S,1:ndim)
+    
+
+    double precision :: gradT(ixI^S,1:ndim),ke(ixI^S),qd(ixI^S)
+
+    double precision :: dxinv(ndim)
     integer :: idims,ix^D,ix^L,ixC^L,ixA^L,ixB^L,ixD^L
 
     ix^L=ixO^L^LADD1;
@@ -711,21 +793,13 @@ contains
     dxinv=1.d0/dxlevel
 
     !calculate Te in whole domain (+ghosts)
-    call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
-
-    ! use temperature perturbation only for temperature gradient
-    if(associated(fl%get_temperature_pert_from_tot)) then
-      call fl%get_temperature_pert_from_tot(Te,ixI^L,ixI^L,tmp)
-    else
-      tmp = Te
-    endif
-    ! cell corner temperature perturbation in ke
+    ! cell corner temperature in ke
     ke=0.d0
     ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
     {do ix^DB=0,1\}
       ixBmin^D=ixAmin^D+ix^D;
       ixBmax^D=ixAmax^D+ix^D;
-      ke(ixA^S)=ke(ixA^S)+tmp(ixB^S)
+      ke(ixA^S)=ke(ixA^S)+Te(ixB^S)
     {end do\}
     ke(ixA^S)=0.5d0**ndim*ke(ixA^S)
     ! T gradient (central difference) at cell corners
@@ -736,17 +810,6 @@ contains
       call gradient(ke,ixI^L,ixB^L,idims,qd)
       gradT(ixB^S,idims)=qd(ixB^S)
     end do
-    ! now recalcuate ke with full temperature when splitting is used
-    if(associated(fl%get_temperature_pert_from_tot)) then
-      ke=0.d0
-      ixAmax^D=ixmax^D; ixAmin^D=ixmin^D-1;
-      {do ix^DB=0,1\}
-        ixBmin^D=ixAmin^D+ix^D;
-        ixBmax^D=ixAmax^D+ix^D;
-        ke(ixA^S)=ke(ixA^S)+Te(ixB^S)
-      {end do\}
-      ke(ixA^S)=0.5d0**ndim*ke(ixA^S)
-    endif
     ! transition region adaptive conduction
     if(phys_trac) then
       where(ke(ixI^S) < w(ixI^S,fl%Tcoff_))
@@ -761,10 +824,7 @@ contains
     if(fl%tc_saturate) then
       ! consider saturation with unsigned saturated TC flux = 5 phi rho c**3
       ! saturation flux at cell center
-      !calculate rho 
-      call fl%get_rho(w, ixI^L, ix^L, tmp)
-
-      qd(ix^S)=5.d0*tmp(ix^S)*dsqrt(Te(ix^S)**3)
+      qd(ix^S)=5.d0*rho(ix^S)*dsqrt(Te(ix^S)**3)
       !cell corner values of qd in ke
       ke=0.d0
       {do ix^DB=0,1\}
@@ -802,30 +862,10 @@ contains
       qvec(ixA^S,idims)=qvec(ixA^S,idims)*0.5d0**(ndim-1)
     end do
 
-    qd=0.d0
-    if(slab_uniform) then
-      do idims=1,ndim
-        qvec(ix^S,idims)=dxinv(idims)*qvec(ix^S,idims)
-        ixB^L=ixO^L-kr(idims,^D);
-        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
-      end do
-    else
-      do idims=1,ndim
-        qvec(ix^S,idims)=qvec(ix^S,idims)*block%surfaceC(ix^S,idims)
-        ixB^L=ixO^L-kr(idims,^D);
-        qd(ixO^S)=qd(ixO^S)+qvec(ixO^S,idims)-qvec(ixB^S,idims)
-      end do
-      qd(ixO^S)=qd(ixO^S)/block%dvolume(ixO^S)
-    end if
 
-    if(fix_conserve_at_step) then
-      allocate(fluxall(ixI^S,1,1:ndim))
-      fluxall(ixI^S,1,1:ndim)=my_dt*qvec(ixI^S,1:ndim)
-      call store_flux(igrid,fluxall,1,ndim,nflux)
-      deallocate(fluxall)
-    end if
-    wres(ixO^S,fl%e_)=qd(ixO^S)
+  end subroutine set_source_tc_hd
 
-  end subroutine sts_set_source_tc_hd
+
+
 
 end module mod_thermal_conduction
