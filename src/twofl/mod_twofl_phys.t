@@ -6,6 +6,7 @@ module mod_twofl_phys
   use mod_global_parameters, only: std_len
   use mod_physics
   use mod_thermal_conduction, only: tc_fluid
+  use mod_radiative_cooling, only: rc_fluid
   implicit none
   private
 
@@ -47,7 +48,8 @@ module mod_twofl_phys
 
 
   !> Whether radiative cooling is added
-  logical, public, protected              :: twofl_radiative_cooling = .false.
+  logical, public, protected              :: twofl_radiative_cooling_c = .false.
+  type(rc_fluid), allocatable :: rc_fl_c
 
   !> Whether viscosity is added
   logical, public, protected              :: twofl_viscosity = .false.
@@ -77,6 +79,9 @@ module mod_twofl_phys
   double precision, public                :: twofl_eta_ambi = 0.0d0
 #else
   type(tc_fluid), allocatable :: tc_fl_n
+  logical, public, protected              :: twofl_thermal_conduction_n = .false.
+  logical, public, protected              :: twofl_radiative_cooling_n = .false.
+  type(rc_fluid), allocatable :: rc_fl_n
 
 #endif
 
@@ -144,10 +149,10 @@ module mod_twofl_phys
   !> equi vars indices in the state%equi_vars array
   integer, public, protected :: equi_rho_c0_ = -1
   integer, public, protected :: equi_pe_c0_ = -1
+  logical, public                         :: twofl_equi_thermal_c = .true.
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   !neutrals:
-  logical, public, protected              :: twofl_thermal_conduction_n = .false.
 
   integer, public, protected              :: rho_n_
   integer, allocatable, public, protected :: mom_n(:)
@@ -168,6 +173,7 @@ module mod_twofl_phys
   !> whether include ionization/recombination inelastic collisional terms
   logical, public                         :: twofl_coll_inc_ionrec = .false.
   logical, public                         :: twofl_equi_thermal = .true.
+  logical, public                         :: twofl_equi_thermal_n = .true.
   logical, public                         :: twofl_implicit_coll_terms = .true.
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
   !> whether dump collisional terms in a separte dat file
@@ -355,16 +361,16 @@ contains
 
     namelist /twofl_list/ twofl_eq_energy, twofl_gamma, twofl_adiab,&
       twofl_eta, twofl_eta_hyper, twofl_etah, twofl_glm_alpha,& 
-      twofl_thermal_conduction_c, use_twofl_tc_c, twofl_radiative_cooling, twofl_Hall, twofl_gravity,&
+      twofl_thermal_conduction_c, use_twofl_tc_c, twofl_radiative_cooling_c, twofl_Hall, twofl_gravity,&
       twofl_viscosity, twofl_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, divbwave, SI_unit, B0field,&
-      B0field_forcefree, Bdip, Bquad, Boct, Busr,&
+      B0field_forcefree, Bdip, Bquad, Boct, Busr,twofl_equi_thermal_c,&
       !added:
       twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0, twofl_hyperdiffusivity,twofl_dump_hyperdiffusivity_coef,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-      has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n,  &
+      has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n, twofl_radiative_cooling_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
-      twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,dtcollpar,&
+      twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,twofl_equi_thermal_n,dtcollpar,&
       twofl_dump_coll_terms,twofl_implicit_calc_mult_method,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
@@ -515,14 +521,18 @@ contains
         twofl_thermal_conduction_n=.false.
         if(mype==0) write(*,*) 'WARNING: set twofl_thermal_conduction_n=F when twofl_energy=F'
       end if
+      if(twofl_radiative_cooling_n) then
+        twofl_radiative_cooling_n=.false.
+        if(mype==0) write(*,*) 'WARNING: set twofl_radiative_cooling_n=F when twofl_energy=F'
+      end if
 #endif
       if(twofl_thermal_conduction_c) then
         twofl_thermal_conduction_c=.false.
         if(mype==0) write(*,*) 'WARNING: set twofl_thermal_conduction_c=F when twofl_energy=F'
       end if
-      if(twofl_radiative_cooling) then
-        twofl_radiative_cooling=.false.
-        if(mype==0) write(*,*) 'WARNING: set twofl_radiative_cooling=F when twofl_energy=F'
+      if(twofl_radiative_cooling_c) then
+        twofl_radiative_cooling_c=.false.
+        if(mype==0) write(*,*) 'WARNING: set twofl_radiative_cooling_c=F when twofl_energy=F'
       end if
       if(twofl_trac) then
         twofl_trac=.false.
@@ -841,9 +851,6 @@ contains
     )) then
       call mpistop("thermal conduction needs twofl_energy=T")
     end if
-    if(.not. phys_energy .and. twofl_radiative_cooling) then
-      call mpistop("radiative cooling needs twofl_energy=T")
-    end if
 
     ! initialize thermal conduction module
     if (twofl_thermal_conduction_c &
@@ -858,7 +865,7 @@ contains
     endif
     if (twofl_thermal_conduction_c) then
       allocate(tc_fl_c)
-      if(has_equi_pe_c0 .and. has_equi_rho_c0) then
+      if(has_equi_pe_c0 .and. has_equi_rho_c0 .and. twofl_equi_thermal_c) then
         tc_fl_c%has_equi = .true.
         tc_fl_c%get_temperature_equi => twofl_get_temperature_c_equi
         tc_fl_c%get_rho_equi => twofl_get_rho_c_equi
@@ -941,11 +948,40 @@ contains
     end if
 
 #endif
+
+    if(.not. phys_energy .and. (twofl_radiative_cooling_c& 
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        .or. twofl_radiative_cooling_n&
+#endif
+    )) then
+      call mpistop("thermal conduction needs twofl_energy=T")
+    end if
+
+    ! initialize thermal conduction module
+    if (twofl_radiative_cooling_c &
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+        .or. twofl_radiative_cooling_n&
+#endif
+    ) then
     ! Initialize radiative cooling module
-    !TODO
-    !if (twofl_radiative_cooling) then
-    !  call radiative_cooling_init(twofl_gamma,He_abundance)
-    !end if
+      call radiative_cooling_init_params(twofl_gamma,He_abundance)
+      if(twofl_radiative_cooling_c) then
+        allocate(rc_fl_c)
+        call radiative_cooling_init(rc_fl_c,rc_params_read_c)
+        rc_fl_c%get_rho => get_rhoc_tot
+        rc_fl_c%get_pthermal => twofl_get_pthermal_c
+        rc_fl_c%Rfactor = Rc
+        rc_fl_c%e_ = e_c_
+        rc_fl_c%eaux_ = eaux_
+        rc_fl_c%Tcoff_ = Tcoff_c_
+        if(has_equi_pe_c0 .and. has_equi_rho_c0 .and. twofl_equi_thermal_c) then
+          rc_fl_c%has_equi = .true.
+          rc_fl_c%get_rho_equi => twofl_get_rho_c_equi
+          rc_fl_c%get_pthermal_equi => twofl_get_pe_c_equi
+        end if
+      end if
+    end if
+
 
     ! Initialize viscosity module
     !!TODO
@@ -1132,6 +1168,67 @@ contains
     dtnew=get_tc_dt_hd(w,ixI^L,ixO^L,dx^D,x,tc_fl_n) 
   end function twofl_get_tc_dt_hd_n
 
+    subroutine tc_n_params_read_hd(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_global_parameters, only: unitpar
+      type(tc_fluid), intent(inout) :: fl
+      integer                      :: n
+      logical :: tc_saturate=.false.
+      double precision :: tc_k_para=0d0
+
+      namelist /tc_n_list/ tc_saturate, tc_k_para
+
+      do n = 1, size(par_files)
+         open(unitpar, file=trim(par_files(n)), status="old")
+         read(unitpar, tc_n_list, end=111)
+111      close(unitpar)
+      end do
+      fl%tc_saturate = tc_saturate
+      fl%tc_k_para = tc_k_para
+
+    end subroutine tc_n_params_read_hd
+
+    subroutine rc_params_read_n(fl)
+      use mod_global_parameters, only: unitpar,par_files
+      use mod_constants, only: bigdouble
+      type(rc_fluid), intent(inout) :: fl
+      integer                      :: n
+      ! list parameters
+      integer :: ncool = 4000
+      double precision :: cfrac=0.1d0
+    
+      !> Name of cooling curve
+      character(len=std_len)  :: coolcurve='JCorona'
+    
+      !> Name of cooling method
+      character(len=std_len)  :: coolmethod='exact'
+    
+      !> Fixed temperature not lower than tlow
+      logical    :: Tfix=.false.
+    
+      !> Lower limit of temperature
+      double precision   :: tlow=bigdouble
+    
+      !> Add cooling source in a split way (.true.) or un-split way (.false.)
+      logical    :: rc_split=.false.
+
+
+      namelist /rc_list_n/ coolcurve, coolmethod, ncool, cfrac, tlow, Tfix, rc_split
+  
+      do n = 1, size(par_files)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, rc_list_n, end=111)
+111     close(unitpar)
+      end do
+
+      fl%ncool=ncool
+      fl%coolcurve=coolcurve
+      fl%coolmethod=coolmethod
+      fl%tlow=tlow
+      fl%Tfix=Tfix
+      fl%rc_split=rc_split
+      fl%cfrac=cfrac
+    end subroutine rc_params_read_n
 #endif
 
   !end wrappers
@@ -1184,26 +1281,52 @@ contains
 
     end subroutine tc_c_params_read_hd
 
-    subroutine tc_n_params_read_hd(fl)
+!! end th cond
+
+!!rad cool
+    subroutine rc_params_read_c(fl)
       use mod_global_parameters, only: unitpar,par_files
-      use mod_global_parameters, only: unitpar
-      type(tc_fluid), intent(inout) :: fl
+      use mod_constants, only: bigdouble
+      type(rc_fluid), intent(inout) :: fl
       integer                      :: n
-      logical :: tc_saturate=.false.
-      double precision :: tc_k_para=0d0
+      ! list parameters
+      integer :: ncool = 4000
+      double precision :: cfrac=0.1d0
+    
+      !> Name of cooling curve
+      character(len=std_len)  :: coolcurve='JCorona'
+    
+      !> Name of cooling method
+      character(len=std_len)  :: coolmethod='exact'
+    
+      !> Fixed temperature not lower than tlow
+      logical    :: Tfix=.false.
+    
+      !> Lower limit of temperature
+      double precision   :: tlow=bigdouble
+    
+      !> Add cooling source in a split way (.true.) or un-split way (.false.)
+      logical    :: rc_split=.false.
 
-      namelist /tc_n_list/ tc_saturate, tc_k_para
 
+      namelist /rc_list_c/ coolcurve, coolmethod, ncool, cfrac, tlow, Tfix, rc_split
+  
       do n = 1, size(par_files)
-         open(unitpar, file=trim(par_files(n)), status="old")
-         read(unitpar, tc_n_list, end=111)
-111      close(unitpar)
+        open(unitpar, file=trim(par_files(n)), status="old")
+        read(unitpar, rc_list_c, end=111)
+111     close(unitpar)
       end do
-      fl%tc_saturate = tc_saturate
-      fl%tc_k_para = tc_k_para
 
-    end subroutine tc_n_params_read_hd
+      fl%ncool=ncool
+      fl%coolcurve=coolcurve
+      fl%coolmethod=coolmethod
+      fl%tlow=tlow
+      fl%Tfix=Tfix
+      fl%rc_split=rc_split
+      fl%cfrac=cfrac
+    end subroutine rc_params_read_c
 
+!! end rad cool
 
   !> sets the equilibrium variables
   subroutine set_equi_vars_grid_faces(igrid,x,ixI^L,ixO^L)
@@ -2892,10 +3015,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out):: res(ixI^S)
       res(ixO^S) = block%equi_vars(ixO^S,equi_rho_n0_,b0i)
   end subroutine twofl_get_rho_n_equi
-  subroutine twofl_get_pe_n_equi(w, ixI^L, ixO^L, res)
+  subroutine twofl_get_pe_n_equi(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
       res(ixO^S) = block%equi_vars(ixO^S,equi_pe_n0_,b0i)
   end subroutine twofl_get_pe_n_equi
@@ -2978,10 +3102,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       res(ixO^S) = block%equi_vars(ixO^S,equi_rho_c0_,b0i)
   end subroutine twofl_get_rho_c_equi
 
-  subroutine twofl_get_pe_c_equi(w, ixI^L, ixO^L, res)
+  subroutine twofl_get_pe_c_equi(w,x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
       res(ixO^S) = block%equi_vars(ixO^S,equi_pe_c0_,b0i)
   end subroutine twofl_get_pe_c_equi
@@ -4007,10 +4132,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end if
     }
 
-!    if(twofl_radiative_cooling) then
-!      call radiative_cooling_add_source(qdt,ixI^L,ixO^L,wCT,&
-!           w,x,qsourcesplit,active)
-!    end if
+    if(twofl_radiative_cooling_c) then
+      call radiative_cooling_add_source(qdt,ixI^L,ixO^L,wCT,&
+           w,x,qsourcesplit,active,rc_fl_c)
+    end if
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    if(twofl_radiative_cooling_n) then
+      call radiative_cooling_add_source(qdt,ixI^L,ixO^L,wCT,&
+           w,x,qsourcesplit,active,rc_fl_n)
+    end if
+#endif
 !
 !    if(twofl_viscosity) then
 !      call viscosity_add_source(qdt,ixI^L,ixO^L,wCT,&
@@ -5197,7 +5328,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   subroutine twofl_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
     use mod_global_parameters
     use mod_usr_methods
-    !use mod_radiative_cooling, only: cooling_get_dt
+    use mod_radiative_cooling, only: cooling_get_dt
     !use mod_viscosity, only: viscosity_get_dt
     !use mod_gravity, only: gravity_get_dt
 
@@ -5251,9 +5382,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     endif
 #endif
 
-!    if(twofl_radiative_cooling) then
-!      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)
-!    end if
+    if(twofl_radiative_cooling_c) then
+      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x,rc_fl_c)
+    end if
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    if(twofl_radiative_cooling_n) then
+      call cooling_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x,rc_fl_n)
+    end if
+#endif
 !
 !    if(twofl_viscosity) then
 !      call viscosity_get_dt(w,ixI^L,ixO^L,dtnew,dx^D,x)

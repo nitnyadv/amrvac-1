@@ -55,6 +55,7 @@ module mod_radiative_cooling
   type rc_fluid
 
     ! these are to be set directly
+    logical :: has_equi = .false.
     procedure (get_subr2), pointer, nopass :: get_rho => null()
     procedure (get_subr2), pointer, nopass :: get_rho_equi => null()
     procedure (get_subr1), pointer, nopass :: get_pthermal => null()
@@ -1490,6 +1491,7 @@ module mod_radiative_cooling
       logical, intent(in) :: qsourcesplit
       logical, intent(inout) :: active
       type(rc_fluid), intent(in) :: fl
+      double precision, allocatable, dimension(:^D&) :: Lequi
 
       if(qsourcesplit .eqv.fl%rc_split) then
         active = .true.
@@ -1513,6 +1515,13 @@ module mod_radiative_cooling
         case default
           call mpistop("This cooling method is unknown")
         end select
+        if(fl%has_equi) then
+          allocate(Lequi(ixI^S))
+          call  get_cool_equi(qdt,ixI^L,ixO^L,wCT,w,x,fl,Lequi)
+          w(ixO^S,fl%e_) = w(ixO^S,fl%e_)+Lequi(ixO^S)*qdt
+          if(phys_solve_eaux) w(ixO^S,fl%eaux_)=w(ixO^S,fl%eaux_)+Lequi(ixO^S)*qdt 
+          deallocate(Lequi)
+        endif
         if( fl%Tfix ) call floortemperature(qdt,ixI^L,ixO^L,wCT,w,x,fl)
       end if
 
@@ -1543,6 +1552,65 @@ module mod_radiative_cooling
 
     end subroutine floortemperature
 
+    subroutine get_cool_equi(qdt,ixI^L,ixO^L,wCT,w,x,fl,res)
+    ! explicit cooling routine that depends on getdt to 
+    ! adjust the timestep. Accurate but incredibly slow
+      use mod_global_parameters
+
+      integer, intent(in)             :: ixI^L, ixO^L
+      double precision, intent(in)    :: qdt, x(ixI^S,1:ndim), wCT(ixI^S,1:nw)
+      double precision, intent(inout) :: w(ixI^S,1:nw)
+      type(rc_fluid), intent(in) :: fl
+      double precision, intent(out) :: res(ixI^S)
+      
+      double precision :: ptherm(ixI^S),rho(ixI^S),L1,Tlocal1
+      double precision :: plocal, rholocal, ttofflocal
+      double precision :: emin, Lmax
+      
+      integer :: ix^D
+      integer :: icool
+      
+      call fl%get_pthermal_equi(wCT,x,ixI^L,ixO^L,ptherm)     
+      call fl%get_rho_equi(wCT,ixI^L,ixO^L,rho)     
+
+      res=0d0
+
+      ttofflocal=zero
+      {do ix^DB = ixO^LIM^DB\}
+         plocal   = ptherm(ix^D)
+         rholocal = rho(ix^D)
+         if(phys_trac) then
+           ttofflocal=w(ix^D,fl%Tcoff_)
+         end if
+         emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
+         Lmax            = max(zero,plocal/(rc_gamma-1.d0)-emin)/qdt
+         !  Tlocal = P/rho
+         Tlocal1       = max(plocal/(fl%Rfactor * rholocal),smalldouble)
+         !
+         !  Determine explicit cooling
+         !
+         !  If temperature is below floor level, no cooling. 
+         !  Stop wasting time and go to next gridpoint.
+         !  If the temperature is higher than the maximum,
+         !  assume Bremsstrahlung
+         if( Tlocal1<=fl%tcoolmin ) then
+            L1 = zero
+         else if( Tlocal1>=fl%tcoolmax )then
+            call calc_l_extended(Tlocal1, L1,fl)
+         else  
+            call findL(Tlocal1,L1,fl)
+         endif
+         L1         = L1*(rholocal**2)
+         if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+           L1=L1*sqrt((Tlocal1/ttofflocal)**5)
+         end if
+         L1         = min(L1,Lmax)
+         res(ix^D) =L1
+      {enddo^D&\}
+      
+    end subroutine get_cool_equi
+
+
     subroutine cool_explicit1(qdt,ixI^L,ixO^L,wCT,w,x,fl)
     ! explicit cooling routine that depends on getdt to 
     ! adjust the timestep. Accurate but incredibly slow
@@ -1571,7 +1639,7 @@ module mod_radiative_cooling
          if(phys_trac) then
            ttofflocal=w(ix^D,fl%Tcoff_)
          end if
-         emin     = rholocal*fl%tlow/(rc_gamma-1.d0)
+         emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
          !  Tlocal = P/rho
          Tlocal1       = max(plocal/(fl%Rfactor * rholocal),smalldouble)
