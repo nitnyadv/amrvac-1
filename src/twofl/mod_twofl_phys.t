@@ -202,6 +202,11 @@ module mod_twofl_phys
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   ! two fluid is only H plasma
   double precision, public, protected  :: Rn
+  ! Eq of state:
+  !> Helium abundance over Hydrogen
+  !> He_abundance = (He2+ + He+ + He)/(H+ + H)
+  double precision, public, parameter  :: He_abundance=0.0d0 !for compat with MHD
+  !TODO for the moment this is set to 0
 #else
   ! Eq of state:
   !> Helium abundance over Hydrogen
@@ -972,7 +977,7 @@ contains
         rc_fl_c%get_pthermal => twofl_get_pthermal_c
         rc_fl_c%Rfactor = Rc
         rc_fl_c%e_ = e_c_
-        rc_fl_c%eaux_ = eaux_
+        rc_fl_c%eaux_ = eaux_c_
         rc_fl_c%Tcoff_ = Tcoff_c_
         if(has_equi_pe_c0 .and. has_equi_rho_c0 .and. twofl_equi_thermal_c) then
           rc_fl_c%has_equi = .true.
