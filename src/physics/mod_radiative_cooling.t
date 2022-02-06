@@ -1518,8 +1518,8 @@ module mod_radiative_cooling
         if(fl%has_equi) then
           allocate(Lequi(ixI^S))
           call  get_cool_equi(qdt,ixI^L,ixO^L,wCT,w,x,fl,Lequi)
-          w(ixO^S,fl%e_) = w(ixO^S,fl%e_)+Lequi(ixO^S)*qdt
-          if(phys_solve_eaux) w(ixO^S,fl%eaux_)=w(ixO^S,fl%eaux_)+Lequi(ixO^S)*qdt 
+          w(ixO^S,fl%e_) = w(ixO^S,fl%e_)+Lequi(ixO^S)
+          if(phys_solve_eaux) w(ixO^S,fl%eaux_)=w(ixO^S,fl%eaux_)+Lequi(ixO^S) 
           deallocate(Lequi)
         endif
         if( fl%Tfix ) call floortemperature(qdt,ixI^L,ixO^L,wCT,w,x,fl)
@@ -1569,11 +1569,12 @@ module mod_radiative_cooling
       
       integer :: ix^D
       integer :: icool
-      
       call fl%get_pthermal_equi(wCT,x,ixI^L,ixO^L,ptherm)     
       call fl%get_rho_equi(wCT,ixI^L,ixO^L,rho)     
 
       res=0d0
+
+      !if(fl%coolmethod=="explicit") then
 
       ttofflocal=zero
       {do ix^DB = ixO^LIM^DB\}
@@ -1605,9 +1606,65 @@ module mod_radiative_cooling
            L1=L1*sqrt((Tlocal1/ttofflocal)**5)
          end if
          L1         = min(L1,Lmax)
-         res(ix^D) =L1
+         res(ix^D) =L1*qdt
       {enddo^D&\}
-      
+
+
+
+    
+      !elseif  (fl%coolmethod == 'exact') then
+
+!      ttofflocal=zero
+!      fact = fl%lref*qdt/fl%tref
+!
+!      invgam=1.d0/(rc_gamma-1.d0)
+!      {do ix^DB = ixO^LIM^DB\}
+!         plocal   = ptherm(ix^D)
+!         rholocal = rho(ix^D)
+!         if(phys_trac) then
+!           ttofflocal=w(ix^D,fl%Tcoff_)
+!         end if
+!         emin     = rho(ix^D)*fl%tlow*fl%Rfactor*invgam
+!         Lmax     = max(zero,(ptherm(ix^D)*invgam-emin)/qdt)
+!         emax     = max(zero, ptherm(ix^D)*invgam-emin)
+!
+!         !  Tlocal = P/rho
+!         Tlocal1   = max(plocal/(rholocal*fl%Rfactor),smalldouble)
+!         !
+!         !  Determine explicit cooling
+!         !
+!         !  If temperature is below floor level, no cooling. 
+!         !  Stop wasting time and go to next gridpoint.
+!         !  If the temperature is higher than the maximum,
+!         !  assume Bremsstrahlung
+!         if( Tlocal1<=fl%tcoolmin ) then
+!            L1 = zero
+!         else if( Tlocal1>=fl%tcoolmax )then
+!            call calc_l_extended(Tlocal1, L1,fl)
+!            L1         = L1*(rholocal**2)
+!            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+!              L1=L1*sqrt((Tlocal1/ttofflocal)**5)
+!            end if
+!            L1         = min(L1,Lmax)
+!            res(ix^D) = L1*qdt
+!         else  
+!            call findL(Tlocal1,L1,fl)
+!            call findY(Tlocal1,Y1,fl)
+!            Y2         = Y1 + fact * rholocal / invgam
+!            call findT(Tlocal2,Y2,fl)
+!            if(Tlocal2<=fl%tcoolmin) then
+!              de = emax
+!            else
+!              de = (Tlocal1-Tlocal2)*invgam*rholocal
+!            endif
+!            if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
+!              de=de*sqrt((Tlocal1/ttofflocal)**5)
+!            end if
+!            de          = min(de,emax)   
+!            res(ix^D)  = de
+!         endif
+!      {enddo^D&\}
+!     endif
     end subroutine get_cool_equi
 
 
