@@ -1563,10 +1563,10 @@ module mod_radiative_cooling
       type(rc_fluid), intent(in) :: fl
       double precision, intent(out) :: res(ixI^S)
       
-      double precision :: ptherm(ixI^S),rho(ixI^S),L1,Tlocal1
+      double precision :: ptherm(ixI^S),rho(ixI^S),L1,Tlocal1,Tlocal2
       double precision :: plocal, rholocal, ttofflocal
       double precision :: emin, Lmax
-      double precision :: Y1, Y2
+      double precision :: Y1, Y2, invgam
       double precision :: de, emax,fact
       
       integer :: ix^D
