@@ -1566,9 +1566,12 @@ module mod_radiative_cooling
       double precision :: ptherm(ixI^S),rho(ixI^S),L1,Tlocal1
       double precision :: plocal, rholocal, ttofflocal
       double precision :: emin, Lmax
+      double precision :: Y1, Y2
+      double precision :: de, emax,fact
       
       integer :: ix^D
       integer :: icool
+
       call fl%get_pthermal_equi(wCT,x,ixI^L,ixO^L,ptherm)     
       call fl%get_rho_equi(wCT,ixI^L,ixO^L,rho)     
 
