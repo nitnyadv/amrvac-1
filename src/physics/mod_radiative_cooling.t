@@ -1611,7 +1611,7 @@ module mod_radiative_cooling
                 L1=L1*sqrt((Tlocal1/ttofflocal)**5)
               end if
               L1         = min(L1,Lmax)
-              res(ix^D) = L1*qdt
+              res(ix^D) =  L1*qdt
            else  
               call findL(Tlocal1,L1,fl)
               call findY(Tlocal1,Y1,fl)
@@ -1626,7 +1626,7 @@ module mod_radiative_cooling
                 de=de*sqrt((Tlocal1/ttofflocal)**5)
               end if
               de          = min(de,emax)   
-              res(ix^D)  = de
+              res(ix^D)  =  de
            endif
         {enddo^D&\}
       else
