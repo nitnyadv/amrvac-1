@@ -303,15 +303,10 @@ contains
     double precision, dimension(ixI^S,1:nw) :: wprim, wLC, wRC
     ! left and right constructed status in primitive form, needed for better performance
     double precision, dimension(ixI^S,1:nw) :: wLp, wRp
-<<<<<<< HEAD
     double precision, dimension(ixI^S)      :: vLC, cmaxLC, cmaxRC
     double precision, dimension(ixI^S,1:number_species)      :: cmaxC
     double precision, dimension(ixI^S,1:number_species)      :: cminC
-=======
-    double precision, dimension(ixI^S)      :: vLC, phi, cmaxLC, cmaxRC
-    double precision, dimension(ixI^S)      :: cmaxC, cminC
     double precision, dimension(ixI^S)      :: Hspeed
->>>>>>> f54d8f4ecc7a1b707f7adbedabab5d005d961b83
 
     double precision :: dxinv(1:ndim), dxdim(1:ndim)
     integer :: idims, iw, ix^L, hxO^L, ixC^L, jxC^L, hxC^L, kxC^L, kkxC^L, kkxR^L
