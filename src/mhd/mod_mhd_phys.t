@@ -524,6 +524,7 @@ contains
     phys_get_cmax            => mhd_get_cmax
     phys_get_a2max           => mhd_get_a2max
     phys_get_tcutoff         => mhd_get_tcutoff
+    phys_get_H_speed         => mhd_get_H_speed
     phys_get_cbounds         => mhd_get_cbounds
     phys_get_flux            => mhd_get_flux
     phys_get_v_idim          => mhd_get_v_idim
@@ -1457,8 +1458,54 @@ contains
     }
   end subroutine mhd_get_tcutoff
 
+  !> get H speed for H-correction to fix the carbuncle problem at grid-aligned shock front
+  subroutine mhd_get_H_speed(wprim,x,ixI^L,ixO^L,idim,Hspeed) 
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wprim(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: Hspeed(ixI^S)
+
+    double precision :: csound(ixI^S,ndim),tmp(ixI^S)
+    integer :: jxC^L, ixC^L, ixA^L, id, ix^D
+
+    Hspeed=0.d0
+    ixA^L=ixO^L^LADD1;
+    do id=1,ndim
+      call mhd_get_csound_prim(wprim,x,ixI^L,ixA^L,id,tmp)
+      csound(ixA^S,id)=tmp(ixA^S)
+    end do
+    ixCmax^D=ixOmax^D;
+    ixCmin^D=ixOmin^D+kr(idim,^D)-1;
+    jxCmax^D=ixCmax^D+kr(idim,^D);
+    jxCmin^D=ixCmin^D+kr(idim,^D);
+    Hspeed(ixC^S)=0.5d0*abs(wprim(jxC^S,mom(idim))+csound(jxC^S,idim)-wprim(ixC^S,mom(idim))+csound(ixC^S,idim))
+
+    do id=1,ndim
+      if(id==idim) cycle
+      ixAmax^D=ixCmax^D+kr(id,^D);
+      ixAmin^D=ixCmin^D+kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixA^S,mom(id))+csound(ixA^S,id)-wprim(ixC^S,mom(id))+csound(ixC^S,id)))
+      ixAmax^D=ixCmax^D-kr(id,^D);
+      ixAmin^D=ixCmin^D-kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixC^S,mom(id))+csound(ixC^S,id)-wprim(ixA^S,mom(id))+csound(ixA^S,id)))
+    end do
+
+    do id=1,ndim
+      if(id==idim) cycle
+      ixAmax^D=jxCmax^D+kr(id,^D);
+      ixAmin^D=jxCmin^D+kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixA^S,mom(id))+csound(ixA^S,id)-wprim(jxC^S,mom(id))+csound(jxC^S,id)))
+      ixAmax^D=jxCmax^D-kr(id,^D);
+      ixAmin^D=jxCmin^D-kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(jxC^S,mom(id))+csound(jxC^S,id)-wprim(ixA^S,mom(id))+csound(ixA^S,id)))
+    end do
+
+  end subroutine mhd_get_H_speed
+
   !> Estimating bounds for the minimum and maximum signal velocities
-  subroutine mhd_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
+  subroutine mhd_get_cbounds(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,Hspeed,cmax,cmin)
     use mod_global_parameters
     use mod_variables
 
@@ -1468,9 +1515,11 @@ contains
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     double precision, intent(inout) :: cmax(ixI^S,1:number_species)
     double precision, intent(inout), optional :: cmin(ixI^S,1:number_species)
+    double precision, intent(in)    :: Hspeed(ixI^S)
 
     double precision :: wmean(ixI^S,nw)
     double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
+    integer :: ix^D
 
     if (boundspeedEinfeldt) then
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
@@ -1488,6 +1537,12 @@ contains
       if(present(cmin)) then
         cmin(ixO^S,1)=umean(ixO^S)-dmean(ixO^S)
         cmax(ixO^S,1)=umean(ixO^S)+dmean(ixO^S)
+        if(H_correction) then
+          {do ix^DB=ixOmin^DB,ixOmax^DB\}
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+          {end do\}
+        end if
       else
         cmax(ixO^S,1)=abs(umean(ixO^S))+dmean(ixO^S)
       end if
@@ -1498,6 +1553,12 @@ contains
       if(present(cmin)) then
         cmax(ixO^S,1)=max(tmp1(ixO^S)+csoundR(ixO^S),zero)
         cmin(ixO^S,1)=min(tmp1(ixO^S)-csoundR(ixO^S),zero)
+        if(H_correction) then
+          {do ix^DB=ixOmin^DB,ixOmax^DB\}
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+          {end do\}
+        end if
       else
         cmax(ixO^S,1)=abs(tmp1(ixO^S))+csoundR(ixO^S)
       end if
