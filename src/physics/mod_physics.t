@@ -67,6 +67,7 @@ module mod_physics
   procedure(sub_get_cmax), pointer        :: phys_get_cmax               => null()
   procedure(sub_get_a2max), pointer       :: phys_get_a2max              => null()
   procedure(sub_get_tcutoff), pointer     :: phys_get_tcutoff            => null()
+  procedure(sub_get_H_speed), pointer     :: phys_get_H_speed            => null()
   procedure(sub_get_cbounds), pointer     :: phys_get_cbounds            => null()
   procedure(sub_get_flux), pointer        :: phys_get_flux               => null()
   procedure(sub_energy_synchro), pointer  :: phys_energy_synchro         => null()
@@ -152,7 +153,15 @@ module mod_physics
 
      end subroutine sub_get_v_idim
 
-     subroutine sub_get_cbounds(wLC, wRC, wLp, wRp, x, ixI^L, ixO^L, idim, cmax, cmin)
+     subroutine sub_get_H_speed(wprim,x,ixI^L,ixO^L,idim,Hspeed)
+       use mod_global_parameters
+       integer, intent(in)             :: ixI^L, ixO^L, idim
+       double precision, intent(in)    :: wprim(ixI^S, nw)
+       double precision, intent(in)    :: x(ixI^S,1:ndim)
+       double precision, intent(out)   :: Hspeed(ixI^S)
+     end subroutine sub_get_H_speed
+
+     subroutine sub_get_cbounds(wLC, wRC, wLp, wRp, x, ixI^L, ixO^L, idim, Hspeed, cmax, cmin)
        use mod_global_parameters
        use mod_variables
        integer, intent(in)             :: ixI^L, ixO^L, idim
@@ -161,6 +170,7 @@ module mod_physics
        double precision, intent(in)    :: x(ixI^S, 1:^ND)
        double precision, intent(inout) :: cmax(ixI^S,1:number_species)
        double precision, intent(inout), optional :: cmin(ixI^S,1:number_species)
+       double precision, intent(in)    :: Hspeed(ixI^S)
      end subroutine sub_get_cbounds
 
      subroutine sub_get_flux(wC, w, x, ixI^L, ixO^L, idim, f)
@@ -368,6 +378,9 @@ contains
     if (.not. associated(phys_get_a2max)) &
          phys_get_a2max => dummy_get_a2max
 
+    if (.not. associated(phys_get_H_speed)) &
+         phys_get_H_speed => dummy_get_H_speed
+
     if (.not. associated(phys_get_cbounds)) &
          call mpistop("Error: no phys_get_cbounds not defined")
 
@@ -435,6 +448,14 @@ contains
     double precision, intent(inout) :: wLp(ixI^S,1:nw), wRp(ixI^S,1:nw)
     type(state)                     :: s
   end subroutine dummy_modify_wLR
+
+  subroutine dummy_get_H_speed(wprim,x,ixI^L,ixO^L,idim,Hspeed)
+    use mod_global_parameters
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wprim(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: Hspeed(ixI^S)
+  end subroutine dummy_get_H_speed
 
   subroutine dummy_get_a2max(w, x, ixI^L, ixO^L, a2max)
        use mod_global_parameters

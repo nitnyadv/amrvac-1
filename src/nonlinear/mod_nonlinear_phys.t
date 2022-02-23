@@ -152,7 +152,7 @@ contains
 
   end subroutine nonlinear_get_cmax
 
-  subroutine nonlinear_get_cbounds(wLC, wRC, wLp, wRp, x, ixI^L, ixO^L, idim, cmax, cmin)
+  subroutine nonlinear_get_cbounds(wLC, wRC, wLp, wRp, x, ixI^L, ixO^L, idim,Hspeed, cmax, cmin)
     use mod_global_parameters
     use mod_variables
     integer, intent(in)             :: ixI^L, ixO^L, idim
@@ -161,7 +161,7 @@ contains
     double precision, intent(in)    :: x(ixI^S, 1:^ND)
     double precision, intent(inout) :: cmax(ixI^S,1:number_species)
     double precision, intent(inout), optional :: cmin(ixI^S,1:number_species)
-
+    double precision, intent(in)    :: Hspeed(ixI^S)
     double precision :: wmean(ixI^S,nw)
 
     ! since get_v depends on w, the first argument should be some average over the

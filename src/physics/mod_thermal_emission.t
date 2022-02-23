@@ -750,7 +750,7 @@ module mod_thermal_emission
       double precision :: gff,fi,erg_SI
 
       ! check whether the grid is inside given box
-      inbox=zero
+      inbox=0
       {if (xbmin^D<xboxmax^D .and. xbmax^D>xboxmin^D) inbox=inbox+1\}
 
       if (inbox==ndim) then

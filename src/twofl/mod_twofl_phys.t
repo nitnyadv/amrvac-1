@@ -783,6 +783,7 @@ contains
     phys_get_cmax            => twofl_get_cmax
     phys_get_a2max           => twofl_get_a2max
     !phys_get_tcutoff         => twofl_get_tcutoff
+    phys_get_H_speed         => twofl_get_H_speed
     if(twofl_cbounds_species) then
       if (mype .eq. 0) print*, "Using different cbounds for each species nspecies = ", number_species
       phys_get_cbounds         => twofl_get_cbounds_species
@@ -1018,13 +1019,6 @@ contains
       phys_req_diagonal = .true.
       if(twofl_ambipolar_sts) then
         call sts_init()
-        !!ADDED  
-!        if(twofl_4th_order) then
-!          phys_wider_stencil = 2
-!        else
-!          phys_wider_stencil = 1
-!        end if
-        !!ADDED end 
         if(phys_internal_e) then
           call add_sts_method(get_ambipolar_dt,sts_set_source_ambipolar,mag(1),&
                ndir,mag(1),ndir,.true.)
@@ -2170,22 +2164,44 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     Tmax_local=maxval(Te(ixO^S))
 
     {^IFONED
-    hxO^L=ixO^L-1;
-    jxO^L=ixO^L+1;
-    lts(ixO^S)=0.5d0*abs(Te(jxO^S)-Te(hxO^S))/Te(ixO^S)
-    lrlt=.false.
-    where(lts(ixO^S) > trac_delta)
-      lrlt(ixO^S)=.true.
-    end where
-    Tco_local=zero
-    block%special_values(1)=zero
-    if(any(lrlt(ixO^S))) then
-      Tco_local=zero
-      block%special_values(1)=maxval(Te(ixO^S), mask=lrlt(ixO^S))
-    end if
+    select case(mhd_trac_type)
+    case(0)
+      !> test case, fixed cutoff temperature
+      w(ixI^S,Tcoff_)=2.5d5/unit_temperature
+    case(1)
+      hxO^L=ixO^L-1;
+      jxO^L=ixO^L+1;
+      lts(ixO^S)=0.5d0*abs(Te(jxO^S)-Te(hxO^S))/Te(ixO^S)
+      lrlt=.false.
+      where(lts(ixO^S) > trac_delta)
+        lrlt(ixO^S)=.true.
+      end where
+      if(any(lrlt(ixO^S))) then
+        Tco_local=maxval(Te(ixO^S), mask=lrlt(ixO^S))
+      end if
+    case(2)
+      !> iijima et al. 2021, LTRAC method
+      ltrc=1.5d0
+      ltrp=2.5d0
+      ixP^L=ixO^L^LADD1;
+      hxO^L=ixO^L-1;
+      jxO^L=ixO^L+1;
+      hxP^L=ixP^L-1;
+      jxP^L=ixP^L+1;
+      lts(ixP^S)=0.5d0*abs(Te(jxP^S)-Te(hxP^S))/Te(ixP^S)
+      ltr(ixP^S)=max(one, (exp(lts(ixP^S))/ltrc)**ltrp)
+      w(ixO^S,Tcoff_)=Te(ixO^S)*&
+        (0.25*(ltr(jxO^S)+two*ltr(ixO^S)+ltr(hxO^S)))**0.4d0
+    case default
+      call mpistop("mhd_trac_type not allowed for 1D simulation")
+    end select
     }
     {^NOONED
-    if(mod(twofl_trac_type,2) .eq. 1) then
+    select case(mhd_trac_type)
+    case(0)
+      !> test case, fixed cutoff temperature
+      w(ixI^S,Tcoff_)=2.5d5/unit_temperature
+    case(1,4,6)
       ! temperature gradient at cell centers
       do idims=1,ndim
         call gradient(Te,ixI^L,ixO^L,idims,tmp1)
@@ -2197,7 +2213,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       else
         bunitvec(ixO^S,:)=w(ixO^S,iw_mag(:))
       end if
-      if(twofl_trac_type>1) then
+      if(mhd_trac_type .gt. 1) then
         ! B direction at cell center
         Bdir=zero
         {do ixA^D=0,1\}
@@ -2237,9 +2253,104 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         block%special_values(1)=zero
       end if
       block%special_values(2)=Tmax_local
-    end if
+    case(2)
+      !> iijima et al. 2021, LTRAC method
+      ltrc=1.5d0
+      ltrp=2.5d0
+      ixP^L=ixO^L^LADD1;
+      ! temperature gradient at cell centers
+      do idims=1,ndim
+        call gradient(Te,ixI^L,ixP^L,idims,tmp1)
+        gradT(ixP^S,idims)=tmp1(ixP^S)
+      end do
+      ! B vector
+      if(B0field) then
+        bunitvec(ixP^S,:)=w(ixP^S,iw_mag(:))+block%B0(ixP^S,:,0)
+      else
+        bunitvec(ixP^S,:)=w(ixP^S,iw_mag(:))
+      end if
+      tmp1(ixP^S)=dsqrt(sum(bunitvec(ixP^S,:)**2,dim=ndim+1))
+      where(tmp1(ixP^S)/=0.d0)
+        tmp1(ixP^S)=1.d0/tmp1(ixP^S)
+      elsewhere
+        tmp1(ixP^S)=bigdouble
+      end where
+      ! b unit vector: magnetic field direction vector
+      do idims=1,ndim
+        bunitvec(ixP^S,idims)=bunitvec(ixP^S,idims)*tmp1(ixP^S)
+      end do
+      ! temperature length scale inversed
+      lts(ixP^S)=abs(sum(gradT(ixP^S,1:ndim)*bunitvec(ixP^S,1:ndim),dim=ndim+1))/Te(ixP^S)
+      ! fraction of cells size to temperature length scale
+      if(slab_uniform) then
+        lts(ixP^S)=minval(dxlevel)*lts(ixP^S)
+      else
+        lts(ixP^S)=minval(block%ds(ixP^S,:),dim=ndim+1)*lts(ixP^S)
+      end if
+      ltr(ixP^S)=max(one, (exp(lts(ixP^S))/ltrc)**ltrp)
+  
+      altr(ixI^S)=zero  
+      do idims=1,ndim 
+        hxO^L=ixO^L-kr(idims,^D);
+        jxO^L=ixO^L+kr(idims,^D);
+        altr(ixO^S)=altr(ixO^S) &
+          +0.25*(ltr(hxO^S)+two*ltr(ixO^S)+ltr(jxO^S))*bunitvec(ixO^S,idims)**2
+        w(ixO^S,Tcoff_)=Te(ixO^S)*altr(ixO^S)**(0.4*ltrp)
+      end do
+    case(3,5)
+      !> do nothing here
+    case default
+      call mpistop("unknown mhd_trac_type")
+    end select 
     }
   end subroutine twofl_get_tcutoff_c
+
+  !> get H speed for H-correction to fix the carbuncle problem at grid-aligned shock front
+  subroutine twofl_get_H_speed(wprim,x,ixI^L,ixO^L,idim,Hspeed) 
+    use mod_global_parameters
+
+    integer, intent(in)             :: ixI^L, ixO^L, idim
+    double precision, intent(in)    :: wprim(ixI^S, nw)
+    double precision, intent(in)    :: x(ixI^S,1:ndim)
+    double precision, intent(out)   :: Hspeed(ixI^S)
+
+    double precision :: csound(ixI^S,ndim),tmp(ixI^S)
+    integer :: jxC^L, ixC^L, ixA^L, id, ix^D
+
+    Hspeed=0.d0
+    ixA^L=ixO^L^LADD1;
+    do id=1,ndim
+      call mhd_get_csound_prim(wprim,x,ixI^L,ixA^L,id,tmp)
+      csound(ixA^S,id)=tmp(ixA^S)
+    end do
+    ixCmax^D=ixOmax^D;
+    ixCmin^D=ixOmin^D+kr(idim,^D)-1;
+    jxCmax^D=ixCmax^D+kr(idim,^D);
+    jxCmin^D=ixCmin^D+kr(idim,^D);
+    Hspeed(ixC^S)=0.5d0*abs(wprim(jxC^S,mom(idim))+csound(jxC^S,idim)-wprim(ixC^S,mom(idim))+csound(ixC^S,idim))
+
+    do id=1,ndim
+      if(id==idim) cycle
+      ixAmax^D=ixCmax^D+kr(id,^D);
+      ixAmin^D=ixCmin^D+kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixA^S,mom(id))+csound(ixA^S,id)-wprim(ixC^S,mom(id))+csound(ixC^S,id)))
+      ixAmax^D=ixCmax^D-kr(id,^D);
+      ixAmin^D=ixCmin^D-kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixC^S,mom(id))+csound(ixC^S,id)-wprim(ixA^S,mom(id))+csound(ixA^S,id)))
+    end do
+
+    do id=1,ndim
+      if(id==idim) cycle
+      ixAmax^D=jxCmax^D+kr(id,^D);
+      ixAmin^D=jxCmin^D+kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(ixA^S,mom(id))+csound(ixA^S,id)-wprim(jxC^S,mom(id))+csound(jxC^S,id)))
+      ixAmax^D=jxCmax^D-kr(id,^D);
+      ixAmin^D=jxCmin^D-kr(id,^D);
+      Hspeed(ixC^S)=max(Hspeed(ixC^S),0.5d0*abs(wprim(jxC^S,mom(id))+csound(jxC^S,id)-wprim(ixA^S,mom(id))+csound(ixA^S,id)))
+    end do
+
+  end subroutine twofl_get_H_speed
+
 
   !> Estimating bounds for the minimum and maximum signal velocities
   subroutine twofl_get_cbounds_one(wLC,wRC,wLp,wRp,x,ixI^L,ixO^L,idim,cmax,cmin)
@@ -2381,6 +2492,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       if(present(cmin)) then
         cmin(ixO^S,1)=umean(ixO^S)-dmean(ixO^S)
         cmax(ixO^S,1)=umean(ixO^S)+dmean(ixO^S)
+        if(H_correction) then
+          {do ix^DB=ixOmin^DB,ixOmax^DB\}
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+          {end do\}
+        end if
       else
         cmax(ixO^S,1)=abs(umean(ixO^S))+dmean(ixO^S)
       end if
@@ -2423,8 +2540,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       if(present(cmin)) then
         cmax(ixO^S,1)=max(abs(tmp1(ixO^S))+csoundR(ixO^S),zero)
         cmin(ixO^S,1)=min(abs(tmp1(ixO^S))-csoundR(ixO^S),zero)
+        if(H_correction) then
+          {do ix^DB=ixOmin^DB,ixOmax^DB\}
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+          {end do\}
+        end if
       else
-        cmax(ixO^S,1)= abs(tmp1(ixO^S))+csoundR(ixO^S)
+        cmax(ixO^S,1)=abs(tmp1(ixO^S))+csoundR(ixO^S)
       end if
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       !neutrals
@@ -5463,9 +5586,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     integer :: mr_,mphi_ ! Polar var. names
     integer :: br_,bphi_
 
-!    mr_=mom(1); mphi_=mom(1)-1+phi_  ! Polar var. names
-!    br_=mag(1); bphi_=mag(1)-1+phi_
-!
+    mr_=mom(1); mphi_=mom(1)-1+phi_  ! Polar var. names
+    br_=mag(1); bphi_=mag(1)-1+phi_
+
 !    select case (coordinate)
 !    case (cylindrical)
 !      if (angmomfix) then
