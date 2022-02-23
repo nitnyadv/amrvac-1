@@ -31,7 +31,7 @@ module mod_twofl_phys
   !! E_n (index e_) = E_kin + E_int
   integer, public, parameter              :: EQ_ENERGY_TOT2=4
 
-  integer, public, protected              :: twofl_eq_energy = EQ_ENERGY_KI
+  integer, public, protected              :: twofl_eq_energy = EQ_ENERGY_TOT
 
   !> Whether hyperdiffusivity is used
   logical, public, protected              :: twofl_hyperdiffusivity = .false.
