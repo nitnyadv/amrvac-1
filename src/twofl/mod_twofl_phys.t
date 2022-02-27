@@ -865,9 +865,9 @@ contains
 #endif
     ) then
 
+      phys_req_diagonal = .true.
       call sts_init()
       call tc_init_params(twofl_gamma)
-      phys_req_diagonal = .true.
     endif
     if (twofl_thermal_conduction_c) then
       allocate(tc_fl_c)
@@ -5779,9 +5779,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: mge(ixO^S)
 
     if (B0field) then
-      mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,b0i))**2, dim=ndim+1)
+      mge(ixO^S) = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,b0i))**2, dim=ndim+1)
     else
-      mge = sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+      mge(ixO^S) = sum(w(ixO^S, mag(:))**2, dim=ndim+1)
     end if
   end function twofl_mag_en_all
 
@@ -5793,9 +5793,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: mgf(ixO^S)
 
     if (B0field) then
-      mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,b0i)
+      mgf(ixO^S) = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,b0i)
     else
-      mgf = w(ixO^S, mag(idir))
+      mgf(ixO^S) = w(ixO^S, mag(idir))
     end if
   end function twofl_mag_i_all
 
@@ -5806,7 +5806,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: mge(ixO^S)
 
-    mge = 0.5d0 * sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+    mge(ixO^S) = 0.5d0 * sum(w(ixO^S, mag(:))**2, dim=ndim+1)
   end function twofl_mag_en
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -5818,9 +5818,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: ke(ixO^S)
 
     if(has_equi_rho_n0) then
-      ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / (w(ixO^S, rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0))
+      ke(ixO^S) = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / (w(ixO^S, rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0))
     else
-      ke = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / w(ixO^S, rho_n_)
+      ke(ixO^S) = 0.5d0 * sum(w(ixO^S, mom_n(:))**2, dim=ndim+1) / w(ixO^S, rho_n_)
     endif
 
   end function twofl_kin_en_n
@@ -5859,9 +5859,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: ke(ixO^S)
 
     if(has_equi_rho_c0) then
-      ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / (w(ixO^S, rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0))
+      ke(ixO^S) = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / (w(ixO^S, rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0))
     else
-      ke = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / w(ixO^S, rho_c_)
+      ke(ixO^S) = 0.5d0 * sum(w(ixO^S, mom_c(:))**2, dim=ndim+1) / w(ixO^S, rho_c_)
     endif
   end function twofl_kin_en_c
 
