@@ -8163,7 +8163,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S) 
       w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S) 
 
-     else 
+    else 
       tmp4(ixO^S) = w(ixO^S,e_n_) 
       tmp5(ixO^S) = w(ixO^S,e_c_) 
       call twofl_get_v_n(wCT,x,ixI^L,ixO^L,v_n)
