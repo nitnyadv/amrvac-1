@@ -5889,7 +5889,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     vHall(ixO^S,1:3) = zero
     vHall(ixO^S,idirmin:3) = - twofl_etah*current(ixO^S,idirmin:3)
     do idir = idirmin, 3
-       vHall(ixO^S,idir) = vHall(ixO^S,idir)/w(ixO^S,rho_c_)
+       vHall(ixO^S,idir) = vHall(ixO^S,idir)/rho(ixO^S)
     end do
 
   end subroutine twofl_getv_Hall
