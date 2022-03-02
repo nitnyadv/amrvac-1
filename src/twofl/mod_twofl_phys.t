@@ -307,12 +307,14 @@ module mod_twofl_phys
   public :: twofl_to_primitive
   public :: get_divb
   public :: get_rhoc_tot
+  public :: twofl_get_v_c_idim
   ! TODO needed for the roe, see if can be used for n
   public :: twofl_get_csound2_c
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   public :: get_rhon_tot
   public :: get_alpha_coll_plasma
   public :: get_gamma_ion_rec
+  public :: twofl_get_v_n_idim
 #endif
   public :: get_current
   public :: twofl_get_pthermal_c
