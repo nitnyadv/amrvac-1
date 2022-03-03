@@ -307,12 +307,14 @@ module mod_twofl_phys
   public :: twofl_to_primitive
   public :: get_divb
   public :: get_rhoc_tot
+  public :: twofl_get_v_c_idim
   ! TODO needed for the roe, see if can be used for n
   public :: twofl_get_csound2_c
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   public :: get_rhon_tot
   public :: get_alpha_coll_plasma
   public :: get_gamma_ion_rec
+  public :: twofl_get_v_n_idim
 #endif
   public :: get_current
   public :: twofl_get_pthermal_c
@@ -8163,7 +8165,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S) 
       w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S) 
 
-     else 
+    else 
       tmp4(ixO^S) = w(ixO^S,e_n_) 
       tmp5(ixO^S) = w(ixO^S,e_c_) 
       call twofl_get_v_n(wCT,x,ixI^L,ixO^L,v_n)
