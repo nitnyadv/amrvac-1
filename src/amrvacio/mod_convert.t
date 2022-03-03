@@ -186,6 +186,9 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
       igrid  = sfc_to_igrid(Morton_no)
       itag   = Morton_no
       block=>ps(igrid)
+      ! this might be used in convert, 
+      ! it was not used when only output already computed vars 
+      ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
 
       ! start copied from block_shape_io, 
       ! because nwc is needed  as parameter
