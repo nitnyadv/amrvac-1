@@ -100,7 +100,7 @@ program amrvac
            call process(it,global_time)
         end if
         !here requires -1 snapshot
-        if (autoconvert) snapshotnext = snapshotnext - 1
+        if (autoconvert .or. snapshotnext>0) snapshotnext = snapshotnext - 1
         call generate_plotfile
         call comm_finalize
         stop
