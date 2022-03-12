@@ -1524,7 +1524,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
   subroutine twofl_physical_units()
     use mod_global_parameters
-    double precision :: mp,kB,miu0
+    double precision :: mp,kB,miu0,c_lightspeed
     !double precision :: a,b,c,d
     double precision :: a,b
     ! Derive scaling units
@@ -1566,19 +1566,42 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! twofl eq of state p = rho R T
 #endif
 
-    if(unit_velocity==0) then
+    !now the unit choice:
+    !unit 1 from number density or density -> mH
+    !unit 2 from 
+
+    if(unit_numberdensity/=1.d0) then
       unit_density=a*mp*unit_numberdensity
+    else if(unit_density/=1.d0) then
+      unit_numberdensity=unit_density/(a*mp)
+    end if
+    if(unit_temperature/=1.d0) then
       unit_pressure=b*unit_numberdensity*kB*unit_temperature
       unit_velocity=sqrt(unit_pressure/unit_density)
-    else
-
-      unit_density=a*mp*unit_numberdensity
-      unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
+      unit_magneticfield=sqrt(miu0*unit_pressure)
+    else if(unit_velocity/=1.d0) then
       unit_pressure=unit_density*unit_velocity**2
+      unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
+      unit_magneticfield=sqrt(miu0*unit_pressure)
+    else if(unit_pressure/=1.d0) then
+      unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
+      unit_velocity=sqrt(unit_pressure/unit_density)
+      unit_magneticfield=sqrt(miu0*unit_pressure)
+    else if(unit_magneticfield/=1.d0) then
+      unit_pressure=unit_magneticfield**2/miu0
+      unit_temperature=unit_pressure/(b*unit_numberdensity*kB)
+      unit_velocity=sqrt(unit_pressure/unit_density)
     end if
-    unit_magneticfield=sqrt(miu0*unit_pressure)
-    unit_time=unit_length/unit_velocity
-
+    if(unit_length/=1.d0) then 
+      unit_time=unit_length/unit_velocity
+    else if(unit_time/=1.d0) then
+      unit_length=unit_time*unit_velocity
+    end if
+    ! Additional units needed for the particles
+    c_norm=c_lightspeed/unit_velocity
+    unit_charge=unit_magneticfield*unit_length**2/unit_velocity/miu0
+    if (.not. SI_unit) unit_charge = unit_charge*const_c
+    unit_mass=unit_density*unit_length**3
   end subroutine twofl_physical_units
 
   subroutine twofl_check_w(primitive,ixI^L,ixO^L,w,flag)
