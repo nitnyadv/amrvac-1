@@ -1532,10 +1532,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       mp=mp_SI
       kB=kB_SI
       miu0=miu0_SI
+      c_lightspeed=c_SI
     else
       mp=mp_cgs
       kB=kB_cgs
       miu0=4.d0*dpi
+      c_lightspeed=const_c
     end if
 
 
@@ -2140,7 +2142,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     {^IFONED
     ! reuse lts as rhon
-    call get_rhon_tot(w,ixI^L,ixO^L,lts)
+    call get_rhon_tot(w,ixI^L,ixI^L,lts)
     tmp1(ixI^S)=w(ixI^S,e_n_)-0.5d0*sum(w(ixI^S,mom_n(:))**2,dim=ndim+1)/lts(ixI^S)
     Te(ixI^S)=tmp1(ixI^S)/lts(ixI^S)*(twofl_gamma-1.d0)
 
@@ -2181,7 +2183,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     logical :: lrlt(ixI^S)
 
     ! reuse lts as rhoc
-    call get_rhoc_tot(w,ixI^L,ixO^L,lts)
+    call get_rhoc_tot(w,ixI^L,ixI^L,lts)
     if(phys_internal_e) then
       tmp1(ixI^S)=w(ixI^S,e_c_)
     else
@@ -2693,24 +2695,24 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+tmp(ixO^S)) 
 #else
-    inv_rho=1.d0/tmp(ixO^S)
+    inv_rho(ixO^S)=1.d0/tmp(ixO^S)
 #endif
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
     else
-      gamma2 = 1.0d0
+      gamma2(ixO^S) = 1.0d0
     end if
 
     call twofl_get_csound2_c(w,x,ixI^L,ixO^L,csound)
 
 
     ! store |B|^2 in v
-    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2
+    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2(ixO^S)
 
-    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho * gamma2
+         * inv_rho(ixO^S) * gamma2(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2729,7 +2731,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
        kmax = dpi/min({dxlevel(^D)},bigdouble)*half
        csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
-            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho(ixO^S)*kmax)
     end if
 
   end subroutine twofl_get_csound_c_idim
@@ -2752,13 +2754,13 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
 #else
-    inv_rho=1.d0/rhoc(ixO^S)
+    inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 #endif
 
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
     else
-      gamma_A2 = 1.0d0
+      gamma_A2(ixO^S) = 1.0d0
     end if
 
     if(phys_energy) then
@@ -2772,11 +2774,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        call twofl_get_csound2_adiab(w,x,ixI^L,ixO^L,csound)
     end if
     ! store |B|^2 in v
-    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
-    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2(ixO^S)
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho * gamma_A2
+         * inv_rho(ixO^S) * gamma_A2(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2795,7 +2797,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
        kmax = dpi/min({dxlevel(^D)},bigdouble)*half
        csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
-            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho(ixO^S)*kmax)
     end if
 
   end subroutine twofl_get_csound_prim
@@ -2864,23 +2866,23 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call get_rhon_tot(w,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
 #else
-    inv_rho=1.d0/rhoc(ixO^S)
+    inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 #endif
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
     else
-      gamma2 = 1.0d0
+      gamma2(ixO^S) = 1.0d0
     end if
 
     call twofl_get_csound2(w,x,ixI^L,ixO^L,csound)
 
     ! store |B|^2 in v
-    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2
+    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2(ixO^S)
 
-    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho * gamma2
+         * inv_rho(ixO^S) * gamma2(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2899,7 +2901,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
        kmax = dpi/min({dxlevel(^D)},bigdouble)*half
        csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
-            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho(ixO^S)*kmax)
     end if
 
   end subroutine twofl_get_csound
@@ -2958,12 +2960,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
     double precision :: rhoc(ixI^S)
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
-    inv_rho=1.d0/rhoc(ixO^S)
+    inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 
     if (twofl_boris_type == boris_reduced_force) then
       call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
     else
-      gamma_A2 = 1.0d0
+      gamma_A2(ixO^S) = 1.0d0
     end if
 
     if(phys_energy) then
@@ -2972,11 +2974,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        call twofl_get_csound2_adiab_c(w,x,ixI^L,ixO^L,csound)
     end if
     ! store |B|^2 in v
-    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
-    cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
+    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2(ixO^S)
+    cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho * gamma_A2
+         * inv_rho(ixO^S) * gamma_A2(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2995,7 +2997,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        ! largest wavenumber supported by grid: Nyquist (in practise can reduce by some factor)
        kmax = dpi/min({dxlevel(^D)},bigdouble)*half
        csound(ixO^S) = max(sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S))), &
-            twofl_etah * sqrt(b2(ixO^S))*inv_rho*kmax)
+            twofl_etah * sqrt(b2(ixO^S))*inv_rho(ixO^S)*kmax)
     end if
 
   end subroutine twofl_get_csound_prim_c
@@ -3940,6 +3942,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         wres(ixO^S,mag(ndir))=-tmp2(ixO^S)
       end if
       allocate(fE(ixI^S,7-2*ndim:3))
+      fE=0.d0
       call update_faces_ambipolar(ixI^L,ixO^L,w,x,tmp,fE,btot)
       ixAmax^D=ixOmax^D;
       ixAmin^D=ixOmin^D-1;
@@ -4423,7 +4426,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     do idir = 1, ndir
       w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) + &
-           qdt * gamma_A2 * JxB(ixO^S, idir)
+           qdt * gamma_A2(ixO^S) * JxB(ixO^S, idir)
     end do
 
   end subroutine boris_add_source
@@ -4453,29 +4456,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end do
 
     call cross_product(ixI^L,ixO^L,a,b,JxB)
-
-    ! for B0  splitting add contribution of J0
-
-    if(B0field) then
-      a=0.0d0
-      do idir=7-2*ndir,3
-        a(ixO^S,idir)=block%J0(ixO^S,idir)
-      end do
-      if(B0field_forcefree) then
-        ! store in b only b1
-        b=0.0d0
-        do idir = 1, ndir
-          b(ixO^S, idir) = w(ixO^S,mag(idir))
-        end do
-      endif
-      call cross_product(ixI^L,ixO^L,a,b,tmp)
-      do idir = 1, ndir
-        JxB(ixO^S, idir) = JxB(ixO^S,idir) + tmp(ixO^S,idir)
-      end do
-      
-    endif
-
-
   end subroutine get_lorentz
 
   subroutine  add_source_lorentz_work(qdt,ixI^L,ixO^L,w,wCT,x)
@@ -4513,10 +4493,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #endif
     if (twofl_boris_c < 0.0d0) then
       ! Good for testing the non-conservative momentum treatment
-      gamma_A2 = 1.0d0
+      gamma_A2(ixO^S) = 1.0d0
     else
       ! Compute the inverse of 1 + B^2/(rho * c^2)
-      gamma_A2 = 1.0d0 / (1.0d0 + twofl_mag_en_all(w, ixI^L, ixO^L) / (rhoc(ixO^S) * twofl_boris_c**2))
+      gamma_A2(ixO^S) = 1.0d0 / (1.0d0 + twofl_mag_en_all(w, ixI^L, ixO^L) / (rhoc(ixO^S) * twofl_boris_c**2))
     end if
   end subroutine twofl_gamma2_alfven
 
@@ -4529,7 +4509,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: gamma_A(ixO^S)
 
     call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A)
-    gamma_A = sqrt(gamma_A)
+    gamma_A(ixO^S) = sqrt(gamma_A(ixO^S))
   end function twofl_gamma_alfven
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -5234,7 +5214,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(in)    :: qdt,   wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
-    double precision                :: divb(ixI^S)
+    double precision                :: divb(ixI^S),vel(ixI^S)
     integer                         :: idir
 
     ! We calculate now div B
@@ -5242,7 +5222,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     ! b = b - qdt v * div b
     do idir=1,ndir
-      w(ixO^S,mag(idir))=w(ixO^S,mag(idir))-qdt*wCT(ixO^S,mom_c(idir))/wCT(ixO^S,rho_c_)*divb(ixO^S)
+      call twofl_get_v_c_idim(wCT,x,ixI^L,ixO^L,idir,vel)
+      w(ixO^S,mag(idir))=w(ixO^S,mag(idir))-qdt*vel(ixO^S)*divb(ixO^S)
     end do
 
     if (fix_small_values) call twofl_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_janhunen')
@@ -5368,11 +5349,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in)       :: w(ixI^S,1:nw)
     double precision                   :: divb(ixI^S), dsurface(ixI^S)
 
+    double precision :: invB(ixO^S)
     integer :: ixA^L,idims
 
     call get_divb(w,ixI^L,ixO^L,divb)
+    invB(ixO^S)=sqrt(twofl_mag_en_all(w,ixI^L,ixO^L))
+    where(invB(ixO^S)/=0.d0)
+      invB(ixO^S)=1.d0/invB(ixO^S)
+    end where
     if(slab_uniform) then
-      divb(ixO^S)=0.5d0*abs(divb(ixO^S))/sqrt(twofl_mag_en_all(w,ixI^L,ixO^L))/sum(1.d0/dxlevel(:))
+      divb(ixO^S)=0.5d0*abs(divb(ixO^S))*invB(ixO^S)/sum(1.d0/dxlevel(:))
     else
       ixAmin^D=ixOmin^D-1;
       ixAmax^D=ixOmax^D-1;
@@ -5381,7 +5367,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         ixA^L=ixO^L-kr(idims,^D);
         dsurface(ixO^S)=dsurface(ixO^S)+block%surfaceC(ixA^S,idims)
       end do
-      divb(ixO^S)=abs(divb(ixO^S))/sqrt(twofl_mag_en_all(w,ixI^L,ixO^L))*&
+      divb(ixO^S)=abs(divb(ixO^S))*invB(ixO^S)*&
       block%dvolume(ixO^S)/dsurface(ixO^S)
     end if
 

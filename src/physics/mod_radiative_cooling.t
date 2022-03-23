@@ -1542,7 +1542,7 @@ module mod_radiative_cooling
       tfloor = fl%tlow
 
       call fl%get_pthermal(w,x,ixI^L,ixO^L,etherm)  
-      call fl%get_rho(w,ixI^L,ixO^L,etherm)  
+      call fl%get_rho(w,ixI^L,ixO^L,rho)  
       
       {do ix^DB = ixO^LIM^DB\}
          emin         = rho(ix^D)*tfloor/(rc_gamma-1.d0)
