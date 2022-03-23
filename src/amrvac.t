@@ -14,6 +14,7 @@ program amrvac
   use mod_advance, only: process
   use mod_multigrid_coupling
   use mod_convert, only: init_convert
+  use mod_physics
 
   double precision :: time0, time_in
   logical,save     :: part_file_exists=.false.
@@ -101,6 +102,12 @@ program amrvac
         end if
         !here requires -1 snapshot
         if (autoconvert .or. snapshotnext>0) snapshotnext = snapshotnext - 1
+
+        if(associated(phys_special_advance)) then
+          ! e.g. calculate MF velocity from magnetic field
+          call phys_special_advance(global_time,ps)
+        end if
+
         call generate_plotfile
         call comm_finalize
         stop
