@@ -149,7 +149,7 @@ module mod_twofl_phys
   !> equi vars indices in the state%equi_vars array
   integer, public, protected :: equi_rho_c0_ = -1
   integer, public, protected :: equi_pe_c0_ = -1
-  logical, public                         :: twofl_equi_thermal_c = .true.
+  logical, public                         :: twofl_equi_thermal_c = .false.
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   !neutrals:
@@ -173,7 +173,8 @@ module mod_twofl_phys
   !> whether include ionization/recombination inelastic collisional terms
   logical, public                         :: twofl_coll_inc_ionrec = .false.
   logical, public                         :: twofl_equi_thermal = .true.
-  logical, public                         :: twofl_equi_thermal_n = .true.
+  logical, public                         :: twofl_equi_ionrec = .false.
+  logical, public                         :: twofl_equi_thermal_n = .false.
   logical, public                         :: twofl_implicit_coll_terms = .true.
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
   !> whether dump collisional terms in a separte dat file
@@ -873,10 +874,7 @@ contains
     endif
     if (twofl_thermal_conduction_c) then
       allocate(tc_fl_c)
-      if(has_equi_pe_c0 .and. has_equi_rho_c0 .and. twofl_equi_thermal_c) then
-        tc_fl_c%has_equi = .true.
-        tc_fl_c%get_temperature_equi => twofl_get_temperature_c_equi
-        tc_fl_c%get_rho_equi => twofl_get_rho_c_equi
+      if(has_equi_pe_c0 .and. has_equi_rho_c0) then
         tc_fl_c%get_temperature_from_eint => twofl_get_temperature_from_eint_c_with_equi
         if(phys_internal_e) then
           tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_eint_c_with_equi
@@ -886,6 +884,13 @@ contains
             else
               tc_fl_c%get_temperature_from_conserved => twofl_get_temperature_from_etot_c_with_equi
             endif
+        endif
+        if(twofl_equi_thermal_c) then
+          tc_fl_c%has_equi = .true.
+          tc_fl_c%get_temperature_equi => twofl_get_temperature_c_equi
+          tc_fl_c%get_rho_equi => twofl_get_rho_c_equi
+        else  
+          tc_fl_c%has_equi = .false.
         endif
       else
         if(phys_internal_e) then
@@ -926,10 +931,14 @@ contains
       allocate(tc_fl_n)
       call tc_get_hd_params(tc_fl_n,tc_n_params_read_hd)
       if(has_equi_pe_n0 .and. has_equi_rho_n0) then
-        tc_fl_n%has_equi = .true.
-        tc_fl_n%get_temperature_equi => twofl_get_temperature_n_equi
-        tc_fl_n%get_rho_equi => twofl_get_rho_n_equi
         tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n_with_equi
+        if(twofl_equi_thermal_n) then
+          tc_fl_n%has_equi = .true.
+          tc_fl_n%get_temperature_equi => twofl_get_temperature_n_equi
+          tc_fl_n%get_rho_equi => twofl_get_rho_n_equi
+        else  
+          tc_fl_n%has_equi = .false.
+        endif
       else
         tc_fl_n%get_temperature_from_eint => twofl_get_temperature_from_eint_n
       endif
@@ -986,6 +995,8 @@ contains
           rc_fl_c%has_equi = .true.
           rc_fl_c%get_rho_equi => twofl_get_rho_c_equi
           rc_fl_c%get_pthermal_equi => twofl_get_pe_c_equi
+        else
+          rc_fl_c%has_equi = .false.
         end if
       end if
     end if
@@ -3036,7 +3047,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       {enddo^D&\}
     end if
 
-    ! no check when equi
+    ! TODO no check when equi
     if(.not. has_equi_pe_c0) then
       if (check_small_values) then
         {do ix^DB= ixO^LIM^DB\}
@@ -5621,137 +5632,233 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(inout) :: wCT(ixI^S,1:nw), w(ixI^S,1:nw)
 
     integer          :: iw,idir, h1x^L{^NOONED, h2x^L}
-    double precision :: tmp(ixI^S),tmp1(ixI^S),tmp2(ixI^S)
+    double precision :: tmp(ixI^S),tmp1(ixI^S),tmp2(ixI^S),rho(ixI^S)
 
     integer :: mr_,mphi_ ! Polar var. names
     integer :: br_,bphi_
 
-!    mr_=mom(1); mphi_=mom(1)-1+phi_  ! Polar var. names
-!    br_=mag(1); bphi_=mag(1)-1+phi_
+    ! charges
 
-!    select case (coordinate)
-!    case (cylindrical)
-!      if (angmomfix) then
-!        call mpistop("angmomfix not implemented yet in MHD")
-!      endif
-!      call twofl_get_p_total(wCT,x,ixI^L,ixO^L,tmp)
-!      if(phi_>0) then
-!        w(ixO^S,mr_)=w(ixO^S,mr_)+qdt/x(ixO^S,1)*(tmp(ixO^S)-&
-!                  wCT(ixO^S,bphi_)**2+wCT(ixO^S,mphi_)**2/wCT(ixO^S,rho_))
-!        w(ixO^S,mphi_)=w(ixO^S,mphi_)+qdt/x(ixO^S,1)*(&
-!                 -wCT(ixO^S,mphi_)*wCT(ixO^S,mr_)/wCT(ixO^S,rho_) &
-!                 +wCT(ixO^S,bphi_)*wCT(ixO^S,br_))
-!        if(.not.stagger_grid) then
-!          w(ixO^S,bphi_)=w(ixO^S,bphi_)+qdt/x(ixO^S,1)*&
-!                   (wCT(ixO^S,bphi_)*wCT(ixO^S,mr_) &
-!                   -wCT(ixO^S,br_)*wCT(ixO^S,mphi_)) &
-!                   /wCT(ixO^S,rho_)
-!        end if
-!      else
-!        w(ixO^S,mr_)=w(ixO^S,mr_)+qdt/x(ixO^S,1)*tmp(ixO^S)
-!      end if
-!      if(twofl_glm) w(ixO^S,br_)=w(ixO^S,br_)+qdt*wCT(ixO^S,psi_)/x(ixO^S,1)
-!    case (spherical)
-!       h1x^L=ixO^L-kr(1,^D); {^NOONED h2x^L=ixO^L-kr(2,^D);}
-!       call twofl_get_p_total(wCT,x,ixI^L,ixO^L,tmp1)
-!       tmp(ixO^S)=tmp1(ixO^S)
-!       if(B0field) then
-!         tmp2(ixO^S)=sum(block%B0(ixO^S,:,0)*wCT(ixO^S,mag(:)),dim=ndim+1)
-!         tmp(ixO^S)=tmp(ixO^S)+tmp2(ixO^S)
-!       end if
-!       ! m1
-!       tmp(ixO^S)=tmp(ixO^S)*x(ixO^S,1) &
-!                  *(block%surfaceC(ixO^S,1)-block%surfaceC(h1x^S,1))/block%dvolume(ixO^S)
-!       if(ndir>1) then
-!         do idir=2,ndir
-!           tmp(ixO^S)=tmp(ixO^S)+wCT(ixO^S,mom(idir))**2/wCT(ixO^S,rho_)-wCT(ixO^S,mag(idir))**2
-!           if(B0field) tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,idir,0)*wCT(ixO^S,mag(idir))
-!         end do
-!       end if
-!       w(ixO^S,mom(1))=w(ixO^S,mom(1))+qdt*tmp(ixO^S)/x(ixO^S,1)
-!       ! b1
-!       if(twofl_glm) then
-!         w(ixO^S,mag(1))=w(ixO^S,mag(1))+qdt/x(ixO^S,1)*2.0d0*wCT(ixO^S,psi_)
-!       end if
+    mr_=mom_c(1); mphi_=mom_c(1)-1+phi_  ! Polar var. names
+    br_=mag(1); bphi_=mag(1)-1+phi_
+    call get_rhoc_tot(wCT,ixI^L,ixO^L,rho)
+
+    select case (coordinate)
+    case (cylindrical)
+      if (angmomfix) then
+        call mpistop("angmomfix not implemented yet in MHD")
+      endif
+      call twofl_get_p_c_total(wCT,x,ixI^L,ixO^L,tmp)
+
+      if(phi_>0) then
+        w(ixO^S,mr_)=w(ixO^S,mr_)+qdt/x(ixO^S,1)*(tmp(ixO^S)-&
+                  wCT(ixO^S,bphi_)**2+wCT(ixO^S,mphi_)**2/rho(ixO^S))
+        w(ixO^S,mphi_)=w(ixO^S,mphi_)+qdt/x(ixO^S,1)*(&
+                 -wCT(ixO^S,mphi_)*wCT(ixO^S,mr_)/rho(ixO^S) &
+                 +wCT(ixO^S,bphi_)*wCT(ixO^S,br_))
+        if(.not.stagger_grid) then
+          w(ixO^S,bphi_)=w(ixO^S,bphi_)+qdt/x(ixO^S,1)*&
+                   (wCT(ixO^S,bphi_)*wCT(ixO^S,mr_) &
+                   -wCT(ixO^S,br_)*wCT(ixO^S,mphi_)) &
+                   /rho(ixO^S)
+        end if
+      else
+        w(ixO^S,mr_)=w(ixO^S,mr_)+qdt/x(ixO^S,1)*tmp(ixO^S)
+      end if
+      if(twofl_glm) w(ixO^S,br_)=w(ixO^S,br_)+qdt*wCT(ixO^S,psi_)/x(ixO^S,1)
+    case (spherical)
+       h1x^L=ixO^L-kr(1,^D); {^NOONED h2x^L=ixO^L-kr(2,^D);}
+       call twofl_get_p_c_total(wCT,x,ixI^L,ixO^L,tmp1)
+       tmp(ixO^S)=tmp1(ixO^S)
+       if(B0field) then
+         tmp2(ixO^S)=sum(block%B0(ixO^S,:,0)*wCT(ixO^S,mag(:)),dim=ndim+1)
+         tmp(ixO^S)=tmp(ixO^S)+tmp2(ixO^S)
+       end if
+       ! m1
+       tmp(ixO^S)=tmp(ixO^S)*x(ixO^S,1) &
+                  *(block%surfaceC(ixO^S,1)-block%surfaceC(h1x^S,1))/block%dvolume(ixO^S)
+       if(ndir>1) then
+         do idir=2,ndir
+           tmp(ixO^S)=tmp(ixO^S)+wCT(ixO^S,mom(idir))**2/wCT(ixO^S,rho_)-wCT(ixO^S,mag(idir))**2
+           if(B0field) tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,idir,0)*wCT(ixO^S,mag(idir))
+         end do
+       end if
+       w(ixO^S,mom_c(1))=w(ixO^S,mom_c(1))+qdt*tmp(ixO^S)/x(ixO^S,1)
+       ! b1
+       if(twofl_glm) then
+         w(ixO^S,mag(1))=w(ixO^S,mag(1))+qdt/x(ixO^S,1)*2.0d0*wCT(ixO^S,psi_)
+       end if
+
+       {^NOONED
+       ! m2
+       tmp(ixO^S)=tmp1(ixO^S)
+       if(B0field) then
+         tmp(ixO^S)=tmp(ixO^S)+tmp2(ixO^S)
+       end if
+       ! This will make hydrostatic p=const an exact solution
+       w(ixO^S,mom(2))=w(ixO^S,mom_c(2))+qdt*tmp(ixO^S) &
+            *(block%surfaceC(ixO^S,2)-block%surfaceC(h2x^S,2)) &
+            /block%dvolume(ixO^S)
+       tmp(ixO^S)=-(wCT(ixO^S,mom_c(1))*wCT(ixO^S,mom_c(2))/rho(ixO^S) &
+            -wCT(ixO^S,mag(1))*wCT(ixO^S,mag(2)))
+       if (B0field) then
+          tmp(ixO^S)=tmp(ixO^S)+block%B0(ixO^S,1,0)*wCT(ixO^S,mag(2)) &
+               +wCT(ixO^S,mag(1))*block%B0(ixO^S,2,0)
+       end if
+       if(ndir==3) then
+         tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(3))**2/rho(ixO^S) &
+              -wCT(ixO^S,mag(3))**2)*dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
+         if (B0field) then
+            tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,3,0)*wCT(ixO^S,mag(3))&
+                 *dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
+         end if
+       end if
+       w(ixO^S,mom(2))=w(ixO^S,mom(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
+       ! b2
+       if(.not.stagger_grid) then
+         tmp(ixO^S)=(wCT(ixO^S,mom_c(1))*wCT(ixO^S,mag(2)) &
+              -wCT(ixO^S,mom_c(2))*wCT(ixO^S,mag(1)))/rho(ixO^S)
+         if(B0field) then
+           tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(1))*block%B0(ixO^S,2,0) &
+                -wCT(ixO^S,mom_c(2))*block%B0(ixO^S,1,0))/rho(ixO^S)
+         end if
+         if(twofl_glm) then
+           tmp(ixO^S)=tmp(ixO^S) &
+                + dcos(x(ixO^S,2))/dsin(x(ixO^S,2))*wCT(ixO^S,psi_)
+         end if
+         w(ixO^S,mag(2))=w(ixO^S,mag(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
+       end if
+       }
+
+       if(ndir==3) then
+         ! m3
+         if(.not.angmomfix) then
+           tmp(ixO^S)=-(wCT(ixO^S,mom(3))*wCT(ixO^S,mom(1))/rho(ixO^S) &
+                -wCT(ixO^S,mag(3))*wCT(ixO^S,mag(1))) {^NOONED &
+                -(wCT(ixO^S,mom_c(2))*wCT(ixO^S,mom_c(3))/wCT(ixO^S,rho_) &
+                -wCT(ixO^S,mag(2))*wCT(ixO^S,mag(3))) &
+                *dcos(x(ixO^S,2))/dsin(x(ixO^S,2)) }
+           if (B0field) then
+              tmp(ixO^S)=tmp(ixO^S)+block%B0(ixO^S,1,0)*wCT(ixO^S,mag(3)) &
+                   +wCT(ixO^S,mag(1))*block%B0(ixO^S,3,0) {^NOONED &
+                   +(block%B0(ixO^S,2,0)*wCT(ixO^S,mag(3)) &
+                   +wCT(ixO^S,mag(2))*block%B0(ixO^S,3,0)) &
+                   *dcos(x(ixO^S,2))/dsin(x(ixO^S,2)) }
+           end if
+           w(ixO^S,mom_c(3))=w(ixO^S,mom_c(3))+qdt*tmp(ixO^S)/x(ixO^S,1)
+         else
+           call mpistop("angmomfix not implemented yet in MHD")
+         end if
+         ! b3
+         if(.not.stagger_grid) then
+           tmp(ixO^S)=(wCT(ixO^S,mom_c(1))*wCT(ixO^S,mag(3)) &
+                -wCT(ixO^S,mom_c(3))*wCT(ixO^S,mag(1)))/rho(ixO^S) {^NOONED &
+                -(wCT(ixO^S,mom_c(3))*wCT(ixO^S,mag(2)) &
+                -wCT(ixO^S,mom_c(2))*wCT(ixO^S,mag(3)))*dcos(x(ixO^S,2)) &
+                /(rho(ixO^S)*dsin(x(ixO^S,2))) }
+           if (B0field) then
+              tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom_c(1))*block%B0(ixO^S,3,0) &
+                   -wCT(ixO^S,mom_c(3))*block%B0(ixO^S,1,0))/rho(ixO^S){^NOONED &
+                   -(wCT(ixO^S,mom_c(3))*block%B0(ixO^S,2,0) &
+                   -wCT(ixO^S,mom_c(2))*block%B0(ixO^S,3,0))*dcos(x(ixO^S,2)) &
+                   /(rho(ixO^S)*dsin(x(ixO^S,2))) }
+           end if
+           w(ixO^S,mag(3))=w(ixO^S,mag(3))+qdt*tmp(ixO^S)/x(ixO^S,1)
+         end if
+       end if
+    end select
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+    !TODO no cartesian expansion or dust: see and implement them from hd/mod_hd_phys !
+
+    call get_rhon_tot(wCT,ixI^L,ixO^L,rho)
+
+    select case (coordinate)
+
+    case (cylindrical)
+      mr_   = mom_n(r_)
+      if (phi_ > 0) then
+         where (rho(ixO^S) > 0d0)
+            source(ixO^S) = source(ixO^S) + wCT(ixO^S, mphi_)**2 / rho(ixO^S)
+            w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, r_)
+         end where
+         ! s[mphi]=(-mphi*mr/rho)/radius
+         if(.not. angmomfix) then
+            where (rho(ixO^S) > 0d0)
+               source(ixO^S) = -wCT(ixO^S, mphi_) * wCT(ixO^S, mr_) / rho(ixO^S)
+               w(ixO^S, mphi_) = w(ixO^S, mphi_) + qdt * source(ixO^S) / x(ixO^S, r_)
+            end where
+         end if
+      else
+         ! s[mr]=2pthermal/radius
+         w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, r_)
+      end if
+    case (spherical)
+       if(phi_>0) mphi_ = mom_n(phi_)
+       h1x^L=ixO^L-kr(1,^D); {^NOONED h2x^L=ixO^L-kr(2,^D);}
+       ! s[mr]=((mtheta**2+mphi**2)/rho+2*p)/r
+       call twofl_get_pthermal_n(wCT, x, ixI^L, ixO^L, pth)
+       source(ixO^S) = pth(ixO^S) * x(ixO^S, 1) &
+            *(block%surfaceC(ixO^S, 1) - block%surfaceC(h1x^S, 1)) &
+            /block%dvolume(ixO^S)
+       if (ndir > 1) then
+         do idir = 2, ndir
+           source(ixO^S) = source(ixO^S) + wCT(ixO^S, mom_n(idir))**2 / rho(ixO^S)
+         end do
+       end if
+       w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, 1)
+
+       {^NOONED
+       ! s[mtheta]=-(mr*mtheta/rho)/r+cot(theta)*(mphi**2/rho+p)/r
+       source(ixO^S) = pth(ixO^S) * x(ixO^S, 1) &
+            * (block%surfaceC(ixO^S, 2) - block%surfaceC(h2x^S, 2)) &
+            / block%dvolume(ixO^S)
+       if (ndir == 3) then
+          source(ixO^S) = source(ixO^S) + (wCT(ixO^S, mom_n(3))**2 / rho(ixO^S)) / tan(x(ixO^S, 2))
+       end if
+       if (.not. angmomfix) then
+          source(ixO^S) = source(ixO^S) - (wCT(ixO^S, mom_n(2)) * wCT(ixO^S, mr_)) / rho(ixO^S)
+       end if
+       w(ixO^S, mom_n(2)) = w(ixO^S, mom_n(2)) + qdt * source(ixO^S) / x(ixO^S, 1)
+
+       if (ndir == 3) then
+         ! s[mphi]=-(mphi*mr/rho)/r-cot(theta)*(mtheta*mphi/rho)/r
+         if (.not. angmomfix) then
+           source(ixO^S) = -(wCT(ixO^S, mom_n(3)) * wCT(ixO^S, mr_)) / rho(ixO^S)&
+                      - (wCT(ixO^S, mom_n(2)) * wCT(ixO^S, mom_n(3))) / rho(ixO^S) / tan(x(ixO^S, 2))
+           w(ixO^S, mom_n(3)) = w(ixO^S, mom_n(3)) + qdt * source(ixO^S) / x(ixO^S, 1)
+         end if
+       end if
+       }
+    end select
+
+!    if (hd_viscosity) call visc_add_source_geom(qdt,ixI^L,ixO^L,wCT,w,x)
 !
-!       {^NOONED
-!       ! m2
-!       tmp(ixO^S)=tmp1(ixO^S)
-!       if(B0field) then
-!         tmp(ixO^S)=tmp(ixO^S)+tmp2(ixO^S)
+!    if (hd_rotating_frame) then
+!       if (hd_dust) then
+!          call mpistop("Rotating frame not implemented yet with dust")
+!       else
+!          call rotating_frame_add_source(qdt,ixI^L,ixO^L,wCT,w,x)
 !       end if
-!       ! This will make hydrostatic p=const an exact solution
-!       w(ixO^S,mom(2))=w(ixO^S,mom(2))+qdt*tmp(ixO^S) &
-!            *(block%surfaceC(ixO^S,2)-block%surfaceC(h2x^S,2)) &
-!            /block%dvolume(ixO^S)
-!       tmp(ixO^S)=-(wCT(ixO^S,mom(1))*wCT(ixO^S,mom(2))/wCT(ixO^S,rho_) &
-!            -wCT(ixO^S,mag(1))*wCT(ixO^S,mag(2)))
-!       if (B0field) then
-!          tmp(ixO^S)=tmp(ixO^S)+block%B0(ixO^S,1,0)*wCT(ixO^S,mag(2)) &
-!               +wCT(ixO^S,mag(1))*block%B0(ixO^S,2,0)
-!       end if
-!       if(ndir==3) then
-!         tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(3))**2/wCT(ixO^S,rho_) &
-!              -wCT(ixO^S,mag(3))**2)*dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
-!         if (B0field) then
-!            tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,3,0)*wCT(ixO^S,mag(3))&
-!                 *dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
-!         end if
-!       end if
-!       w(ixO^S,mom(2))=w(ixO^S,mom(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
-!       ! b2
-!       if(.not.stagger_grid) then
-!         tmp(ixO^S)=(wCT(ixO^S,mom(1))*wCT(ixO^S,mag(2)) &
-!              -wCT(ixO^S,mom(2))*wCT(ixO^S,mag(1)))/wCT(ixO^S,rho_)
-!         if(B0field) then
-!           tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(1))*block%B0(ixO^S,2,0) &
-!                -wCT(ixO^S,mom(2))*block%B0(ixO^S,1,0))/wCT(ixO^S,rho_)
-!         end if
-!         if(twofl_glm) then
-!           tmp(ixO^S)=tmp(ixO^S) &
-!                + dcos(x(ixO^S,2))/dsin(x(ixO^S,2))*wCT(ixO^S,psi_)
-!         end if
-!         w(ixO^S,mag(2))=w(ixO^S,mag(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
-!       end if
-!       }
+!    end if
 !
-!       if(ndir==3) then
-!         ! m3
-!         if(.not.angmomfix) then
-!           tmp(ixO^S)=-(wCT(ixO^S,mom(3))*wCT(ixO^S,mom(1))/wCT(ixO^S,rho_) &
-!                -wCT(ixO^S,mag(3))*wCT(ixO^S,mag(1))) {^NOONED &
-!                -(wCT(ixO^S,mom(2))*wCT(ixO^S,mom(3))/wCT(ixO^S,rho_) &
-!                -wCT(ixO^S,mag(2))*wCT(ixO^S,mag(3))) &
-!                *dcos(x(ixO^S,2))/dsin(x(ixO^S,2)) }
-!           if (B0field) then
-!              tmp(ixO^S)=tmp(ixO^S)+block%B0(ixO^S,1,0)*wCT(ixO^S,mag(3)) &
-!                   +wCT(ixO^S,mag(1))*block%B0(ixO^S,3,0) {^NOONED &
-!                   +(block%B0(ixO^S,2,0)*wCT(ixO^S,mag(3)) &
-!                   +wCT(ixO^S,mag(2))*block%B0(ixO^S,3,0)) &
-!                   *dcos(x(ixO^S,2))/dsin(x(ixO^S,2)) }
-!           end if
-!           w(ixO^S,mom(3))=w(ixO^S,mom(3))+qdt*tmp(ixO^S)/x(ixO^S,1)
-!         else
-!           call mpistop("angmomfix not implemented yet in MHD")
-!         end if
-!         ! b3
-!         if(.not.stagger_grid) then
-!           tmp(ixO^S)=(wCT(ixO^S,mom(1))*wCT(ixO^S,mag(3)) &
-!                -wCT(ixO^S,mom(3))*wCT(ixO^S,mag(1)))/wCT(ixO^S,rho_) {^NOONED &
-!                -(wCT(ixO^S,mom(3))*wCT(ixO^S,mag(2)) &
-!                -wCT(ixO^S,mom(2))*wCT(ixO^S,mag(3)))*dcos(x(ixO^S,2)) &
-!                /(wCT(ixO^S,rho_)*dsin(x(ixO^S,2))) }
-!           if (B0field) then
-!              tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(1))*block%B0(ixO^S,3,0) &
-!                   -wCT(ixO^S,mom(3))*block%B0(ixO^S,1,0))/wCT(ixO^S,rho_){^NOONED &
-!                   -(wCT(ixO^S,mom(3))*block%B0(ixO^S,2,0) &
-!                   -wCT(ixO^S,mom(2))*block%B0(ixO^S,3,0))*dcos(x(ixO^S,2)) &
-!                   /(wCT(ixO^S,rho_)*dsin(x(ixO^S,2))) }
-!           end if
-!           w(ixO^S,mag(3))=w(ixO^S,mag(3))+qdt*tmp(ixO^S)/x(ixO^S,1)
-!         end if
-!       end if
-!    end select
+
+
+#endif
+    contains
+      subroutine twofl_get_p_c_total(w,x,ixI^L,ixO^L,p)
+        use mod_global_parameters
+    
+        integer, intent(in)             :: ixI^L, ixO^L
+        double precision, intent(in)    :: w(ixI^S,nw)
+        double precision, intent(in)    :: x(ixI^S,1:ndim)
+        double precision, intent(out)   :: p(ixI^S)
+    
+        call twofl_get_pthermal_c(w,x,ixI^L,ixO^L,p)
+    
+        p(ixO^S) = p(ixO^S) + 0.5d0 * sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+    
+      end subroutine twofl_get_p_c_total
+
   end subroutine twofl_add_source_geom
 
   subroutine twofl_get_temp_c_pert_from_etot(w, x, ixI^L, ixO^L, res)
@@ -7937,6 +8044,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call getbc(global_time,0.d0,psa,1,nw)
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
+       ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
       block=>psa(igrid)
       call advance_implicit_grid(ixG^LL, ixG^LL, psa(igrid)%w, psb(igrid)%w, psa(igrid)%x, dtfactor,qdt)
     end do
@@ -7956,6 +8064,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
        ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
+      block=>psa(igrid)
        call coll_terms(ixG^LL,ixM^LL,psa(igrid)%w,psa(igrid)%x)
     end do
     !$OMP END PARALLEL DO
@@ -8000,15 +8109,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
 
-!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
-!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
-!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-!#else
+       if(.not. twofl_equi_ionrec) then
+        tmp(ixO^S) = -gamma_ion(ixO^S) * rhon(ixO^S) + &
+                                        gamma_rec(ixO^S) * rhoc(ixO^S)
+       else
        ! equilibrium density does not evolve through ion/rec 
-       ! TODO it has to be always like this because of the linearization of the coll. term?
-       tmp(ixO^S) = -gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
+        tmp(ixO^S) = -gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_)
-!#endif
+       endif
        w(ixO^S,rho_n_) = tmp(ixO^S) 
        w(ixO^S,rho_c_) = -tmp(ixO^S) 
     else
@@ -8124,17 +8232,15 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
        call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
 
-!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
-!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
-!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-!#else
-       ! equilibrium density does not evolve through ion/rec 
-       ! TODO it has to be always like this because of the linearization of the coll. term?
+      if(.not. twofl_equi_ionrec) then
+        tmp(ixO^S) = qdt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+                                        gamma_rec(ixO^S) * rhoc(ixO^S))
+      else
        tmp(ixO^S) = qdt * (-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_))
-!#endif
-       w(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) 
-       w(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) 
+      endif  
+      w(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) 
+      w(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) 
     endif
 
     call get_alpha_coll(ixI^L, ixO^L, wCT, x, alpha)
@@ -8217,89 +8323,5 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     endif
   end subroutine twofl_explicit_coll_terms_update
 
-!  !TODO !!! add ion/rec
-!  subroutine twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
-!    use mod_global_parameters
-!
-!    integer, intent(in)             :: ixI^L, ixO^L
-!    double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
-!    double precision, intent(inout) :: w(ixI^S,1:nw)
-!    double precision, intent(in) :: wCT(ixI^S,1:nw)
-!
-!    double precision :: tmp(ixI^S),tmp2(ixI^S) 
-!    double precision, dimension(:^D&,:), allocatable :: vc, vn
-!    double precision :: rhon(ixI^S), rhoc(ixI^S), alpha(ixI^S)
-!    integer :: idir
-!    call get_rhon_tot(wCT,ixI^L,ixO^L,rhon)
-!    call get_rhoc_tot(wCT,ixI^L,ixO^L,rhoc)
-!
-!    call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
-!    ! calculate velocities
-!    allocate(vc(ixO^S,1:ndir),vn(ixO^S,1:ndir))
-!    !use the prev vars
-!    call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
-!    call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
-!    ! momentum update
-!    do idir=1,ndir
-!      ! the coll. term in the neutrals momentum eq. multiplied by qdt
-!      tmp(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,mom_n(idir)) + rhon(ixO^S) * wCT(ixO^S,mom_c(idir)))
-!      w(ixO^S,mom_n(idir)) = w(ixO^S,mom_n(idir)) + tmp(ixO^S) 
-!      w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) - tmp(ixO^S) 
-!
-!    enddo
-!    ! energy update
-!    !DEBUG
-!    !w(ixO^S,e_n_) = wCT(ixO^S,e_n_)
-!    !w(ixO^S,e_c_) = wCT(ixO^S,e_c_)
-!    ! calculate velocities
-!    !use the updated vars
-!    !call twofl_get_v_c(w,x,ixO^L,ixO^L,vc)
-!    !call twofl_get_v_n(w,x,ixO^L,ixO^L,vn)
-!    if(twofl_eq_energy == EQ_ENERGY_INT) then
-!      ! tmp = qdt * (v_c-v_n)^2 * alpha * rho_n * rho_c = FRICTIONAL HEATING multiplied by qdt
-!      tmp(ixO^S) = 0.5d0 * sum((vc(ixO^S, 1:ndir) - vn(ixO^S, 1:ndir))**2, dim=ndim+1)&
-!         * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
-!    endif
-!    if(.not. twofl_coll_inc_te) then
-!      if(phys_internal_e) then
-!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
-!        w(ixO^S,e_c_) = w(ixO^S,e_c_) + tmp(ixO^S)
-!      else  
-!        ! tmp = qdt * 1/2 * (v_c^2-v_n^2) * alpha * rho_n * rho_c = FRICTIONAL HEATING + WORK done by coll terms in NEUTRALS mom
-!        ! eq. MULTIPLIED by qdt
-!        tmp(ixO^S) = 0.5d0*(sum(vc(ixO^S, 1:ndir)**2, dim=ndim+1) - sum(vn(ixO^S, 1:ndir)**2,dim=ndim+1))&
-!                     * qdt * alpha(ixO^S) * rhoc(ixO^S) * rhon(ixO^S)
-!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp(ixO^S)
-!        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp(ixO^S)
-!      endif  
-!    else
-!      ! coll term THERMAL EXCHANGE in neutrals energy eq. multiplied by qdti
-!      if(phys_total_energy) then
-!        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
-!                    rhon(ixO^S) * (wCT(ixO^S,e_c_) - twofl_mag_en(wCT,ixO^L,ixO^L)) *2d0/Rc )
-!      else
-!        tmp2(ixO^S) = qdt * alpha(ixO^S) * (-rhoc(ixO^S) * wCT(ixO^S,e_n_)*2d0/Rn +& 
-!                    rhon(ixO^S) * wCT(ixO^S,e_c_)*2d0/Rc )
-!      endif
-!      if(.not. phys_internal_e) then
-!          tmp2(ixO^S) = tmp2(ixO^S) + qdt * alpha(ixO^S) * (-rhoc(ixO^S) * twofl_kin_en_n(wCT,ixI^L,ixO^L)*(1d0 -2d0/Rn) +&
-!                                                            rhon(ixO^S) * twofl_kin_en_c(wCT,ixI^L,ixO^L)*(1d0 - 2d0/Rc))           
-!      endif
-!      if(phys_internal_e) then
-!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + (tmp(ixO^S) + tmp2(ixO^S))
-!        w(ixO^S,e_c_) = w(ixO^S,e_c_) + (tmp(ixO^S) - tmp2(ixO^S))
-!
-!      else
-!        w(ixO^S,e_n_) = w(ixO^S,e_n_) + tmp2(ixO^S)
-!        w(ixO^S,e_c_) = w(ixO^S,e_c_) - tmp2(ixO^S)
-!      endif
-!    endif
-!    deallocate(vc,vn)
-!
-!!    do idir=1,nw
-!!      print*, idir, "-----------", w(ixO^S,idir)
-!!    enddo  
-!
-!  end subroutine twofl_explicit_coll_terms_update
 #endif
 end module mod_twofl_phys
