@@ -7,6 +7,7 @@ module mod_twofl_phys
   use mod_physics
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid
+  use mod_thermal_emission, only: te_fluid
   implicit none
   private
 
@@ -64,6 +65,7 @@ module mod_twofl_phys
   logical, public, protected              :: twofl_Hall = .false.
 
   type(tc_fluid), allocatable :: tc_fl_c
+  type(te_fluid), allocatable :: te_fl_c
 
 #if defined(ONE_FLUID) && ONE_FLUID==1
   !> Whether Ambipolar term is used
@@ -121,48 +123,48 @@ module mod_twofl_phys
   logical, public, protected              :: twofl_4th_order = .false.
 
   !> Index of the density (in the w array)
-  integer, public, protected              :: rho_c_
+  integer, public             :: rho_c_
 
   !> Indices of the momentum density
-  integer, allocatable, public, protected :: mom_c(:)
+  integer, allocatable, public :: mom_c(:)
 
   !> Index of the energy density (-1 if not present)
-  integer, public, protected              :: e_c_=-1
+  integer, public             :: e_c_=-1
 
   !> Index of the cutoff temperature for the TRAC method
-  integer, public, protected              :: Tcoff_c_
-  integer, public, protected              :: Tweight_c_
+  integer, public              :: Tcoff_c_
+  integer, public              :: Tweight_c_
 
   !> Indices of the GLM psi
   integer, public, protected :: psi_
 
   !> Indices of auxiliary internal energy
-  integer, public, protected :: eaux_c_
+  integer, public :: eaux_c_
 
   !> Indices of the magnetic field
-  integer, allocatable, public, protected :: mag(:)
+  integer, allocatable, public :: mag(:)
 
   !> equi vars flags
-  logical, public, protected :: has_equi_rho_c0 = .false.  
-  logical, public, protected :: has_equi_pe_c0 = .false.  
+  logical, public :: has_equi_rho_c0 = .false.  
+  logical, public :: has_equi_pe_c0 = .false.  
 
   !> equi vars indices in the state%equi_vars array
-  integer, public, protected :: equi_rho_c0_ = -1
-  integer, public, protected :: equi_pe_c0_ = -1
+  integer, public :: equi_rho_c0_ = -1
+  integer, public :: equi_pe_c0_ = -1
   logical, public                         :: twofl_equi_thermal_c = .false.
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   !neutrals:
 
-  integer, public, protected              :: rho_n_
-  integer, allocatable, public, protected :: mom_n(:)
-  integer, public, protected              :: e_n_
-  integer, public, protected              :: Tcoff_n_
-  integer, public, protected              :: Tweight_n_
-  logical, public, protected :: has_equi_rho_n0 = .false. 
-  logical, public, protected :: has_equi_pe_n0 = .false.  
-  integer, public, protected :: equi_rho_n0_ = -1
-  integer, public, protected :: equi_pe_n0_ = -1
+  integer, public              :: rho_n_
+  integer, allocatable, public :: mom_n(:)
+  integer, public              :: e_n_
+  integer, public              :: Tcoff_n_
+  integer, public              :: Tweight_n_
+  logical, public :: has_equi_rho_n0 = .false. 
+  logical, public :: has_equi_pe_n0 = .false.  
+  integer, public :: equi_rho_n0_ = -1
+  integer, public :: equi_pe_n0_ = -1
 
   ! related to collisions:
   !> collisional alpha
@@ -498,7 +500,7 @@ contains
   ! E_charges = E_kin_charges + E_int_charges
   ! E_neutrals =  E_kin_neutrals + E_int_neutrals
 
-
+  phys_gamma = twofl_gamma
 
 
   !> Solve internal energy and total energy equations
@@ -732,10 +734,12 @@ contains
     if(has_equi_rho_c0) then
       number_equi_vars = number_equi_vars + 1
       equi_rho_c0_ = number_equi_vars
+      iw_equi_rho = equi_rho_c0_
     endif  
     if(has_equi_pe_c0) then
       number_equi_vars = number_equi_vars + 1
       equi_pe_c0_ = number_equi_vars
+      iw_equi_p = equi_pe_c0_
     endif  
       
 
@@ -1000,6 +1004,16 @@ contains
         end if
       end if
     end if
+{^IFTHREED
+    if (image_euv .or. spectrum_euv .or. image_sxr) then
+      allocate(te_fl_c)
+      te_fl_c%get_rho=> get_rhoc_tot
+      te_fl_c%get_pthermal=> twofl_get_pthermal_c
+      te_fl_c%Rfactor = Rc
+      phys_te_images => twofl_te_images
+    endif
+}
+
 
 
     ! Initialize viscosity module
@@ -1061,6 +1075,17 @@ contains
   endif
 
   end subroutine twofl_phys_init
+
+{^IFTHREED
+  subroutine twofl_te_images()
+    use mod_global_parameters
+    use mod_thermal_emission
+    if (image_euv) call get_EUV_image(unitconvert,te_fl_c)
+    if (spectrum_euv) call get_EUV_spectrum(unitconvert,te_fl_c)
+    if (image_sxr) call get_SXR_image(unitconvert,te_fl_c)
+
+  end subroutine twofl_te_images
+}  
 
 
   ! wrappers for STS functions in thermal_conductivity module
@@ -2970,6 +2995,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
     double precision :: rhoc(ixI^S)
+
+    integer :: ix1,ix2
+
+
     call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 
@@ -2984,6 +3013,22 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     else
        call twofl_get_csound2_adiab_c(w,x,ixI^L,ixO^L,csound)
     end if
+
+     !print*,  "NEG CSOUND "
+     !WRITE(*, FMT="(6(I0, ' '))") pack(csound, csound < 0)
+     !print*,  "NEG CSOUND END"
+!     do ix1=ixOmin1,ixOmax1
+!     do ix2=ixOmin2,ixOmax2
+!        if(csound(ix1,ix2)<0) then
+!          print*, ix1, ix2, " NEG CS ", csound(ix1,ix2), " IT",it
+!        endif
+!        if(rhoc(ix1,ix2)<0) then
+!          print*, ix1, ix2, " NEG DENSITY ", rhoc(ix1,ix2), " IT",it
+!        endif
+!     enddo 
+!     enddo 
+
+
     ! store |B|^2 in v
     b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2(ixO^S)
     cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
@@ -2995,6 +3040,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        AvMinCs2(ixO^S)=zero
     end where
 
+     !print*,  "NEG AV "
+     !WRITE(*, FMT="(6(I0, ' '))") pack(AvMinCs2, AvMinCs2 < 0)
+     !print*,  "NEG AV END"
     AvMinCs2(ixO^S)=sqrt(AvMinCs2(ixO^S))
 
     if (.not. twofl_Hall) then
@@ -3039,16 +3087,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       pth(ixO^S)=twofl_adiab*w(ixO^S,rho_c_)**twofl_gamma
     end if
 
-    if (fix_small_values) then
-      {do ix^DB= ixO^LIM^DB\}
-         if(pth(ix^D)<small_pressure) then
-            pth(ix^D)=small_pressure
-         end if
-      {enddo^D&\}
-    end if
-
     ! TODO no check when equi
     if(.not. has_equi_pe_c0) then
+      if (fix_small_values) then
+        {do ix^DB= ixO^LIM^DB\}
+           if(pth(ix^D)<small_pressure) then
+              pth(ix^D)=small_pressure
+           end if
+        {enddo^D&\}
+      end if
+
       if (check_small_values) then
         {do ix^DB= ixO^LIM^DB\}
            if(pth(ix^D)<small_pressure) then
@@ -3632,8 +3680,13 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
           + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * inv_gamma_1
 #else
-        f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
+        if(phys_internal_e) then
+          f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
+          + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * inv_gamma_1
+        else
+          f(ixO^S,e_c_)=  f(ixO^S,e_c_) &
           + w(ixO^S,mom_c(idim)) * block%equi_vars(ixO^S,equi_pe_c0_,idim) * twofl_gamma * inv_gamma_1
+        endif
 #endif
       end if
     end if !phys_energy

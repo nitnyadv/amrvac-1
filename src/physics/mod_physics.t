@@ -7,8 +7,13 @@ module mod_physics
   use mod_physics_roe
   use mod_physics_ppm
 
+
+
   implicit none
   public
+
+
+  double precision :: phys_gamma=5.0/3
 
   !> String describing the physics type of the simulation
   character(len=name_len) :: physics_type = ""
@@ -92,7 +97,8 @@ module mod_physics
   procedure(sub_clean_divb), pointer      :: phys_clean_divb             => null()
   ! set the equilibrium variables
   procedure(sub_set_equi_vars), pointer   :: phys_set_equi_vars          => null()
-  ! convert variables (used for converting dat files)
+  ! subroutine with no parameters which creates EUV images
+  procedure(sub_check_params), pointer    :: phys_te_images           => null()
 
   abstract interface
 

@@ -3,7 +3,7 @@ subroutine generate_plotfile
 use mod_usr_methods, only: usr_special_convert
 use mod_global_parameters
 use mod_ghostcells_update
-use mod_physics, only: phys_req_diagonal
+use mod_physics, only: phys_req_diagonal,phys_te_images
 use mod_convert, only: convert_all
 use mod_thermal_emission
 !-----------------------------------------------------------------------------
@@ -52,10 +52,9 @@ end select
 
 
 ! output synthetic euv emission
-if (ndim==3 .and. slab) then
-  if (image_euv) call get_EUV_image(unitconvert)
-  if (spectrum_euv) call get_EUV_spectrum(unitconvert)
-  if (image_sxr) call get_SXR_image(unitconvert)
+if (ndim==3 .and. slab .and. associated(phys_te_images)) then
+  call phys_te_images()
+
 endif
 
 end subroutine generate_plotfile

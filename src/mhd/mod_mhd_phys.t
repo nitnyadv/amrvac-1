@@ -3,6 +3,7 @@ module mod_mhd_phys
   use mod_global_parameters, only: std_len
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid
+  use mod_thermal_emission, only: te_fluid
 
   implicit none
   private
@@ -13,6 +14,7 @@ module mod_mhd_phys
   !> Whether thermal conduction is used
   logical, public, protected              :: mhd_thermal_conduction = .false.
   type(tc_fluid), allocatable :: tc_fl
+  type(te_fluid), allocatable,target :: te_fl_mhd
 
   !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
   integer, parameter, private             :: MHD_TC =1
@@ -357,6 +359,8 @@ contains
     phys_trac=mhd_trac
     phys_trac_type=mhd_trac_type
 
+    phys_gamma = mhd_gamma
+
     if(mhd_energy.and..not.mhd_internal_e) then
       total_energy=.true.
     else
@@ -629,7 +633,15 @@ contains
       rc_fl%eaux_ = eaux_
       rc_fl%Tcoff_ = Tcoff_
     end if
-
+{^IFTHREED
+    if (image_euv .or. spectrum_euv .or. image_sxr) then
+      allocate(te_fl_mhd)
+      te_fl_mhd%get_rho=> mhd_get_rho
+      te_fl_mhd%get_pthermal=> mhd_get_pthermal
+      te_fl_mhd%Rfactor = 1d0
+      phys_te_images => mhd_te_images
+    endif
+}
     ! Initialize viscosity module
     if (mhd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
 
@@ -691,6 +703,17 @@ contains
     end if
 
   end subroutine mhd_phys_init
+
+{^IFTHREED
+  subroutine mhd_te_images()
+    use mod_global_parameters
+    use mod_thermal_emission
+    if (image_euv) call get_EUV_image(unitconvert,te_fl_mhd)
+    if (spectrum_euv) call get_EUV_spectrum(unitconvert,te_fl_mhd)
+    if (image_sxr) call get_SXR_image(unitconvert,te_fl_mhd)
+
+  end subroutine mhd_te_images
+}
 
 !!start th cond
   ! wrappers for STS functions in thermal_conductivity module
@@ -2485,8 +2508,12 @@ contains
     }
 
     if(mhd_radiative_cooling) then
+      if(it==7) print*, it," BEFOREADD ", minval(w(ixO^S,e_)), maxval(w(ixO^S,e_)),&
+                        minloc(w(ixO^S,e_))
       call radiative_cooling_add_source(qdt,ixI^L,ixO^L,wCT,&
            w,x,qsourcesplit,active, rc_fl)
+      if(it==7) print*, it," AFTERADD ", minval(w(ixO^S,e_)), maxval(w(ixO^S,e_)),&
+                        minloc(w(ixO^S,e_))
     end if
 
     if(mhd_viscosity) then

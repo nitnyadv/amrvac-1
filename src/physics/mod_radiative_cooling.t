@@ -1248,7 +1248,7 @@ module mod_radiative_cooling
          ! Scale both T and Lambda
          fl%tcool(1:fl%ncool) = fl%tcool(1:fl%ncool) / unit_temperature
          fl%Lcool(1:fl%ncool) = fl%Lcool(1:fl%ncool) * unit_numberdensity**2 * unit_time / unit_pressure * (1.d0+2.d0*He_abundance) 
-     
+    
 
          fl%tcoolmin       = fl%tcool(1)+smalldouble  ! avoid pointless interpolation
          ! smaller value for lowest temperatures from cooling table and user's choice
@@ -1475,7 +1475,6 @@ module mod_radiative_cooling
          endif
         coolrate(ix^D) = l1
       {enddo^D&\}
-
       
     end subroutine getvar_cooling_exact
     
@@ -1543,11 +1542,12 @@ module mod_radiative_cooling
 
       call fl%get_pthermal(w,x,ixI^L,ixO^L,etherm)  
       call fl%get_rho(w,ixI^L,ixO^L,rho)  
-      
       {do ix^DB = ixO^LIM^DB\}
-         emin         = rho(ix^D)*tfloor/(rc_gamma-1.d0)
-         etherm(ix^D) = etherm(ix^D)/(rc_gamma-1.d0)
-         if( etherm(ix^D) < emin ) w(ix^D,fl%e_)=w(ix^D,fl%e_)-etherm(ix^D)+emin
+         emin         = rho(ix^D)*tfloor
+         if( etherm(ix^D) < emin ) then
+             print*, ix1,ix2, " FIXT ",  (emin-etherm(ix^D))/(rc_gamma-1.d0)
+             w(ix^D,fl%e_)=w(ix^D,fl%e_)+(emin-etherm(ix^D))/(rc_gamma-1.d0)
+          endif
       {enddo^D&\}
 
     end subroutine floortemperature
@@ -1719,15 +1719,20 @@ module mod_radiative_cooling
             if(phys_solve_eaux) w(ix^D,fl%eaux_)=w(ix^D,fl%eaux_)-L1*qdt 
          else  
             call findL(Tlocal1,L1,fl)
+            !print*, it, ix^D, " L1 ", L1 
             L1         = L1*(rholocal**2)
             if(phys_trac .and. Tlocal1 .lt. ttofflocal) then
               L1=L1*sqrt((Tlocal1/ttofflocal)**5)
             end if
             L1         = min(L1,Lmax)
+            !print*, "it: ", it , " coords ", ix^D," EXPLICIT1 ", L1, &
+            !  "VARS ", rholocal, Tlocal1, plocal, pnew(ix^D)
             w(ix^D,fl%e_) = w(ix^D,fl%e_)-L1*qdt
             if(phys_solve_eaux) w(ix^D,fl%eaux_)=w(ix^D,fl%eaux_)-L1*qdt 
          endif
       {enddo^D&\}
+            !print* , it," SUM E ",  sum(w(ixO^S,fl%e_)) + &
+            !  sum(block%equi_vars(ixO^S,2,0))/(rc_gamma-1.d0)
       
     end subroutine cool_explicit1
 
@@ -2086,6 +2091,9 @@ module mod_radiative_cooling
               de=de*sqrt((Tlocal1/ttofflocal)**5)
             end if
             de          = min(de,emax)   
+            print*, "it: ", it , " coords ", ix^D," EXACT ", de, &
+              " VARS ", rholocal, Tlocal1, Tlocal2,&
+              " VARS2 ",Y1,Y2, L1, plocal, pnew(ix^D)
             w(ix^D,fl%e_)  = w(ix^D,fl%e_)-de
             if(phys_solve_eaux) w(ix^D,fl%eaux_)=w(ix^D,fl%eaux_)-de              
          endif

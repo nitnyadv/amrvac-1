@@ -76,6 +76,11 @@ module mod_variables
   !> the first number_species - 1, the last index for the last one is nwflux
   integer, allocatable :: stop_indices(:)
 
+  ! indices of equi for the species index_v_mag
+  ! these are needed for hlld solver, TODO: consider moving in a separate file
+  integer :: iw_equi_rho = -1
+  integer :: iw_equi_p = -1
+
 contains
 
   !> Set generic flux variable
