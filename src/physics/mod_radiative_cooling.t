@@ -2091,9 +2091,9 @@ module mod_radiative_cooling
               de=de*sqrt((Tlocal1/ttofflocal)**5)
             end if
             de          = min(de,emax)   
-            print*, "it: ", it , " coords ", ix^D," EXACT ", de, &
-              " VARS ", rholocal, Tlocal1, Tlocal2,&
-              " VARS2 ",Y1,Y2, L1, plocal, pnew(ix^D)
+!            print*, "it: ", it , " coords ", ix^D," EXACT ", de, &
+!              " VARS ", rholocal, Tlocal1, Tlocal2,&
+!              " VARS2 ",Y1,Y2, L1, plocal, pnew(ix^D)
             w(ix^D,fl%e_)  = w(ix^D,fl%e_)-de
             if(phys_solve_eaux) w(ix^D,fl%eaux_)=w(ix^D,fl%eaux_)-de              
          endif

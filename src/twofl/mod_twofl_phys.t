@@ -5732,7 +5732,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
                   *(block%surfaceC(ixO^S,1)-block%surfaceC(h1x^S,1))/block%dvolume(ixO^S)
        if(ndir>1) then
          do idir=2,ndir
-           tmp(ixO^S)=tmp(ixO^S)+wCT(ixO^S,mom(idir))**2/wCT(ixO^S,rho_)-wCT(ixO^S,mag(idir))**2
+           tmp(ixO^S)=tmp(ixO^S)+wCT(ixO^S,mom_c(idir))**2/rho(ixO^S)-wCT(ixO^S,mag(idir))**2
            if(B0field) tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,idir,0)*wCT(ixO^S,mag(idir))
          end do
        end if
@@ -5749,7 +5749,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
          tmp(ixO^S)=tmp(ixO^S)+tmp2(ixO^S)
        end if
        ! This will make hydrostatic p=const an exact solution
-       w(ixO^S,mom(2))=w(ixO^S,mom_c(2))+qdt*tmp(ixO^S) &
+       w(ixO^S,mom_c(2))=w(ixO^S,mom_c(2))+qdt*tmp(ixO^S) &
             *(block%surfaceC(ixO^S,2)-block%surfaceC(h2x^S,2)) &
             /block%dvolume(ixO^S)
        tmp(ixO^S)=-(wCT(ixO^S,mom_c(1))*wCT(ixO^S,mom_c(2))/rho(ixO^S) &
@@ -5759,20 +5759,20 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
                +wCT(ixO^S,mag(1))*block%B0(ixO^S,2,0)
        end if
        if(ndir==3) then
-         tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(3))**2/rho(ixO^S) &
+         tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom_c(3))**2/rho(ixO^S) &
               -wCT(ixO^S,mag(3))**2)*dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
          if (B0field) then
             tmp(ixO^S)=tmp(ixO^S)-2.0d0*block%B0(ixO^S,3,0)*wCT(ixO^S,mag(3))&
                  *dcos(x(ixO^S,2))/dsin(x(ixO^S,2))
          end if
        end if
-       w(ixO^S,mom(2))=w(ixO^S,mom(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
+       w(ixO^S,mom_c(2))=w(ixO^S,mom_c(2))+qdt*tmp(ixO^S)/x(ixO^S,1)
        ! b2
        if(.not.stagger_grid) then
          tmp(ixO^S)=(wCT(ixO^S,mom_c(1))*wCT(ixO^S,mag(2)) &
               -wCT(ixO^S,mom_c(2))*wCT(ixO^S,mag(1)))/rho(ixO^S)
          if(B0field) then
-           tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom(1))*block%B0(ixO^S,2,0) &
+           tmp(ixO^S)=tmp(ixO^S)+(wCT(ixO^S,mom_c(1))*block%B0(ixO^S,2,0) &
                 -wCT(ixO^S,mom_c(2))*block%B0(ixO^S,1,0))/rho(ixO^S)
          end if
          if(twofl_glm) then
@@ -5786,7 +5786,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        if(ndir==3) then
          ! m3
          if(.not.angmomfix) then
-           tmp(ixO^S)=-(wCT(ixO^S,mom(3))*wCT(ixO^S,mom(1))/rho(ixO^S) &
+           tmp(ixO^S)=-(wCT(ixO^S,mom_c(3))*wCT(ixO^S,mom_c(1))/rho(ixO^S) &
                 -wCT(ixO^S,mag(3))*wCT(ixO^S,mag(1))) {^NOONED &
                 -(wCT(ixO^S,mom_c(2))*wCT(ixO^S,mom_c(3))/wCT(ixO^S,rho_) &
                 -wCT(ixO^S,mag(2))*wCT(ixO^S,mag(3))) &

@@ -598,6 +598,7 @@ contains
        select case (t_integrator)
        case (ssprk5)
           ! SSPRK(5,4) by Ruuth and Spiteri
+          !bcexch = .false.
           call advect1(flux_method,rk_beta11, idim^LIM,global_time,ps,global_time,ps1)
           !$OMP PARALLEL DO PRIVATE(igrid)
           do iigrid=1,igridstail_active; igrid=igrids_active(iigrid);
@@ -636,6 +637,7 @@ contains
              endif
           end do
           !$OMP END PARALLEL DO
+          !bcexch = .true.
           call advect1(flux_method,rk_beta55, idim^LIM,global_time+rk_c5*dt,ps2,global_time+(1.0d0-rk_beta55)*dt,ps)
 
        case default
