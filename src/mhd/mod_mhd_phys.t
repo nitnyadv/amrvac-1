@@ -1,5 +1,8 @@
 !> Magneto-hydrodynamics module
 module mod_mhd_phys
+
+#include "amrvac.h"
+
   use mod_global_parameters, only: std_len
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid
@@ -836,10 +839,10 @@ contains
 
     end subroutine tc_params_read_hd
 
-  subroutine mhd_get_rho(w,ixI^L,ixO^L,rho)
+  subroutine mhd_get_rho(w,x,ixI^L,ixO^L,rho)
     use mod_global_parameters
     integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(in)  :: w(ixI^S,1:nw),x(ixI^S,1:ndim)
     double precision, intent(out) :: rho(ixI^S)
 
     rho(ixO^S) = w(ixO^S,rho_) 
@@ -1880,7 +1883,8 @@ contains
     double precision, intent(in) :: x(ixI^S,1:ndim)
     double precision,intent(out) :: f(ixI^S,nwflux)
 
-    double precision             :: pgas(ixO^S), ptotal(ixO^S),tmp(ixI^S)
+    double precision             :: pgas(ixO^S), ptotal(ixO^S)
+    double precision             :: tmp(ixI^S)
     double precision             :: vHall(ixI^S,1:ndir)
     integer                      :: idirmin, iw, idir, jdir, kdir
     double precision, allocatable, dimension(:^D&,:) :: Jambi, btot
@@ -1891,9 +1895,9 @@ contains
     if (mhd_Hall) then
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
-
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if(B0field) tmp(ixO^S)=sum(block%B0(ixO^S,:,idim)*w(ixO^S,mag(:)),dim=ndim+1)
-
+#endif
     if(mhd_energy) then
       pgas=w(ixO^S,p_)
     else
@@ -1926,15 +1930,19 @@ contains
       do idir=1,ndir
         if(idim==idir) then
           f(ixO^S,mom(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
           if(B0field) f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+tmp(ixO^S)
+#endif
         else
           f(ixO^S,mom(idir))= -w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
         end if
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
         if (B0field) then
           f(ixO^S,mom(idir))=f(ixO^S,mom(idir))&
                -w(ixO^S,mag(idir))*block%B0(ixO^S,idim,idim)&
                -w(ixO^S,mag(idim))*block%B0(ixO^S,idir,idim)
         end if
+#endif
         f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+w(ixO^S,mom(idim))*wC(ixO^S,mom(idir))
       end do
     end if
@@ -1952,11 +1960,13 @@ contains
            -w(ixO^S,mag(idim))*sum(w(ixO^S,mag(:))*w(ixO^S,mom(:)),dim=ndim+1)
         if(mhd_solve_eaux) f(ixO^S,eaux_)=w(ixO^S,mom(idim))*wC(ixO^S,eaux_)
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
         if (B0field) then
            f(ixO^S,e_) = f(ixO^S,e_) &
               + w(ixO^S,mom(idim)) * tmp(ixO^S) &
               - sum(w(ixO^S,mom(:))*w(ixO^S,mag(:)),dim=ndim+1) * block%B0(ixO^S,idim,idim)
         end if
+#endif
 
         if (mhd_Hall) then
         ! f_i[e]= f_i[e] + vHall_i*(b_k*b_k) - b_i*(vHall_k*b_k)
@@ -1964,11 +1974,13 @@ contains
               f(ixO^S,e_) = f(ixO^S,e_) + vHall(ixO^S,idim) * &
                  sum(w(ixO^S, mag(:))**2,dim=ndim+1) &
                  - w(ixO^S,mag(idim)) * sum(vHall(ixO^S,:)*w(ixO^S,mag(:)),dim=ndim+1)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
               if (B0field) then
                  f(ixO^S,e_) = f(ixO^S,e_) &
                     + vHall(ixO^S,idim) * tmp(ixO^S) &
                     - sum(vHall(ixO^S,:)*w(ixO^S,mag(:)),dim=ndim+1) * block%B0(ixO^S,idim,idim)
               end if
+#endif
            end if
         end if
       end if
@@ -1987,24 +1999,30 @@ contains
       else
         f(ixO^S,mag(idir))=w(ixO^S,mom(idim))*w(ixO^S,mag(idir))-w(ixO^S,mag(idim))*w(ixO^S,mom(idir))
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
         if (B0field) then
           f(ixO^S,mag(idir))=f(ixO^S,mag(idir))&
                 +w(ixO^S,mom(idim))*block%B0(ixO^S,idir,idim)&
                 -w(ixO^S,mom(idir))*block%B0(ixO^S,idim,idim)
         end if
+#endif
 
         if (mhd_Hall) then
           ! f_i[b_k] = f_i[b_k] + vHall_i*b_k - vHall_k*b_i
           if (mhd_etah>zero) then
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
             if (B0field) then
               f(ixO^S,mag(idir)) = f(ixO^S,mag(idir)) &
                    - vHall(ixO^S,idir)*(w(ixO^S,mag(idim))+block%B0(ixO^S,idim,idim)) &
                    + vHall(ixO^S,idim)*(w(ixO^S,mag(idir))+block%B0(ixO^S,idir,idim))
             else
+#endif
               f(ixO^S,mag(idir)) = f(ixO^S,mag(idir)) &
                    - vHall(ixO^S,idir)*w(ixO^S,mag(idim)) &
                    + vHall(ixO^S,idim)*w(ixO^S,mag(idir))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
             end if
+#endif
           end if
         end if
 
@@ -2024,13 +2042,17 @@ contains
       allocate(Jambi(ixI^S,1:3))
       call mhd_get_Jambi(w,x,ixI^L,ixO^L,Jambi)
       allocate(btot(ixO^S,1:3))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
       if(B0field) then
         do idir=1,3
           btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,idim)
         enddo
       else
+#endif
         btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
       endif
+#endif
       allocate(tmp2(ixO^S),tmp3(ixO^S))
       !tmp2 = Btot^2
       tmp2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1)
@@ -2040,24 +2062,32 @@ contains
       select case(idim)
         case(1)
           tmp(ixO^S)=w(ixO^S,mag(3)) *Jambi(ixO^S,2) - w(ixO^S,mag(2)) * Jambi(ixO^S,3)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
           if(B0field) tmp4(ixO^S) = w(ixO^S,mag(2)) * btot(ixO^S,3) - w(ixO^S,mag(3)) * btot(ixO^S,2)
+#endif
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) - tmp2(ixO^S) * Jambi(ixO^S,3) + tmp3(ixO^S) * btot(ixO^S,3)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) + tmp2(ixO^S) * Jambi(ixO^S,2) - tmp3(ixO^S) * btot(ixO^S,2)
         case(2)
           tmp(ixO^S)=w(ixO^S,mag(1)) *Jambi(ixO^S,3) - w(ixO^S,mag(3)) * Jambi(ixO^S,1)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
           if(B0field) tmp4(ixO^S) = w(ixO^S,mag(3)) * btot(ixO^S,1) - w(ixO^S,mag(1)) * btot(ixO^S,3)
+#endif
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) + tmp2(ixO^S) * Jambi(ixO^S,3) - tmp3(ixO^S) * btot(ixO^S,3)
           f(ixO^S,mag(3))= f(ixO^S,mag(3)) - tmp2(ixO^S) * Jambi(ixO^S,1) + tmp3(ixO^S) * btot(ixO^S,1)
         case(3)
           tmp(ixO^S)=w(ixO^S,mag(2)) *Jambi(ixO^S,1) - w(ixO^S,mag(1)) * Jambi(ixO^S,2)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
           if(B0field) tmp4(ixO^S) = w(ixO^S,mag(1)) * btot(ixO^S,2) - w(ixO^S,mag(2)) * btot(ixO^S,1)
+#endif
           f(ixO^S,mag(1))= f(ixO^S,mag(1)) - tmp2(ixO^S) * Jambi(ixO^S,2) + tmp3(ixO^S) * btot(ixO^S,2)
           f(ixO^S,mag(2))= f(ixO^S,mag(2)) + tmp2(ixO^S) * Jambi(ixO^S,1) - tmp3(ixO^S) * btot(ixO^S,1)
       endselect
 
       if(mhd_energy .and. .not. mhd_internal_e) then
         f(ixO^S,e_) = f(ixO^S,e_) + tmp2(ixO^S) *  tmp(ixO^S)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
         if(B0field) f(ixO^S,e_) = f(ixO^S,e_) +  tmp3(ixO^S) *  tmp4(ixO^S)
+#endif
       endif
 
       deallocate(Jambi,btot,tmp2,tmp3)
@@ -2103,13 +2133,18 @@ contains
     call get_current(w,ixI^L,ixO^L,idirmin,current)
     !!!here we know that current has nonzero values only for components in the range idirmin, 3
  
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if(B0field) then
       do idir=1,3
         btot(ixO^S, idir) = w(ixO^S,mag(idir)) + block%B0(ixO^S,idir,b0i)
       enddo
     else
+#endif
       btot(ixO^S,1:3) = w(ixO^S,mag(1:3))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     endif
+#endif
+
     tmp(ixO^S) = sum(current(ixO^S,idirmin:3)*btot(ixO^S,idirmin:3),dim=ndim+1) !J.B
     b2(ixO^S) = sum(btot(ixO^S,1:3)**2,dim=ndim+1) !B^2
     do idir=1,idirmin-1
@@ -2413,12 +2448,13 @@ contains
         call internal_energy_add_source(qdt,ixI^L,ixO^L,wCT,w,x,eaux_)
       endif
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
       ! Source for B0 splitting
       if (B0field) then
         active = .true.
         call add_source_B0split(qdt,ixI^L,ixO^L,wCT,w,x)
       end if
-
+#endif
       ! Sources for resistivity in eqs. for e, B1, B2 and B3
       if (abs(mhd_eta)>smalldouble)then
         active = .true.
@@ -3242,9 +3278,10 @@ contains
 
     call curlvector(bvec,ixI^L,ixO^L,current,idirmin,idirmin0,ndir)
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if(B0field) current(ixO^S,idirmin0:3)=current(ixO^S,idirmin0:3)+&
         block%J0(ixO^S,idirmin0:3)
-
+#endif
   end subroutine get_current
 
   !> If resistivity is not zero, check diffusion time limit for dt
@@ -3461,11 +3498,15 @@ contains
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: mge(ixO^S)
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if (B0field) then
       mge = sum((w(ixO^S, mag(:))+block%B0(ixO^S,:,b0i))**2, dim=ndim+1)
     else
+#endif
       mge = sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     end if
+#endif
   end function mhd_mag_en_all
 
   !> Compute full magnetic field by direction
@@ -3475,11 +3516,15 @@ contains
     double precision, intent(in)  :: w(ixI^S, nw)
     double precision              :: mgf(ixO^S)
 
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if (B0field) then
       mgf = w(ixO^S, mag(idir))+block%B0(ixO^S,idir,b0i)
     else
+#endif
       mgf = w(ixO^S, mag(idir))
+#if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     end if
+#endif
   end function mhd_mag_i_all
 
   !> Compute evolving magnetic energy
@@ -3573,6 +3618,7 @@ contains
 
     if (.not. B0field) then
        bmag(ixO^S)=sqrt(sum(w(ixO^S,mag(:))**2, dim=ndim+1))
+    else
        bmag(ixO^S)=sqrt(sum((w(ixO^S,mag(:)) + block%B0(ixO^S,1:ndir,b0i))**2))
     end if
 
