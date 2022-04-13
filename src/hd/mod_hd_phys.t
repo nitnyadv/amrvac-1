@@ -2,6 +2,7 @@
 module mod_hd_phys
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid
+  use mod_thermal_emission, only: te_fluid
   implicit none
   private
 
@@ -11,6 +12,7 @@ module mod_hd_phys
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
   type(tc_fluid), allocatable :: tc_fl
+  type(te_fluid), allocatable :: te_fl_hd
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
@@ -201,6 +203,7 @@ contains
     physics_type = "hd"
     phys_energy  = hd_energy
     phys_total_energy  = hd_energy
+    phys_gamma = hd_gamma
 
     phys_trac=hd_trac
     if(phys_trac) then
@@ -329,7 +332,15 @@ contains
       rc_fl%e_ = e_
       rc_fl%Tcoff_ = Tcoff_
     end if
-
+{^IFTHREED
+    if (image_euv .or. spectrum_euv .or. image_sxr) then
+      allocate(te_fl_hd)
+      te_fl_hd%get_rho=> hd_get_rho
+      te_fl_hd%get_pthermal=> hd_get_pthermal
+      te_fl_hd%Rfactor = 1d0
+      phys_te_images => hd_te_images 
+    endif
+}
     ! Initialize viscosity module
     if (hd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
 
@@ -359,6 +370,16 @@ contains
 
   end subroutine hd_phys_init
 
+{^IFTHREED
+  subroutine hd_te_images()
+    use mod_global_parameters
+    use mod_thermal_emission
+    if (image_euv) call get_EUV_image(unitconvert,te_fl_hd)
+    if (spectrum_euv) call get_EUV_spectrum(unitconvert,te_fl_hd)
+    if (image_sxr) call get_SXR_image(unitconvert,te_fl_hd)
+
+  end subroutine hd_te_images
+}
 !!start th cond
   ! wrappers for STS functions in thermal_conductivity module
   ! which take as argument the tc_fluid (defined in the physics module)

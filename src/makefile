@@ -135,6 +135,7 @@ mod_hd_phys.o: mod_rotating_frame.mod
 mod_hd_phys.o: mod_small_values.mod
 mod_hd_phys.o: mod_supertimestepping.mod
 mod_hd_phys.o: mod_thermal_conduction.mod
+mod_hd_phys.o: mod_thermal_emission.mod
 mod_hd_phys.o: mod_viscosity.mod
 mod_hd_ppm.o: mod_geometry.mod
 mod_hd_ppm.o: mod_hd_phys.mod
@@ -201,6 +202,7 @@ mod_mhd_phys.o: mod_radiative_cooling.mod
 mod_mhd_phys.o: mod_small_values.mod
 mod_mhd_phys.o: mod_supertimestepping.mod
 mod_mhd_phys.o: mod_thermal_conduction.mod
+mod_mhd_phys.o: mod_thermal_emission.mod
 mod_mhd_phys.o: mod_viscosity.mod
 mod_mhd_ppm.o: mod_geometry.mod
 mod_mhd_ppm.o: mod_mhd_phys.mod
@@ -308,6 +310,7 @@ mod_twofl_phys.o: mod_radiative_cooling.mod
 mod_twofl_phys.o: mod_small_values.mod
 mod_twofl_phys.o: mod_supertimestepping.mod
 mod_twofl_phys.o: mod_thermal_conduction.mod
+mod_twofl_phys.o: mod_thermal_emission.mod
 mod_twofl_phys.o: mod_viscosity.mod
 mod_twofl_ppm.o: mod_geometry.mod
 mod_twofl_ppm.o: mod_physics.mod

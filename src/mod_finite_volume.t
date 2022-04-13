@@ -231,8 +231,7 @@ contains
        case(fs_hllc,fs_hllcd)
          call get_Riemann_flux_hllc()
        case(fs_hlld)
-         !call get_Riemann_flux_hlld()
-         call get_Riemann_flux_hlld2()
+         call get_Riemann_flux_hlld()
        case(fs_tvdlf)
          call get_Riemann_flux_tvdlf()
        case(fs_tvdmu)
@@ -396,11 +395,23 @@ contains
     end subroutine get_Riemann_flux_hll_species
 
     subroutine get_Riemann_flux_hllc()
+      integer :: ii,iws,iwe
+      iws = iwstart
+      do ii=1,number_species-1
+        iwe=stop_indices(ii)
+        call get_Riemann_flux_hllc_species(ii,iws,iwe)      
+        iws=iwe+1
+      end do
+      call get_Riemann_flux_hllc_species(number_species,iws,nwflux)      
+    end subroutine get_Riemann_flux_hllc
+
+    subroutine get_Riemann_flux_hllc_species(ii, iws, iwe)
       !modify to use mod_variables instead of specific mod_mhd_phys 
       !use mod_mhd_phys
       use mod_variables
       use mod_physics
       implicit none
+      integer, intent(in) :: ii, iws, iwe  
       double precision, dimension(ixI^S,1:nwflux)     :: whll, Fhll, fCD
       double precision, dimension(ixI^S)              :: lambdaCD
 
@@ -408,9 +419,15 @@ contains
 
       rho_ = iw_rho
       mom(:) = iw_mom(:)
-      p_ = iw_e
       e_ = iw_e 
       eaux_ = iw_eaux
+
+
+      if(associated(phys_hllc_init_species)) then
+       call phys_hllc_init_species(ii, rho_, mom(:), e_, eaux_)
+      endif  
+
+      p_ = e_
 
       patchf(ixC^S) =  1
       where(cminC(ixC^S,1) >= zero)
@@ -435,7 +452,7 @@ contains
       endif ! Calculate the CD flux
 
       ! use hll flux for the auxiliary internal e
-      if(phys_energy.and.phys_solve_eaux) then
+      if(phys_energy.and.phys_solve_eaux .and. eaux_>0) then
         iw=eaux_
         fCD(ixC^S, iw) = (cmaxC(ixC^S,1)*fLC(ixC^S, iw)-cminC(ixC^S,1) * fRC(ixC^S, iw) &
              +cminC(ixC^S,1)*cmaxC(ixC^S,1)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(cmaxC(ixC^S,1)-cminC(ixC^S,1))
@@ -466,10 +483,32 @@ contains
          fC(ixC^S,iw,idims)=fLC(ixC^S,iw)
 
       end do ! Next iw
-    end subroutine get_Riemann_flux_hllc
+    end subroutine get_Riemann_flux_hllc_species
+
+    subroutine get_Riemann_flux_hlld()
+      integer :: ii,iws,iwe
+      iws = iwstart
+      do ii=1,number_species-1
+        iwe=stop_indices(ii)
+        if(ii==index_v_mag) then
+          !call get_Riemann_flux_hlld_mag2()
+          call get_Riemann_flux_hlld_mag()
+        else
+          call get_Riemann_flux_hllc_species(ii,iws,iwe)   
+        endif   
+        iws=iwe+1
+      end do
+      if(number_species==index_v_mag) then
+        !call get_Riemann_flux_hlld_mag2()
+        call get_Riemann_flux_hlld_mag()
+      else
+        call get_Riemann_flux_hllc_species(number_species,iws,nwflux)      
+      endif
+    end subroutine get_Riemann_flux_hlld
+
 
     !> HLLD Riemann flux from Miyoshi 2005 JCP, 208, 315 and Guo 2016 JCP, 327, 543
-    subroutine get_Riemann_flux_hlld()
+    subroutine get_Riemann_flux_hlld_mag()
       !use mod_mhd_phys
       use mod_variables
       use mod_physics
@@ -489,10 +528,10 @@ contains
       rho_ = iw_rho
       mom(:) = iw_mom(:)
       mag(:) = iw_mag(:) 
-      p_ = iw_e
       e_ = iw_e 
       eaux_ = iw_eaux 
 
+      p_ = e_
       associate (sR=>cmaxC,sL=>cminC)
 
       f1R=0.d0
@@ -523,8 +562,18 @@ contains
       end if
       ptR(ixC^S)=wRp(ixC^S,p_)+0.5d0*sum(BR(ixC^S,:)**2,dim=ndim+1)
       ptL(ixC^S)=wLp(ixC^S,p_)+0.5d0*sum(BL(ixC^S,:)**2,dim=ndim+1)
-      suR(ixC^S)=(sR(ixC^S,index_v_mag)-vRC(ixC^S,ip1))*wRC(ixC^S,rho_)
-      suL(ixC^S)=(sL(ixC^S,index_v_mag)-vLC(ixC^S,ip1))*wLC(ixC^S,rho_)
+      if(iw_equi_rho>0) then
+        suR(ixC^S) = wRC(ixC^S,rho_)+ block%equi_vars(ixC^S,iw_equi_rho,ip1)
+      else
+        suR(ixC^S) = wRC(ixC^S,rho_)
+      endif
+      suR(ixC^S)=(sR(ixC^S,index_v_mag)-vRC(ixC^S,ip1))*suR(ixC^S)
+      if(iw_equi_rho>0) then
+        suL(ixC^S) = wLC(ixC^S,rho_)+ block%equi_vars(ixC^S,iw_equi_rho,ip1)
+      else
+        suL(ixC^S) = wLC(ixC^S,rho_)
+      endif
+      suL(ixC^S)=(sL(ixC^S,index_v_mag)-vLC(ixC^S,ip1))*suL(ixC^S)
       ! Miyoshi equation (38) and Guo euqation (20)
       sm(ixC^S)=(suR(ixC^S)*vRC(ixC^S,ip1)-suL(ixC^S)*vLC(ixC^S,ip1)-&
                  ptR(ixC^S)+ptL(ixC^S))/(suR(ixC^S)-suL(ixC^S))
@@ -612,6 +661,19 @@ contains
           w1L(ixC^S,e_)=w1L(ixC^S,e_)+(sum(w1L(ixC^S,mag(:))*block%B0(ixC^S,:,ip1),dim=ndim+1)*sm(ixC^S)-&
                sum(wLC(ixC^S,mag(:))*block%B0(ixC^S,:,ip1),dim=ndim+1)*vLC(ixC^S,ip1))/(sL(ixC^S,index_v_mag)-sm(ixC^S))
         end if
+        if(iw_equi_p>0) then
+#if !defined(E_RM_W0) || E_RM_W0 == 1
+          w1R(ixC^S,e_)= w1R(ixC^S,e_) + 1d0/(phys_gamma - 1) * block%equi_vars(ixC^S,iw_equi_p,ip1) * &
+             (sm(ixC^S)-vRC(ixC^S,ip1))/(sR(ixC^S,index_v_mag)-sm(ixC^S))
+          w1L(ixC^S,e_)= w1L(ixC^S,e_) + 1d0/(phys_gamma - 1) * block%equi_vars(ixC^S,iw_equi_p,ip1) * &
+             (sm(ixC^S)-vLC(ixC^S,ip1))/(sL(ixC^S,index_v_mag)-sm(ixC^S))
+#else
+          w1R(ixC^S,e_)= w1R(ixC^S,e_) + phys_gamma /(phys_gamma - 1) * block%equi_vars(ixC^S,iw_equi_p,ip1) * &
+             (sm(ixC^S)-vRC(ixC^S,ip1))/(sR(ixC^S,index_v_mag)-sm(ixC^S))
+          w1L(ixC^S,e_)= w1L(ixC^S,e_) + phys_gamma /(phys_gamma - 1) * block%equi_vars(ixC^S,iw_equi_p,ip1) * &
+             (sm(ixC^S)-vLC(ixC^S,ip1))/(sL(ixC^S,index_v_mag)-sm(ixC^S))
+#endif
+        endif
       end if
 
       ! Miyoshi equation (49) and Guo equation (35)
@@ -660,7 +722,12 @@ contains
         w2R(ixC^S,mom(idir))=w2R(ixC^S,mom(idir))*w2R(ixC^S,rho_)
         w2L(ixC^S,mom(idir))=w2L(ixC^S,mom(idir))*w2L(ixC^S,rho_)
       end do
-
+      if(iw_equi_rho>0) then
+        w1R(ixC^S,rho_) = w1R(ixC^S,rho_) - block%equi_vars(ixC^S,iw_equi_rho,ip1)
+        w1L(ixC^S,rho_) = w1L(ixC^S,rho_) - block%equi_vars(ixC^S,iw_equi_rho,ip1)
+        w2R(ixC^S,rho_) = w2R(ixC^S,rho_) - block%equi_vars(ixC^S,iw_equi_rho,ip1)
+        w2L(ixC^S,rho_) = w2L(ixC^S,rho_) - block%equi_vars(ixC^S,iw_equi_rho,ip1)
+      endif
       ! get fluxes of intermedate states
       do iw=1,nwflux
         if(flux_type(idims, iw) == flux_special) then
@@ -703,11 +770,11 @@ contains
      {end do\}
 
       end associate
-    end subroutine get_Riemann_flux_hlld
+    end subroutine get_Riemann_flux_hlld_mag
 
     !> HLLD Riemann flux from Miyoshi 2005 JCP, 208, 315 and Guo 2016 JCP, 327, 543
     !> https://arxiv.org/pdf/2108.04991.pdf
-    subroutine get_Riemann_flux_hlld2()
+    subroutine get_Riemann_flux_hlld_mag2()
       !use mod_mhd_phys
       use mod_variables
       use mod_physics
@@ -1044,7 +1111,7 @@ contains
      {end do\}
 
       end associate
-    end subroutine get_Riemann_flux_hlld2
+    end subroutine get_Riemann_flux_hlld_mag2
 
   !> Calculate fast magnetosonic wave speed
   subroutine get_hlld2_modif_c(w,x,ixI^L,ixO^L,csound)
