@@ -1439,11 +1439,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   double precision   :: rho(ixI^S)
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-  call  get_rhon_tot(w,ixI^L,ixO^L,rho(ixI^S))
+  call  get_rhon_tot(w,x,ixI^L,ixO^L,rho(ixI^S))
   wnew(ixO^S,rho_n_) = rho(ixO^S)
   wnew(ixO^S,mom_n(:)) =  w(ixO^S,mom_n(:))
 #endif
-  call  get_rhoc_tot(w,ixI^L,ixO^L,rho(ixI^S))
+  call  get_rhoc_tot(w,x,ixI^L,ixO^L,rho(ixI^S))
   wnew(ixO^S,rho_c_) = rho(ixO^S)
   wnew(ixO^S,mom_c(:)) =  w(ixO^S,mom_c(:))
 
@@ -1654,10 +1654,18 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     flag=.false.
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         
-    call get_rhon_tot(w,ixI^L,ixO^L,tmp)
+    if(has_equi_rho_n0) then
+      tmp(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,0)
+    else  
+      tmp(ixO^S) = w(ixO^S,rho_n_) 
+    endif
     where(tmp(ixO^S) < small_density) flag(ixO^S,rho_n_) = .true.
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
+    if(has_equi_rho_c0) then
+      tmp(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,0)
+    else  
+      tmp(ixO^S) = w(ixO^S,rho_c_) 
+    endif
     where(tmp(ixO^S) < small_density) flag(ixO^S,rho_c_) = .true.
     if(phys_energy) then
       if(primitive) then
@@ -1741,9 +1749,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     !end if
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 
     ! Calculate total energy from pressure, kinetic and magnetic energy
     if(phys_energy) then
@@ -1801,9 +1809,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     end if
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 
     if(phys_energy) then
       if(phys_internal_e) then
@@ -2178,7 +2186,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     {^IFONED
     ! reuse lts as rhon
-    call get_rhon_tot(w,ixI^L,ixI^L,lts)
+    call get_rhon_tot(w,x,ixI^L,ixI^L,lts)
     tmp1(ixI^S)=w(ixI^S,e_n_)-0.5d0*sum(w(ixI^S,mom_n(:))**2,dim=ndim+1)/lts(ixI^S)
     Te(ixI^S)=tmp1(ixI^S)/lts(ixI^S)*(twofl_gamma-1.d0)
 
@@ -2219,7 +2227,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     logical :: lrlt(ixI^S)
 
     ! reuse lts as rhoc
-    call get_rhoc_tot(w,ixI^L,ixI^L,lts)
+    call get_rhoc_tot(w,x,ixI^L,ixI^L,lts)
     if(phys_internal_e) then
       tmp1(ixI^S)=w(ixI^S,e_c_)
     else
@@ -2442,17 +2450,17 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     if (boundspeedEinfeldt) then
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
       ! Methods for Fluid Dynamics" by Toro.
-      call get_rhoc_tot(wLP,ixI^L,ixO^L,rhoc)
+      call get_rhoc_tot(wLP,x,ixI^L,ixO^L,rhoc)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-      call get_rhon_tot(wLP,ixI^L,ixO^L,rhon)
+      call get_rhon_tot(wLP,x,ixI^L,ixO^L,rhon)
       tmp1(ixO^S)=sqrt(abs(rhoc(ixO^S)  +rhon(ixO^S)))
 #else
       tmp1(ixO^S)=sqrt(abs(rhoc(ixO^S)))
 #endif
 
-      call get_rhoc_tot(wRP,ixI^L,ixO^L,rhoc)
+      call get_rhoc_tot(wRP,x,ixI^L,ixO^L,rhoc)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-      call get_rhon_tot(wRP,ixI^L,ixO^L,rhon)
+      call get_rhon_tot(wRP,x,ixI^L,ixO^L,rhon)
       tmp2(ixO^S)=sqrt(abs(rhoc(ixO^S) +rhon(ixO^S)))
 #else
       tmp2(ixO^S)=sqrt(abs(rhoc(ixO^S)))
@@ -2496,10 +2504,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! typeboundspeed=='cmaxmean'
       wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-      call get_rhon_tot(wmean,ixI^L,ixO^L,rhon)
+      call get_rhon_tot(wmean,x,ixI^L,ixO^L,rhon)
       tmp2(ixO^S)=wmean(ixO^S,mom_n(idim))/rhon(ixO^S)
 #endif
-      call get_rhoc_tot(wmean,ixI^L,ixO^L,rhoc)
+      call get_rhoc_tot(wmean,x,ixI^L,ixO^L,rhoc)
       tmp1(ixO^S)=wmean(ixO^S,mom_c(idim))/rhoc(ixO^S)
       call twofl_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
       if(present(cmin)) then
@@ -2553,10 +2561,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       ! This implements formula (10.52) from "Riemann Solvers and Numerical
       ! Methods for Fluid Dynamics" by Toro.
       ! charges
-      call get_rhoc_tot(wLP,ixI^L,ixO^L,rho)
+      call get_rhoc_tot(wLP,x,ixI^L,ixO^L,rho)
       tmp1(ixO^S)=sqrt(abs(rho(ixO^S)))
 
-      call get_rhoc_tot(wRP,ixI^L,ixO^L,rho)
+      call get_rhoc_tot(wRP,x,ixI^L,ixO^L,rho)
       tmp2(ixO^S)=sqrt(abs(rho(ixO^S)))
 
       tmp3(ixO^S)=1.d0/(tmp1(ixO^S)+tmp2(ixO^S))
@@ -2585,10 +2593,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       ! neutrals
 
-      call get_rhon_tot(wLP,ixI^L,ixO^L,rho)
+      call get_rhon_tot(wLP,x,ixI^L,ixO^L,rho)
       tmp1(ixO^S)=sqrt(abs(rho(ixO^S)))
 
-      call get_rhon_tot(wRP,ixI^L,ixO^L,rho)
+      call get_rhon_tot(wRP,x,ixI^L,ixO^L,rho)
       tmp2(ixO^S)=sqrt(abs(rho(ixO^S)))
 
       tmp3(ixO^S)=1.d0/(tmp1(ixO^S)+tmp2(ixO^S))
@@ -2620,7 +2628,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
      ! charges 
 
-      call get_rhoc_tot(wmean,ixI^L,ixO^L,rho)
+      call get_rhoc_tot(wmean,x,ixI^L,ixO^L,rho)
       tmp1(ixO^S)=wmean(ixO^S,mom_c(idim))/rho(ixO^S)
       call twofl_get_csound_c_idim(wmean,x,ixI^L,ixO^L,idim,csoundR)
       if(present(cmin)) then
@@ -2638,7 +2646,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       !neutrals
       
-      call get_rhon_tot(wmean,ixI^L,ixO^L,rho)
+      call get_rhon_tot(wmean,x,ixI^L,ixO^L,rho)
       tmp1(ixO^S)=wmean(ixO^S,mom_n(idim))/rho(ixO^S)
       call twofl_get_csound_n(wmean,x,ixI^L,ixO^L,csoundR)
       if(present(cmin)) then
@@ -2726,9 +2734,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,tmp)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+tmp(ixO^S)) 
 #else
     inv_rho(ixO^S)=1.d0/tmp(ixO^S)
@@ -2785,9 +2793,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
 #else
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
@@ -2874,9 +2882,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision  :: rhon(ixI^S)
 #endif
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     csound2(ixO^S)=twofl_gamma*twofl_adiab*&
                   max((rhoc(ixO^S)**twofl_gamma + rhon(ixO^S)**twofl_gamma)/(rhoc(ixO^S)+ rhon(ixO^S)),&
                   rhon(ixO^S)**gamma_1,rhoc(ixO^S)**gamma_1) 
@@ -2897,9 +2905,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     inv_rho(ixO^S) = 1d0/(rhon(ixO^S)+rhoc(ixO^S)) 
 #else
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
@@ -2952,10 +2960,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision  :: csound1(ixI^S),rhon(ixI^S),rhoc(ixI^S)
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     call get_pen_tot_from_pert(w,ixI^L,ixO^L,pe_n1, csound1)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe_c1, csound2)
 #if !defined(C_TOT) || C_TOT == 0
     csound2(ixO^S)=twofl_gamma*max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
@@ -2976,7 +2984,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision                :: rhoc(ixI^S)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe_c1, csound2)
     csound2(ixO^S)=twofl_gamma* &
                       csound2(ixO^S)/rhoc(ixO^S)
@@ -2999,7 +3007,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     integer :: ix1,ix2
 
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 
     if (twofl_boris_type == boris_reduced_force) then
@@ -3251,13 +3259,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       res(ixO^S) = 1d0/Rn * &
                 block%equi_vars(ixO^S,equi_pe_n0_,b0i)/block%equi_vars(ixO^S,equi_rho_n0_,b0i)
   end subroutine twofl_get_temperature_n_equi
-  subroutine twofl_get_rho_n_equi(w, ixI^L, ixO^L, res)
+
+  subroutine twofl_get_rho_n_equi(w, x,ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
       res(ixO^S) = block%equi_vars(ixO^S,equi_rho_n0_,b0i)
   end subroutine twofl_get_rho_n_equi
+
   subroutine twofl_get_pe_n_equi(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
@@ -3337,10 +3348,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
                 block%equi_vars(ixO^S,equi_pe_c0_,b0i)/block%equi_vars(ixO^S,equi_rho_c0_,b0i)
   end subroutine twofl_get_temperature_c_equi
 
-  subroutine twofl_get_rho_c_equi(w, ixI^L, ixO^L, res)
+  subroutine twofl_get_rho_c_equi(w, x, ixI^L, ixO^L, res)
     use mod_global_parameters
     integer, intent(in)          :: ixI^L, ixO^L
     double precision, intent(in) :: w(ixI^S, 1:nw)
+    double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
       res(ixO^S) = block%equi_vars(ixO^S,equi_rho_c0_,b0i)
   end subroutine twofl_get_rho_c_equi
@@ -3440,7 +3452,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision  :: rhon(ixI^S)
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     csound2(ixO^S)=twofl_gamma*twofl_adiab*rhon(ixO^S)**gamma_1
 
   end subroutine twofl_get_csound2_adiab_n
@@ -3454,7 +3466,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision                :: rhon(ixI^S)
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     call get_pen_tot_from_pert(w,ixI^L,ixO^L,pe_n1, csound2)
     csound2(ixO^S)=twofl_gamma* &
                       csound2(ixO^S)/rhon(ixO^S)
@@ -3513,7 +3525,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision  :: rhoc(ixI^S)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     csound2(ixO^S)=twofl_gamma*twofl_adiab* rhoc(ixO^S)**gamma_1
 
   end subroutine twofl_get_csound2_adiab_c
@@ -3529,10 +3541,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 !    double precision, intent(out)   :: csound2(ixI^S)
 !    double precision  :: csound1(ixI^S),rhon(ixI^S),rhoc(ixI^S)
 !
-!    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+!    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
 !    call get_pen_tot_from_pert(w,ixI^L,ixO^L,pe_n1, csound1)
 !
-!    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+!    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 !    call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe_c1, csound2)
 !#if !defined(C_TOT) || C_TOT == 0
 !    csound2(ixO^S)=twofl_gamma*max((csound2(ixO^S) + csound1(ixO^S))/(rhoc(ixO^S) + rhon(ixO^S)),&
@@ -3553,7 +3565,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out)   :: csound2(ixI^S)
     double precision                :: rhoc(ixI^S)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe_c1, csound2)
     csound2(ixO^S)=twofl_gamma*csound2(ixO^S)/rhoc(ixO^S)
   end subroutine twofl_get_csound2_from_pe_c
@@ -3586,7 +3598,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! value at the interfaces, idim =  block%iw0 --> b0i 
     ! reuse tmp, used afterwards
     ! value at the interface so we can't put momentum
-    call get_rhoc_tot(w,ixI^L,ixO^L,tmp)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,tmp)
     ! Get flux of density
     f(ixO^S,rho_c_)=w(ixO^S,mom_c(idim))*tmp(ixO^S)
 
@@ -3739,7 +3751,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     !!neutrals
-    call get_rhon_tot(w,ixI^L,ixO^L,tmp)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,tmp)
     f(ixO^S,rho_n_)=w(ixO^S,mom_n(idim))*tmp(ixO^S)
     if(phys_energy) then
       pgas(ixO^S) = w(ixO^S, e_n_)
@@ -4207,7 +4219,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision :: tmp(ixI^S)
     double precision :: rhoc(ixI^S)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     ! pu density (split or not) in tmp
     !print* , "MULTAMB TOTRHO ", tmp(ixOmin1:ixOmin1+10)
     tmp(ixO^S) = -(twofl_eta_ambi/rhoc(ixO^S)**2) 
@@ -4549,10 +4561,18 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     double precision              :: rhon(ixI^S)
 #endif
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    if(has_equi_rho_c0) then
+      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,b0i)
+    else  
+      rhoc(ixO^S) = w(ixO^S,rho_c_) 
+    endif
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    if(has_equi_rho_n0) then
+      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,b0i)
+    else  
+      rhon(ixO^S) = w(ixO^S,rho_n_) 
+    endif
     rhoc(ixO^S) = rhon(ixO^S) + rhoc(ixO^S)
 #endif
     if (twofl_boris_c < 0.0d0) then
@@ -4587,7 +4607,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: rhon(ixI^S)
     integer :: idir
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
 
     do idir=1,ndir
       v(ixO^S,idir) = w(ixO^S, mom_n(idir)) / rhon(ixO^S)
@@ -4595,10 +4615,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
   end subroutine twofl_get_v_n
 
-  subroutine get_rhon_tot(w,ixI^L,ixO^L,rhon)
+  subroutine get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     use mod_global_parameters
     integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(in)  :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(out) :: rhon(ixI^S)
     if(has_equi_rho_n0) then
       rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,b0i)
@@ -4645,7 +4665,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out) :: v(ixI^S)
     double precision              :: rhon(ixI^S)
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
     v(ixO^S) = w(ixO^S, mom_n(idim)) / rhon(ixO^S)
 
   end subroutine twofl_get_v_n_idim
@@ -4685,7 +4705,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision              :: rhoc(ixI^S)
     integer :: idir
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     do idir=1,ndir
       v(ixO^S,idir) = w(ixO^S, mom_c(idir)) / rhoc(ixO^S)
     end do
@@ -4693,10 +4713,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   end subroutine twofl_get_v_c
 
 
-  subroutine get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+  subroutine get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     use mod_global_parameters
     integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(in)  :: w(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(out) :: rhoc(ixI^S)
     if(has_equi_rho_c0) then
       rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,b0i)
@@ -4744,7 +4764,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out) :: v(ixI^S)
     double precision              :: rhoc(ixI^S)
 
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     v(ixO^S) = w(ixO^S, mom_c(idim)) / rhoc(ixO^S)
 
   end subroutine twofl_get_v_c_idim
@@ -4812,10 +4832,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         ! is also used in TC where e_to_ei is explicitly called
 #if !defined(ONE_FLUID) || ONE_FLUID==0
         w(ixO^S,e_n_)=w(ixO^S,e_n_)*gamma_1
-        call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+        call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
 #endif
         w(ixO^S,e_c_)=w(ixO^S,e_c_)*gamma_1
-        call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+        call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
         do idir = 1, ndir
 #if !defined(ONE_FLUID) || ONE_FLUID==0
            w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
@@ -4866,9 +4886,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       case default
         ! small values error shows primitive variables
         w(ixO^S,e_n_)=w(ixO^S,e_n_)*gamma_1
-        call get_rhon_tot(w,ixI^L,ixO^L,rhon)
+        call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
         w(ixO^S,e_c_)=w(ixO^S,e_c_)*gamma_1
-        call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+        call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
         do idir = 1, ndir
            w(ixO^S, mom_n(idir)) = w(ixO^S, mom_n(idir))/rhon(ixO^S)
            w(ixO^S, mom_c(idir)) = w(ixO^S, mom_c(idir))/rhoc(ixO^S)
@@ -5657,8 +5677,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, allocatable :: gamma_rec(:^D&), gamma_ion(:^D&)
     double precision :: max_coll_rate
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
 
     call get_alpha_coll(ixI^L, ixO^L, w, x, alpha)
     max_coll_rate = maxval(alpha(ixO^S) * max(rhon(ixO^S), rhoc(ixO^S)))
@@ -5694,7 +5714,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     mr_=mom_c(1); mphi_=mom_c(1)-1+phi_  ! Polar var. names
     br_=mag(1); bphi_=mag(1)-1+phi_
-    call get_rhoc_tot(wCT,ixI^L,ixO^L,rho)
+    call get_rhoc_tot(wCT,x,ixI^L,ixO^L,rho)
 
     select case (coordinate)
     case (cylindrical)
@@ -5788,7 +5808,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
          if(.not.angmomfix) then
            tmp(ixO^S)=-(wCT(ixO^S,mom_c(3))*wCT(ixO^S,mom_c(1))/rho(ixO^S) &
                 -wCT(ixO^S,mag(3))*wCT(ixO^S,mag(1))) {^NOONED &
-                -(wCT(ixO^S,mom_c(2))*wCT(ixO^S,mom_c(3))/wCT(ixO^S,rho_) &
+                -(wCT(ixO^S,mom_c(2))*wCT(ixO^S,mom_c(3))/rho(ixO^S) &
                 -wCT(ixO^S,mag(2))*wCT(ixO^S,mag(3))) &
                 *dcos(x(ixO^S,2))/dsin(x(ixO^S,2)) }
            if (B0field) then
@@ -5821,64 +5841,70 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        end if
     end select
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    !TODO no cartesian expansion or dust: see and implement them from hd/mod_hd_phys !
+    !TODO no dust: see and implement them from hd/mod_hd_phys !
+    !uncomment cartesian expansion
 
-    call get_rhon_tot(wCT,ixI^L,ixO^L,rho)
+    call get_rhon_tot(wCT,x,ixI^L,ixO^L,rho)
+    call twofl_get_pthermal_n(wCT, x, ixI^L, ixO^L, tmp1)
 
     select case (coordinate)
+!    case(Cartesian_expansion)
+!      !the user provides the functions of exp_factor and del_exp_factor
+!      if(associated(usr_set_surface)) call usr_set_surface(ixI^L,x,block%dx,exp_factor,del_exp_factor,exp_factor_primitive)
+!      tmp(ixO^S) = tmp1(ixO^S)*del_exp_factor(ixO^S)/exp_factor(ixO^S)
+!      w(ixO^S,mom(1)) = w(ixO^S,mom(1)) + qdt*tmp(ixO^S)
 
     case (cylindrical)
       mr_   = mom_n(r_)
       if (phi_ > 0) then
          where (rho(ixO^S) > 0d0)
-            source(ixO^S) = source(ixO^S) + wCT(ixO^S, mphi_)**2 / rho(ixO^S)
-            w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, r_)
+            tmp(ixO^S) = tmp1(ixO^S) + wCT(ixO^S, mphi_)**2 / rho(ixO^S)
+            w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * tmp(ixO^S) / x(ixO^S, r_)
          end where
          ! s[mphi]=(-mphi*mr/rho)/radius
          if(.not. angmomfix) then
             where (rho(ixO^S) > 0d0)
-               source(ixO^S) = -wCT(ixO^S, mphi_) * wCT(ixO^S, mr_) / rho(ixO^S)
-               w(ixO^S, mphi_) = w(ixO^S, mphi_) + qdt * source(ixO^S) / x(ixO^S, r_)
+               tmp(ixO^S) = -wCT(ixO^S, mphi_) * wCT(ixO^S, mr_) / rho(ixO^S)
+               w(ixO^S, mphi_) = w(ixO^S, mphi_) + qdt * tmp(ixO^S) / x(ixO^S, r_)
             end where
          end if
       else
          ! s[mr]=2pthermal/radius
-         w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, r_)
+         w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * tmp1(ixO^S) / x(ixO^S, r_)
       end if
     case (spherical)
        if(phi_>0) mphi_ = mom_n(phi_)
        h1x^L=ixO^L-kr(1,^D); {^NOONED h2x^L=ixO^L-kr(2,^D);}
        ! s[mr]=((mtheta**2+mphi**2)/rho+2*p)/r
-       call twofl_get_pthermal_n(wCT, x, ixI^L, ixO^L, pth)
-       source(ixO^S) = pth(ixO^S) * x(ixO^S, 1) &
+       tmp(ixO^S) = tmp1(ixO^S) * x(ixO^S, 1) &
             *(block%surfaceC(ixO^S, 1) - block%surfaceC(h1x^S, 1)) &
             /block%dvolume(ixO^S)
        if (ndir > 1) then
          do idir = 2, ndir
-           source(ixO^S) = source(ixO^S) + wCT(ixO^S, mom_n(idir))**2 / rho(ixO^S)
+           tmp(ixO^S) = tmp(ixO^S) + wCT(ixO^S, mom_n(idir))**2 / rho(ixO^S)
          end do
        end if
-       w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * source(ixO^S) / x(ixO^S, 1)
+       w(ixO^S, mr_) = w(ixO^S, mr_) + qdt * tmp(ixO^S) / x(ixO^S, 1)
 
        {^NOONED
        ! s[mtheta]=-(mr*mtheta/rho)/r+cot(theta)*(mphi**2/rho+p)/r
-       source(ixO^S) = pth(ixO^S) * x(ixO^S, 1) &
+       tmp(ixO^S) = tmp1(ixO^S) * x(ixO^S, 1) &
             * (block%surfaceC(ixO^S, 2) - block%surfaceC(h2x^S, 2)) &
             / block%dvolume(ixO^S)
        if (ndir == 3) then
-          source(ixO^S) = source(ixO^S) + (wCT(ixO^S, mom_n(3))**2 / rho(ixO^S)) / tan(x(ixO^S, 2))
+          tmp(ixO^S) = tmp(ixO^S) + (wCT(ixO^S, mom_n(3))**2 / rho(ixO^S)) / tan(x(ixO^S, 2))
        end if
        if (.not. angmomfix) then
-          source(ixO^S) = source(ixO^S) - (wCT(ixO^S, mom_n(2)) * wCT(ixO^S, mr_)) / rho(ixO^S)
+          tmp(ixO^S) = tmp(ixO^S) - (wCT(ixO^S, mom_n(2)) * wCT(ixO^S, mr_)) / rho(ixO^S)
        end if
-       w(ixO^S, mom_n(2)) = w(ixO^S, mom_n(2)) + qdt * source(ixO^S) / x(ixO^S, 1)
+       w(ixO^S, mom_n(2)) = w(ixO^S, mom_n(2)) + qdt * tmp(ixO^S) / x(ixO^S, 1)
 
        if (ndir == 3) then
          ! s[mphi]=-(mphi*mr/rho)/r-cot(theta)*(mtheta*mphi/rho)/r
          if (.not. angmomfix) then
-           source(ixO^S) = -(wCT(ixO^S, mom_n(3)) * wCT(ixO^S, mr_)) / rho(ixO^S)&
+           tmp(ixO^S) = -(wCT(ixO^S, mom_n(3)) * wCT(ixO^S, mr_)) / rho(ixO^S)&
                       - (wCT(ixO^S, mom_n(2)) * wCT(ixO^S, mom_n(3))) / rho(ixO^S) / tan(x(ixO^S, 2))
-           w(ixO^S, mom_n(3)) = w(ixO^S, mom_n(3)) + qdt * source(ixO^S) / x(ixO^S, 1)
+           w(ixO^S, mom_n(3)) = w(ixO^S, mom_n(3)) + qdt * tmp(ixO^S) / x(ixO^S, 1)
          end if
        end if
        }
@@ -7408,7 +7434,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     ! charges
     call twofl_get_v_c(w,x,ixI^L,ixI^L,vel)
-    call get_rhoc_tot(w,ixI^L,ixI^L,rho)
+    call get_rhoc_tot(w,x,ixI^L,ixI^L,rho)
     call twofl_get_csound2_c(w,x,ixI^L,ixI^L,csound) 
     csound(ixI^S) = sqrt(csound(ixI^S)) + sqrt(twofl_mag_en_all(w,ixI^L,ixI^L) /rho(ixI^S))
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
@@ -7469,7 +7495,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       hxb^L=hx^L-kr(ii,^D);
       csound_dim(hx^S,ii) = (csound(hxb^S)+csound(hx^S))/2d0
     enddo
-    call get_rhon_tot(w,ixI^L,ixO^L,rho)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rho)
     call twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixI^L, temp)
     do ii=1,ndim
       !rho_n
@@ -7518,7 +7544,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     !print*, "INIT ixI ", ixI^L
 
     call twofl_get_v_c(wCT,x,ixI^L,ixI^L,vel)
-    call get_rhoc_tot(wCT,ixI^L,ixI^L,rho)
+    call get_rhoc_tot(wCT,x,ixI^L,ixI^L,rho)
     call twofl_get_csound2_c(wCT,x,ixI^L,ixI^L,csound) 
     csound(ixI^S) = sqrt(csound(ixI^S)) + sqrt(twofl_mag_en_all(wCT,ixI^L,ixI^L) /rho(ixI^S))
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
@@ -7546,7 +7572,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       csound_dim(hx^S,ii) = (csound(hxb^S)+csound(hx^S))/2d0
     enddo
     call add_density_hyper_Source(rho_n_)
-    call get_rhon_tot(wCT,ixI^L,ixI^L,rho)
+    call get_rhon_tot(wCT,x,ixI^L,ixI^L,rho)
     call add_viscosity_hyper_Source(rho,mom_n(1), e_n_)
     call add_th_cond_n_hyper_Source(rho)
 #endif
@@ -7746,7 +7772,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! charges
     call twofl_get_temp_c_pert_from_etot(w, x, ixI^L, ixI^L, temp)
     call twofl_get_v_c(w,x,ixI^L,ixI^L,vel)
-    call get_rhoc_tot(w,ixI^L,ixI^L,rho)
+    call get_rhoc_tot(w,x,ixI^L,ixI^L,rho)
     call twofl_get_csound2_c(w,x,ixI^L,ixI^L,csound) 
     csound(ixI^S) = sqrt(csound(ixI^S)) + sqrt(twofl_mag_en_all(w,ixI^L,ixI^L) /rho(ixI^S))
     csound(ixI^S) = csound(ixI^S) + sqrt(sum(vel(ixI^S,1:ndir)**2 ,dim=ndim+1))
@@ -7795,7 +7821,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     ! neutrals
-    call get_rhon_tot(w,ixI^L,ixO^L,rho)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rho)
     call twofl_get_temp_n_pert_from_etot(w, x, ixI^L, ixI^L, temp)
     call twofl_get_v_n(w,x,ixI^L,ixI^L,vel)
     call  twofl_get_csound_n(w,x,ixI^L,ixI^L,csound)
@@ -7862,7 +7888,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision        :: pe(ixI^S),rho(ixI^S), tmp(ixI^S)
 
     call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe,tmp)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rho)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rho)
     tmp(ixO^S) = tmp(ixO^S)/(Rc * rho(ixO^S))
 
     !transform to SI units
@@ -7908,11 +7934,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     call twofl_get_pe_c1(w,x,ixI^L,ixO^L,pe)
     call get_pec_tot_from_pert(w,ixI^L,ixO^L,pe,tmp)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rho)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rho)
     tmp(ixO^S) = tmp(ixO^S)/(Rc * rho(ixO^S))
     call twofl_get_pe_n1(w,x,ixI^L,ixO^L,pe)
     call get_pen_tot_from_pert(w,ixI^L,ixO^L,pe,tmp2)
-    call get_rhon_tot(w,ixI^L,ixO^L,rho)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rho)
     tmp2(ixO^S) = tmp2(ixO^S)/(Rn * rho(ixO^S))
     alpha(ixO^S) = (2d0/(mp_SI**(3d0/2) * sqrt(dpi))*sqrt(0.5*(tmp(ixO^S)+tmp2(ixO^S))*unit_temperature*kB_SI) * sigma_in)*unit_time * unit_density
     if(.not. SI_unit) then
@@ -7961,8 +7987,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     ! copy vars at the indices which are not updated here: mag. field
     wout(ixO^S,mag(:)) = w(ixO^S,mag(:))
 
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     !update density
     if(twofl_coll_inc_ionrec) then
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
@@ -8142,8 +8168,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
 
     ! get velocity before overwrite density
-    call get_rhon_tot(w,ixI^L,ixO^L,rhon)
-    call get_rhoc_tot(w,ixI^L,ixO^L,rhoc)
+    call get_rhon_tot(w,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
     if(phys_internal_e) then
       ! get velocity before overwrite momentum
        allocate(v_n(ixI^S,ndir), v_c(ixI^S,ndir)) 
@@ -8278,8 +8304,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, allocatable :: gamma_rec(:^D&), gamma_ion(:^D&)
 
 
-    call get_rhon_tot(wCT,ixI^L,ixO^L,rhon)
-    call get_rhoc_tot(wCT,ixI^L,ixO^L,rhoc)
+    call get_rhon_tot(wCT,x,ixI^L,ixO^L,rhon)
+    call get_rhoc_tot(wCT,x,ixI^L,ixO^L,rhoc)
     !update density
     if(twofl_coll_inc_ionrec) then
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 

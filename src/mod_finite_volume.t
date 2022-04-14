@@ -379,14 +379,14 @@ contains
         ! CT MHD does not need normal B flux
         if(stagger_grid .and. flux_type(idims, iw) == flux_tvdlf) cycle
        {do ix^DB=ixCmin^DB,ixCmax^DB\}
-         if(cminC(ix^D) >= zero) then
+         if(cminC(ix^D,ii) >= zero) then
            fC(ix^D,iw,idims)=fLC(ix^D,iw)
-         else if(cmaxC(ix^D) <= zero) then
+         else if(cmaxC(ix^D,ii) <= zero) then
            fC(ix^D,iw,idims)=fRC(ix^D,iw)
          else
            ! Add hll dissipation to the flux
            fC(ix^D,iw,idims)=(cmaxC(ix^D,ii)*fLC(ix^D, iw)-cminC(ix^D,ii)*fRC(ix^D,iw)&
-                 +cminC(ix^D,ii)*cmaxC(ix^D)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
+                 +cminC(ix^D,ii)*cmaxC(ix^D,ii)*(wRC(ix^D,iw)-wLC(ix^D,iw)))&
                  /(cmaxC(ix^D,ii)-cminC(ix^D,ii))
          end if
        {end do\}
@@ -441,26 +441,26 @@ contains
 
       !---- calculate speed lambda at CD ----!
       if(any(patchf(ixC^S)==1)) &
-           call phys_get_lCD(wLC,wRC,fLC,fRC,cminC(ixI^S,index_v_mag),cmaxC(ixI^S,index_v_mag),idims,ixI^L,ixC^L, &
+           call phys_get_lCD(wLC,wRC,fLC,fRC,cminC(ixI^S,ii),cmaxC(ixI^S,ii),idims,ixI^L,ixC^L, &
            whll,Fhll,lambdaCD,patchf)
 
       ! now patchf may be -1 or 1 due to phys_get_lCD
       if(any(abs(patchf(ixC^S))== 1))then
          !======== flux at intermediate state ========!
          call phys_get_wCD(wLC,wRC,whll,fRC,fLC,Fhll,patchf,lambdaCD,&
-              cminC(ixI^S,1),cmaxC(ixI^S,1),ixI^L,ixC^L,idims,fCD)
+              cminC(ixI^S,ii),cmaxC(ixI^S,ii),ixI^L,ixC^L,idims,fCD)
       endif ! Calculate the CD flux
 
       ! use hll flux for the auxiliary internal e
       if(phys_energy.and.phys_solve_eaux .and. eaux_>0) then
         iw=eaux_
-        fCD(ixC^S, iw) = (cmaxC(ixC^S,1)*fLC(ixC^S, iw)-cminC(ixC^S,1) * fRC(ixC^S, iw) &
-             +cminC(ixC^S,1)*cmaxC(ixC^S,1)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(cmaxC(ixC^S,1)-cminC(ixC^S,1))
+        fCD(ixC^S, iw) = (cmaxC(ixC^S,ii)*fLC(ixC^S, iw)-cminC(ixC^S,ii) * fRC(ixC^S, iw) &
+             +cminC(ixC^S,ii)*cmaxC(ixC^S,ii)*(wRC(ixC^S,iw)-wLC(ixC^S,iw)))/(cmaxC(ixC^S,ii)-cminC(ixC^S,ii))
       end if
 
       do iw=iwstart,nwflux
          if (flux_type(idims, iw) == flux_tvdlf) then
-            fLC(ixC^S,iw)=-tvdlfeps*half*max(cmaxC(ixC^S,index_v_mag),abs(cminC(ixC^S,index_v_mag))) * &
+            fLC(ixC^S,iw)=-tvdlfeps*half*max(cmaxC(ixC^S,ii),abs(cminC(ixC^S,ii))) * &
                  (wRC(ixC^S,iw) - wLC(ixC^S,iw))
          else
             where(patchf(ixC^S)==-2)
@@ -475,7 +475,7 @@ contains
             elsewhere(patchf(ixC^S)==4)
                ! fallback option, reducing to TVDLF flux
                fLC(ixC^S,iw) = half*((fLC(ixC^S,iw)+fRC(ixC^S,iw)) &
-                    -tvdlfeps * max(cmaxC(ixC^S,1), dabs(cminC(ixC^S,1))) * &
+                    -tvdlfeps * max(cmaxC(ixC^S,ii), dabs(cminC(ixC^S,ii))) * &
                     (wRC(ixC^S,iw)-wLC(ixC^S,iw)))
             endwhere
          end if

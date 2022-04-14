@@ -43,12 +43,6 @@ module mod_radiative_cooling
       double precision, intent(out):: res(ixI^S)
     end subroutine get_subr1
 
-    subroutine get_subr2(w,ixI^L,ixO^L,rho)
-      use mod_global_parameters
-      integer, intent(in)           :: ixI^L, ixO^L
-      double precision, intent(in)  :: w(ixI^S,1:nw)
-      double precision, intent(out) :: rho(ixI^S)
-    end subroutine get_subr2
 
   end interface
 
@@ -56,8 +50,8 @@ module mod_radiative_cooling
 
     ! these are to be set directly
     logical :: has_equi = .false.
-    procedure (get_subr2), pointer, nopass :: get_rho => null()
-    procedure (get_subr2), pointer, nopass :: get_rho_equi => null()
+    procedure (get_subr1), pointer, nopass :: get_rho => null()
+    procedure (get_subr1), pointer, nopass :: get_rho_equi => null()
     procedure (get_subr1), pointer, nopass :: get_pthermal => null()
     procedure (get_subr1), pointer, nopass :: get_pthermal_equi => null()
 
@@ -1333,7 +1327,7 @@ module mod_radiative_cooling
       
       if(fl%coolmethod == 'explicit1') then
        call fl%get_pthermal(w,x,ixI^L,ixO^L,ptherm)   
-       call fl%get_rho(w,ixI^L,ixO^L,rho)   
+       call fl%get_rho(w,x,ixI^L,ixO^L,rho)   
        {do ix^DB = ixO^LIM^DB\}
          plocal   = ptherm(ix^D)
          rholocal = rho(ix^D)
@@ -1384,7 +1378,7 @@ module mod_radiative_cooling
       integer :: ix^D
       
       call fl%get_pthermal(w,x,ixI^L,ixO^L,ptherm) 
-      call fl%get_rho(w,ixI^L,ixO^L,rho) 
+      call fl%get_rho(w,x,ixI^L,ixO^L,rho) 
       
       {do ix^DB = ixO^LIM^DB\}
          plocal   = ptherm(ix^D)
@@ -1436,8 +1430,8 @@ module mod_radiative_cooling
     
       call fl%get_pthermal(wCT, x, ixI^L, ixO^L, ptherm)
       call fl%get_pthermal(w, x, ixI^L, ixO^L, pnew)
-      call fl%get_rho(wCT, ixI^L, ixO^L, rho)
-      call fl%get_rho(w, ixI^L, ixO^L, rhonew)
+      call fl%get_rho(wCT, x, ixI^L, ixO^L, rho)
+      call fl%get_rho(w, x, ixI^L, ixO^L, rhonew)
     
       fact   =fl%lref*qdt/fl%tref
       invgam = 1.d0/(rc_gamma-1.d0)
@@ -1541,7 +1535,7 @@ module mod_radiative_cooling
       tfloor = fl%tlow
 
       call fl%get_pthermal(w,x,ixI^L,ixO^L,etherm)  
-      call fl%get_rho(w,ixI^L,ixO^L,rho)  
+      call fl%get_rho(w,x,ixI^L,ixO^L,rho)  
       {do ix^DB = ixO^LIM^DB\}
          emin         = rho(ix^D)*tfloor
          if( etherm(ix^D) < emin ) then
@@ -1573,7 +1567,7 @@ module mod_radiative_cooling
       integer :: icool
 
       call fl%get_pthermal_equi(wCT,x,ixI^L,ixO^L,ptherm)     
-      call fl%get_rho_equi(wCT,ixI^L,ixO^L,rho)     
+      call fl%get_rho_equi(wCT,x,ixI^L,ixO^L,rho)     
 
       res=0d0
 
@@ -1686,7 +1680,7 @@ module mod_radiative_cooling
       
       call fl%get_pthermal(wCT,x,ixI^L,ixO^L,ptherm)     
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pnew)
-      call fl%get_rho(wCT,ixI^L,ixO^L,rho)     
+      call fl%get_rho(wCT,x,ixI^L,ixO^L,rho)     
 
       ttofflocal=zero
       {do ix^DB = ixO^LIM^DB\}
@@ -1766,7 +1760,7 @@ module mod_radiative_cooling
 
       call fl%get_pthermal(wCT,x,ixI^L,ixO^L,ptherm) 
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pnew ) 
-      call fl%get_rho(wCT,ixI^L,ixO^L,rho) 
+      call fl%get_rho(wCT,x,ixI^L,ixO^L,rho) 
 
       ttofflocal=zero
       {do ix^DB = ixO^LIM^DB\}
@@ -1877,7 +1871,7 @@ module mod_radiative_cooling
 
       call fl%get_pthermal(wCT,x,ixI^L,ixO^L,ptherm)   
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pnew )  
-      call fl%get_rho(wCT,ixI^L,ixO^L,rho)   
+      call fl%get_rho(wCT,x,ixI^L,ixO^L,rho)   
 
       ttofflocal=zero
       {do ix^DB = ixO^LIM^DB\}
@@ -1957,7 +1951,7 @@ module mod_radiative_cooling
 
       call fl%get_pthermal(wCT,x,ixI^L,ixO^L,ptherm)   
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pnew )  
-      call fl%get_rho(wCT,ixI^L,ixO^L,rho)   
+      call fl%get_rho(wCT,x,ixI^L,ixO^L,rho)   
 
       ttofflocal=zero
       {do ix^DB = ixO^LIM^DB\}
@@ -2040,8 +2034,8 @@ module mod_radiative_cooling
 
       call fl%get_pthermal(wCT,x,ixI^L,ixO^L,ptherm)  
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pnew )  
-      call fl%get_rho(wCT,ixI^L,ixO^L,rho)  
-      call fl%get_rho(w,ixI^L,ixO^L,rhonew )  
+      call fl%get_rho(wCT,x,ixI^L,ixO^L,rho)  
+      call fl%get_rho(w,x,ixI^L,ixO^L,rhonew )  
 
       ttofflocal=zero
       fact = fl%lref*qdt/fl%tref

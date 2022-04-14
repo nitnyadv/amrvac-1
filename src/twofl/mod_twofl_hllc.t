@@ -40,7 +40,7 @@ contains
   subroutine twofl_hllc_init_species(ii, rho_, mom, e_, eaux_)
     use mod_global_parameters
     integer, intent(in)                                    :: ii
-    integer, intent(inout)                                 :: rho_, mom(1:ndir),e_,eaux_
+    integer, intent(out)                                 :: rho_, mom(1:ndir),e_,eaux_
 
     if (ii==1) then
       phys_diffuse_hllcd => twofl_diffuse_hllcd_c
@@ -63,6 +63,12 @@ contains
 
       i_eaux=-1
     endif
+
+    rho_ = i_rho
+    mom(:) = i_mom(:)
+    e_ = i_e
+    eaux_ = i_eaux
+
 
   end subroutine twofl_hllc_init_species
 
@@ -147,7 +153,7 @@ contains
 
     ! deduce the characteristic speed at the CD
     where(Cond_patchf(ixO^S))
-       lambdaCD(ixO^S)=whll(ixO^S,mom(idim))/whll(ixO^S,i_rho)
+       lambdaCD(ixO^S)=whll(ixO^S,i_mom(idim))/whll(ixO^S,i_rho)
     end where
 
     {do ix^DB=ixOmin^DB,ixOmax^DB\}
@@ -230,12 +236,12 @@ contains
     {do ix^DB=ixOmin^DB,ixOmax^DB\}
        if(patchf(ix^D)==1) then
          cspeed(ix^D)=cmax(ix^D)
-         vSub(ix^D)=wRC(ix^D,mom(idim))/wRC(ix^D,i_rho)
+         vSub(ix^D)=wRC(ix^D,i_mom(idim))/wRC(ix^D,i_rho)
          wSub(ix^D,:)=wRC(ix^D,:)
          fSub(ix^D,:)=fRC(ix^D,:)
        else if(patchf(ix^D)==-1) then
          cspeed(ix^D)=cmin(ix^D)
-         vSub(ix^D)=wLC(ix^D,mom(idim))/wLC(ix^D,i_rho)
+         vSub(ix^D)=wLC(ix^D,i_mom(idim))/wLC(ix^D,i_rho)
          wSub(ix^D,:)=wLC(ix^D,:)
          fSub(ix^D,:)=fLC(ix^D,:)
        end if
@@ -445,7 +451,7 @@ contains
     
     {do ix^DB=ixOmin^DB,ixOmax^DB\}
       if(abs(patchf(ix^D))==1) then
-        wCD(ix^D,rho_) = wSub(ix^D,rho_)&
+        wCD(ix^D,i_rho) = wSub(ix^D,i_rho)&
                          *(cspeed(ix^D)-vSub(ix^D))/(cspeed(ix^D)-lambdaCD(ix^D))
          !TODO tracer 
 !        do n=1,twofl_n_tracer
@@ -473,7 +479,7 @@ contains
         if(phys_energy) then
           VdotBCD(ix^D) = sum(whll(ix^D,i_mom(:))*whll(ix^D,mag(:)))/whll(ix^D,i_rho)
           ! Eq 17
-          pCD(ix^D)  = wsub(ix^D,rho_)*(cspeed(ix^D)-vSub(ix^D))&
+          pCD(ix^D)  = wsub(ix^D,i_rho)*(cspeed(ix^D)-vSub(ix^D))&
                         *(lambdaCD(ix^D)-vSub(ix^D))&
                         +fSub(ix^D,i_mom(idim))-wsub(ix^D,i_mom(idim))*vSub(ix^D)&
                         + wCD(ix^D,mag(idim))**2

@@ -45,7 +45,7 @@ module mod_physics_hllc
      subroutine sub_hllc_init_species(ii, rho_, mom, e_, eaux_)
        use mod_global_parameters
        integer, intent(in)                                    :: ii
-       integer, intent(inout)                                    :: rho_, mom(1:ndir),e_,eaux_
+       integer, intent(out)                                    :: rho_, mom(1:ndir),e_,eaux_
      end subroutine sub_hllc_init_species
   end interface
 

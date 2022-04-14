@@ -467,10 +467,10 @@ contains
 
     end subroutine tc_params_read_hd
 
-  subroutine hd_get_rho(w,ixI^L,ixO^L,rho)
+  subroutine hd_get_rho(w,x,ixI^L,ixO^L,rho)
     use mod_global_parameters
     integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S,1:nw)
+    double precision, intent(in)  :: w(ixI^S,1:nw),x(ixI^S,1:ndim)
     double precision, intent(out) :: rho(ixI^S)
 
     rho(ixO^S) = w(ixO^S,rho_) 

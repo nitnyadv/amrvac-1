@@ -374,18 +374,11 @@ module mod_thermal_emission
       double precision, intent(out):: res(ixI^S)
     end subroutine get_subr1
 
-    subroutine get_subr2(w,ixI^L,ixO^L,rho)
-      use mod_global_parameters
-      integer, intent(in)           :: ixI^L, ixO^L
-      double precision, intent(in)  :: w(ixI^S,1:nw)
-      double precision, intent(out) :: rho(ixI^S)
-    end subroutine get_subr2
-
   end interface
 
   type te_fluid
 
-    procedure (get_subr2), pointer, nopass :: get_rho => null()
+    procedure (get_subr1), pointer, nopass :: get_rho => null()
     procedure (get_subr1), pointer, nopass :: get_pthermal => null()
 
     ! factor in eq of state p = Rfactor * rho * T
@@ -629,7 +622,7 @@ module mod_thermal_emission
         call mpistop("Unknown wavelength")
       end select
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pth)
-      call fl%get_rho(w,ixI^L,ixO^L,Ne)
+      call fl%get_rho(w,x,ixI^L,ixO^L,Ne)
       Te(ixO^S)=pth(ixO^S)/(Ne(ixO^S)*fl%Rfactor)*unit_temperature
       if (SI_unit) then
         Ne(ixO^S)=Ne(ixO^S)*unit_numberdensity/1.d6 ! m^-3 -> cm-3
@@ -713,7 +706,7 @@ module mod_thermal_emission
       dE=0.1
       numE=floor((Eu-El)/dE)
       call fl%get_pthermal(w,x,ixI^L,ixO^L,pth)
-      call fl%get_rho(w,ixI^L,ixO^L,Ne)
+      call fl%get_rho(w,x,ixI^L,ixO^L,Ne)
 
       Te(ixO^S)=pth(ixO^S)/(Ne(ixO^S)*fl%Rfactor)*unit_temperature
       if (SI_unit) then
@@ -806,7 +799,7 @@ module mod_thermal_emission
         dE=0.1  ! keV
         numE=floor((Eu-El)/dE)
         call fl%get_pthermal(w,x,ixI^L,ixb^L,pth)
-        call fl%get_rho(w,ixI^L,ixb^L,Ne)
+        call fl%get_rho(w,x,ixI^L,ixb^L,Ne)
         Te(ixb^S)=pth(ixb^S)/(Ne(ixb^S)*fl%Rfactor)*unit_temperature
         if (SI_unit) then
           Ne(ixO^S)=Ne(ixO^S)*unit_numberdensity/1.d6 ! m^-3 -> cm-3
@@ -1064,7 +1057,7 @@ module mod_thermal_emission
       ! get local EUV flux and velocity
       call get_EUV(spectrum_wl,ixI^L,ixO^L,ps(igrid)%w,ps(igrid)%x,fl,flux)
       call fl%get_pthermal(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,pth)
-      call fl%get_rho(ps(igrid)%w,ixI^L,ixO^L,rho)
+      call fl%get_rho(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,rho)
       Te(ixO^S)=pth(ixO^S)/(fl%Rfactor*rho(ixO^S))
       {do ix^D=ixOmin^D,ixOmax^D\}
         do j=1,3
@@ -1381,7 +1374,7 @@ module mod_thermal_emission
       endif
 
       call get_EUV(spectrum_wl,ixI^L,ixO^L,ps(igrid)%w,ps(igrid)%x,fl,flux)
-      call fl%get_rho(ps(igrid)%w,ixI^L,ixO^L,rho)
+      call fl%get_rho(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,rho)
       v(ixO^S)=-ps(igrid)%w(ixO^S,iw_mom(direction_LOS))/rho(ixO^S)
       call fl%get_pthermal(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,pth)
       Te(ixO^S)=pth(ixO^S)/(fl%Rfactor*rho(ixO^S))
@@ -1797,7 +1790,7 @@ module mod_thermal_emission
       allocate(flux(ixI^S),v(ixI^S),rho(ixI^S))
       ! get local EUV flux and velocity
       call get_EUV(wavelength,ixI^L,ixO^L,ps(igrid)%w,ps(igrid)%x,fl,flux)
-      call fl%get_rho(ps(igrid)%w,ixI^L,ixO^L,rho)
+      call fl%get_rho(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,rho)
       {do ix^D=ixOmin^D,ixOmax^D\}
         do j=1,3
           vloc(j)=ps(igrid)%w(ix^D,iw_mom(j))/rho(ix^D)
@@ -2156,7 +2149,7 @@ module mod_thermal_emission
       dxb3(ixO^S)=ps(igrid)%dx(ixO^S,3)
       ! get local EUV flux and velocity
       call get_EUV(wavelength,ixI^L,ixO^L,ps(igrid)%w,ps(igrid)%x,fl,flux)
-      call fl%get_rho(ps(igrid)%w,ixI^L,ixO^L,rho)
+      call fl%get_rho(ps(igrid)%w,ps(igrid)%x,ixI^L,ixO^L,rho)
       v(ixO^S)=ps(igrid)%w(ixO^S,iw_mom(direction_LOS))/rho(ixO^S)
       deallocate(rho)
 

@@ -46,30 +46,24 @@ module mod_thermal_conduction
     double precision :: tc_gamma_1
 
   abstract interface
-    subroutine get_temperature_subr(w,x,ixI^L,ixO^L,res)
+    subroutine get_var_subr(w,x,ixI^L,ixO^L,res)
       use mod_global_parameters
       integer, intent(in)          :: ixI^L, ixO^L
       double precision, intent(in) :: w(ixI^S,nw)
       double precision, intent(in) :: x(ixI^S,1:ndim)
       double precision, intent(out):: res(ixI^S)
-    end subroutine get_temperature_subr
+    end subroutine get_var_subr
 
-    subroutine get_rho_subr(w,ixI^L,ixO^L,rho)
-      use mod_global_parameters
-      integer, intent(in)           :: ixI^L, ixO^L
-      double precision, intent(in)  :: w(ixI^S,1:nw)
-      double precision, intent(out) :: rho(ixI^S)
-    end subroutine get_rho_subr
 
   end interface
 
   type tc_fluid
 
-    procedure (get_rho_subr), pointer, nopass :: get_rho => null()
-    procedure (get_rho_subr), pointer, nopass :: get_rho_equi => null()
-    procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_eint => null()
-    procedure(get_temperature_subr), pointer,nopass :: get_temperature_from_conserved => null()
-    procedure(get_temperature_subr), pointer,nopass :: get_temperature_equi => null()
+    procedure (get_var_subr), pointer, nopass :: get_rho => null()
+    procedure (get_var_subr), pointer, nopass :: get_rho_equi => null()
+    procedure(get_var_subr), pointer,nopass :: get_temperature_from_eint => null()
+    procedure(get_var_subr), pointer,nopass :: get_temperature_from_conserved => null()
+    procedure(get_var_subr), pointer,nopass :: get_temperature_equi => null()
      !> Indices of the variables
     integer :: e_=-1,Tcoff_=-1
     ! if has_equi = .true. get_temperature_equi and get_rho_equi have to be set
@@ -220,7 +214,7 @@ contains
     if(fl%tc_constant) then
       tmp(ixO^S)=fl%tc_k_para
     else
-      call fl%get_rho(w,ixI^L,ixO^L,tmp2)
+      call fl%get_rho(w,x,ixI^L,ixO^L,tmp2)
       tmp(ixO^S)=fl%tc_k_para*dsqrt(Te(ixO^S)**5)/tmp2(ixO^S)
     end if
 
@@ -292,12 +286,12 @@ contains
     dxinv=1.d0/dxlevel
 
     call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
-    call fl%get_rho(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+    call fl%get_rho(w, x, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
     call set_source_tc_mhd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te,alpha)
     if(fl%has_equi) then
       allocate(qvec_equi(ixI^S,1:ndim))
       call fl%get_temperature_equi(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
-      call fl%get_rho_equi(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+      call fl%get_rho_equi(w, x, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
       call set_source_tc_mhd(ixI^L,ixO^L,w,x,fl,qvec_equi,rho,Te,alpha)
       do idims=1,ndim
         qvec(ix^S,idims)=qvec(ix^S,idims) - qvec_equi(ix^S,idims)
@@ -683,7 +677,7 @@ contains
     ^D&dxinv(^D)=one/dx^D;
 
     call fl%get_temperature_from_conserved(w,x,ixI^L,ixO^L,Te)
-    call fl%get_rho(w,ixI^L,ixO^L,rho)
+    call fl%get_rho(w,x,ixI^L,ixO^L,rho)
 
     tmp(ixO^S)=tc_gamma_1*fl%tc_k_para*dsqrt((Te(ixO^S))**5)/rho(ixO^S)
     dtnew = bigdouble
@@ -730,12 +724,12 @@ contains
 
     !calculate Te in whole domain (+ghosts)
     call fl%get_temperature_from_eint(w, x, ixI^L, ixI^L, Te)
-    call fl%get_rho(w, ixI^L, ixI^L, rho)
+    call fl%get_rho(w, x, ixI^L, ixI^L, rho)
     call set_source_tc_hd(ixI^L,ixO^L,w,x,fl,qvec,rho,Te)
     if(fl%has_equi) then
       allocate(qvec_equi(ixI^S,1:ndim))
       call fl%get_temperature_equi(w, x, ixI^L, ixI^L, Te)  !calculate Te in whole domain (+ghosts)
-      call fl%get_rho_equi(w, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
+      call fl%get_rho_equi(w, x, ixI^L, ixI^L, rho)  !calculate rho in whole domain (+ghosts)
       call set_source_tc_hd(ixI^L,ixO^L,w,x,fl,qvec_equi,rho,Te)
       do idims=1,ndim
         qvec(ix^S,idims)=qvec(ix^S,idims) - qvec_equi(ix^S,idims)
