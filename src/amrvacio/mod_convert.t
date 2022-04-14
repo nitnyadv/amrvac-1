@@ -74,9 +74,9 @@ contains
     end do
   end subroutine convert_all
 
-! the staggered values are not saved in this subroutine!
-subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
-
+  ! Copied from subroutine write_snapshot in amrvacio/mod_input_output
+  ! the staggered values are not saved in this subroutine!
+  subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
 
     use mod_forest
     use mod_global_parameters
@@ -186,8 +186,8 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
       igrid  = sfc_to_igrid(Morton_no)
       itag   = Morton_no
       block=>ps(igrid)
-      ! this might be used in convert, 
-      ! it was not used when only output already computed vars 
+      ! this might be used in convert function, 
+      ! it was not used when the output is already computed vars  (write_snapshot)
       ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
 
       ! start copied from block_shape_io, 
@@ -278,7 +278,6 @@ subroutine convert_dat_generic(nwc, dataset_names, file_suffix, convert_vars)
 
     call MPI_BARRIER(icomm, ierrmpi)
 
-
-end subroutine convert_dat_generic
+  end subroutine convert_dat_generic
 
 end module mod_convert
