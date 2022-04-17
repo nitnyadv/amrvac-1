@@ -286,10 +286,6 @@ contains
        ! For the MUSCL scheme apply the characteristic based limiter
        if (method==fs_tvdmu) &
             call tvdlimit2(method,qdt,ixI^L,ixC^L,ixO^L,idims,wLC,wRC,wnew,x,fC,dx^D)
-    ! check and optionally correct unphysical values
-    if(fix_small_values) then
-       call phys_handle_small_values(.false.,wnew,x,ixI^L,ixO^L,'multi-D finite_volume')
-    endif
 
     end do ! Next idims
 
@@ -298,6 +294,11 @@ contains
          call phys_add_source_geom(qdt,ixI^L,ixO^L,wCT,wnew,x)
 
     if(stagger_grid) call phys_face_to_center(ixO^L,snew)
+
+    ! check and optionally correct unphysical values
+    if(fix_small_values) then
+       call phys_handle_small_values(.false.,wnew,x,ixI^L,ixO^L,'multi-D finite_volume')
+    endif
  
     call addsource2(qdt*dble(idimsmax-idimsmin+1)/dble(ndim), &
          ixI^L,ixO^L,1,nw,qtC,wCT,qt,wnew,x,.false.)
@@ -1065,14 +1066,9 @@ contains
 
       ! get fluxes of intermedate states
       do iw=1,nwflux
-        if (flux_type(idims, iw) == flux_tvdlf) then
-          ! tvldf flux for normal B
-          f1L(ixC^S,iw)=-tvdlfeps*half*max(sR(ixC^S,index_v_mag), dabs(sL(ixC^S,index_v_mag))) * &
-                 (wRC(ixC^S,iw)-wLC(ixC^S,iw))
-          f1R(ixC^S,iw)=f1L(ixC^S,iw)
-          f2L(ixC^S,iw)=f1L(ixC^S,iw)
-          f2R(ixC^S,iw)=f1L(ixC^S,iw)
-        else if(flux_type(idims, iw) == flux_special) then
+        ! CT MHD does not need normal B flux
+        if(stagger_grid .and. flux_type(idims, iw) == flux_tvdlf) cycle
+        if(flux_type(idims, iw) == flux_special) then
           ! known flux (fLC=fRC) for normal B and psi_ in GLM method
           f1L(ixC^S,iw)=fLC(ixC^S,iw)
           f1R(ixC^S,iw)=f1L(ixC^S,iw)
