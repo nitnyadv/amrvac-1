@@ -304,7 +304,6 @@ contains
       if (.not. hd_energy) &
            call mpistop("thermal conduction needs hd_energy=T")
       phys_req_diagonal = .true.
-      call tc_init_hd_for_total_energy(hd_gamma, (/rho_, e_/),hd_get_temperature_from_etot, hd_get_temperature_from_eint)
 
       call sts_init()
       call tc_init_params(hd_gamma)

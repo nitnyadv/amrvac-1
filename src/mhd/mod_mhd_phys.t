@@ -26,7 +26,7 @@ module mod_mhd_phys
 
   !> Whether radiative cooling is added
   logical, public, protected              :: mhd_radiative_cooling = .false.
-  type(rc_fluid), allocatable :: rc_fl
+  type(rc_fluid), public, allocatable :: rc_fl
 
   !> Whether viscosity is added
   logical, public, protected              :: mhd_viscosity = .false.

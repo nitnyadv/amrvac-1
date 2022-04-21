@@ -23,6 +23,7 @@ NUM_PROCS ?= 2
 # force is a dummy to force re-running tests
 .PHONY: all clean force
 
+all: $(TESTS)
 
 clean:
 	$(RM) $(TESTS) amrvac makefile *.vtu *.dat *.log *.f *.mod
@@ -31,9 +32,16 @@ clean:
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
 include $(AMRVAC_DIR)/arch/rules.make
 
-all: hdr $(TESTS) 
+LIB_DIR := $(AMRVAC_DIR)/lib/$(NDIM)d_$(ARCH)
+# copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl); create the file if it does not exist
+hdr:
+ifeq ("$(wildcard amrvac.h)","")
+	touch amrvac.h
+endif
+	@mkdir -p $(LIB_DIR)	# Prevent error message
+	rsync -c amrvac.h $(LIB_DIR)/amrvac.h
 
-%.log: $(LOG_CMP) amrvac force
+%.log: $(LOG_CMP) hdr  amrvac force
 	@$(RM) $@		# Remove log to prevent pass when aborted
 # for Intel same machine
 # @mpirun -genv I_MPI_FABRICS shm  -np $(NUM_PROCS) ./amrvac -i $(filter %.par,$^) > run.log

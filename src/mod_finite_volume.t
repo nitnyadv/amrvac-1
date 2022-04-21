@@ -419,7 +419,7 @@ contains
       integer  :: rho_, p_, e_, eaux_, mom(1:ndir)
 
       rho_ = iw_rho
-      mom(:) = iw_mom(:)
+      if (allocated(iw_mom)) mom(:) = iw_mom(:)
       e_ = iw_e 
       eaux_ = iw_eaux
 
