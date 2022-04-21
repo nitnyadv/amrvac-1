@@ -1539,7 +1539,7 @@ module mod_radiative_cooling
       {do ix^DB = ixO^LIM^DB\}
          emin         = rho(ix^D)*tfloor
          if( etherm(ix^D) < emin ) then
-             print*, ix1,ix2, " FIXT ",  (emin-etherm(ix^D))/(rc_gamma-1.d0)
+             !print*, ix1,ix2, " FIXT ",  (emin-etherm(ix^D))/(rc_gamma-1.d0)
              w(ix^D,fl%e_)=w(ix^D,fl%e_)+(emin-etherm(ix^D))/(rc_gamma-1.d0)
           endif
       {enddo^D&\}
