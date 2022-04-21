@@ -1772,9 +1772,9 @@ contains
            iB=2*(^D-1)+iside
            do iw=nwhead,nwtail
              select case (typeboundary(iw,iB))
-             case ("symm")
+             case (bc_symm)
                wrecv(ixR^S,iw) = wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,iw)
-             case ("asymm")
+             case (bc_asymm)
                wrecv(ixR^S,iw) =-wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,iw)
              case default
                call mpistop("Pole boundary condition should be symm or asymm")
@@ -1796,9 +1796,9 @@ contains
            iside=int((i^D+3)/2)
            iB=2*(^D-1)+iside
            select case (typeboundary(iw_mag(idirs),iB))
-           case ("symm")
+           case (bc_symm)
              wrecv(ixR^S,idirs) = wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,idirs)
-           case ("asymm")
+           case (bc_asymm)
              wrecv(ixR^S,idirs) =-wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,idirs)
            case default
              call mpistop("Pole boundary condition should be symm or asymm")
@@ -1821,9 +1821,9 @@ contains
            iB=2*(^D-1)+iside
            do iw=nwhead,nwtail
              select case (typeboundary(iw,iB))
-             case ("symm")
+             case (bc_symm)
                wrecv(ixR^S,iw) = wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,iw)
-             case ("asymm")
+             case (bc_asymm)
                wrecv(ixR^S,iw) =-wsend(ixSmax^D:ixSmin^D:-1^D%ixS^S,iw)
              case default
                call mpistop("Pole boundary condition should be symm or asymm")
