@@ -814,6 +814,7 @@ module mod_radiative_cooling
       fl%rc_split=.false.
       call read_params(fl)
 
+
       ! Checks if coolcurve is a piecewise power law (PPL)
       PPL_curves = [Character(len=65) :: 'Hildner','FM', 'Rosner', 'Klimchuk','SPEX_DM_rough','SPEX_DM_fine']
       do i=1,size(PPL_curves)
@@ -943,6 +944,7 @@ module mod_radiative_cooling
          call create_y_PPL(fl)
 
       else
+
          ! Init for interpolatable tables
          allocate(fl%tcool(1:fl%ncool), fl%Lcool(1:fl%ncool), fl%dLdtcool(1:fl%ncool))
          allocate(fl%Yc(1:fl%ncool), fl%invYc(1:fl%ncool))

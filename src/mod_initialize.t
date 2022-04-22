@@ -39,6 +39,7 @@ contains
     call read_data_init()
 
     if(associated(usr_set_parameters)) call usr_set_parameters()
+
     call phys_check_params()
 
     initialized_already = .true.

@@ -63,7 +63,6 @@ contains
     integer, optional, intent(in)   :: windex
     integer                         :: iw, kxO^L, ix^D, i, nwstart, nwend
 
-
     if(present(windex)) then
       nwstart=windex
       nwend=windex

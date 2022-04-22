@@ -489,7 +489,7 @@ contains
       double precision :: cfrac=0.1d0
     
       !> Name of cooling curve
-      character(len=std_len)  :: coolcurve='JCorona'
+      character(len=std_len)  :: coolcurve='JCcorona'
     
       !> Name of cooling method
       character(len=std_len)  :: coolmethod='exact'

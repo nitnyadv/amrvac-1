@@ -16,7 +16,7 @@ module mod_mhd_phys
 
   !> Whether thermal conduction is used
   logical, public, protected              :: mhd_thermal_conduction = .false.
-  type(tc_fluid), allocatable :: tc_fl
+  type(tc_fluid), public, allocatable :: tc_fl
   type(te_fluid), allocatable,target :: te_fl_mhd
 
   !> type of TC used: 1: adapted module (mhd implementation), 2: adapted module (hd implementation)
@@ -861,7 +861,7 @@ contains
       double precision :: cfrac=0.1d0
     
       !> Name of cooling curve
-      character(len=std_len)  :: coolcurve='JCorona'
+      character(len=std_len)  :: coolcurve='JCcorona'
     
       !> Name of cooling method
       character(len=std_len)  :: coolmethod='exact'
@@ -891,6 +891,7 @@ contains
       fl%Tfix=Tfix
       fl%rc_split=rc_split
       fl%cfrac=cfrac
+
     end subroutine rc_params_read
 !! end rad cool
 
