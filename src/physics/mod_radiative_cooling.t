@@ -1689,7 +1689,7 @@ module mod_radiative_cooling
          plocal   = ptherm(ix^D)
          rholocal = rho(ix^D)
          if(phys_trac) then
-           ttofflocal=w(ix^D,fl%Tcoff_)
+           ttofflocal=block%wextra(ix^D,Tcoff_)
          end if
          emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
@@ -1773,7 +1773,7 @@ module mod_radiative_cooling
       
          rholocal = rho(ix^D)
          if(phys_trac) then
-           ttofflocal=w(ix^D,fl%Tcoff_)
+           ttofflocal=block%wextra(ix^D,Tcoff_)
          end if
          emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
          Lmax            = max(zero,(pnew(ix^D)/(rc_gamma-1.d0))-emin)/qdt
@@ -1880,7 +1880,7 @@ module mod_radiative_cooling
          plocal   = ptherm(ix^D)
          rholocal = rho(ix^D)
          if(phys_trac) then
-           ttofflocal=w(ix^D,fl%Tcoff_)
+           ttofflocal=block%wextra(ix^D,Tcoff_)
          end if
          emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
@@ -1961,7 +1961,7 @@ module mod_radiative_cooling
          elocal   = plocal/(rc_gamma-1.d0)
          rholocal = rho(ix^D)
          if(phys_trac) then
-           ttofflocal=w(ix^D,fl%Tcoff_)
+           ttofflocal=block%wextra(ix^D,Tcoff_)
          end if
          emin     = rholocal*fl%tlow*fl%Rfactor/(rc_gamma-1.d0)
          Lmax            = max(zero,pnew(ix^D)/(rc_gamma-1.d0)-emin)/qdt
@@ -2047,7 +2047,7 @@ module mod_radiative_cooling
          plocal   = ptherm(ix^D)
          rholocal = rho(ix^D)
          if(phys_trac) then
-           ttofflocal=w(ix^D,fl%Tcoff_)
+           ttofflocal=block%wextra(ix^D,Tcoff_)
          end if
          emin     = rhonew(ix^D)*fl%tlow*fl%Rfactor*invgam
          Lmax     = max(zero,(pnew(ix^D)*invgam-emin)/qdt)

@@ -396,8 +396,8 @@ contains
       ! conductivity at cell center
       if(phys_trac) then
         minq(ix^S)=Te(ix^S)
-        where(minq(ix^S) < w(ix^S,fl%Tcoff_))
-          minq(ix^S)=w(ix^S,fl%Tcoff_)
+        where(minq(ix^S) < block%wextra(ix^S,Tcoff_))
+          minq(ix^S)=block%wextra(ix^S,Tcoff_)
         end where
         minq(ix^S)=fl%tc_k_para*sqrt(minq(ix^S)**5)
       else
@@ -807,8 +807,8 @@ contains
     end do
     ! transition region adaptive conduction
     if(phys_trac) then
-      where(ke(ixI^S) < w(ixI^S,fl%Tcoff_))
-        ke(ixI^S)=w(ixI^S,fl%Tcoff_)
+      where(ke(ixI^S) < block%wextra(ixI^S,Tcoff_))
+        ke(ixI^S)=block%wextra(ixI^S,Tcoff_)
       end where
     end if
     ! cell corner conduction flux
