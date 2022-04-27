@@ -31,14 +31,17 @@ clean:
 include $(AMRVAC_DIR)/arch/$(ARCH).defs
 include $(AMRVAC_DIR)/arch/rules.make
 
-LIB_DIR := $(AMRVAC_DIR)/lib/$(NDIM)d_$(ARCH)
 # copy amrvac.h (in order to use the std preprocessor in the main code files, e.g. twofl); create the file if it does not exist
 hdr:
 ifeq ("$(wildcard amrvac.h)","")
 	touch amrvac.h
 endif
-	@mkdir -p $(LIB_DIR)	# Prevent error message
-	rsync -c amrvac.h $(LIB_DIR)/amrvac.h
+	@mkdir -p $(AMRVAC_DIR)/lib/1d_$(ARCH)	# Prevent error message
+	rsync -c amrvac.h $(AMRVAC_DIR)/lib/1d_$(ARCH)/amrvac.h
+	@mkdir -p $(AMRVAC_DIR)/lib/2d_$(ARCH)	# Prevent error message
+	rsync -c amrvac.h $(AMRVAC_DIR)/lib/2d_$(ARCH)/amrvac.h
+	@mkdir -p $(AMRVAC_DIR)/lib/3d_$(ARCH)	# Prevent error message
+	rsync -c amrvac.h $(AMRVAC_DIR)/lib/3d_$(ARCH)/amrvac.h
 
 %.log: $(LOG_CMP) hdr  amrvac force
 	@$(RM) $@		# Remove log to prevent pass when aborted
