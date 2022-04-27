@@ -19,9 +19,12 @@
 /
 
  &methodlist
-        time_stepper=  'fivestep'
-        flux_scheme=    20*'hlld'
-        limiter= 20*'mp5'
+        !time_stepper=  'fivestep'
+        time_stepper=  'twostep'
+        !flux_scheme=    20*'hlld'
+        flux_scheme=    20*'hll'
+        !limiter= 20*'mp5'
+        limiter= 20*'woodward'
         small_pressure=1.0d-14
         small_density=1.0d-14
  /

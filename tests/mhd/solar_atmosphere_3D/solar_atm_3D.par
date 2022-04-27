@@ -64,10 +64,10 @@
  /
 
  &mhd_list
-        mhd_thermal_conduction=.true.
+        mhd_thermal_conduction=.false.
         mhd_radiative_cooling=.true.
         mhd_gravity=.true.
-        mhd_solve_eaux=.false.
+        mhd_solve_eaux=.true.
         mhd_trac=.true.
  /
 
