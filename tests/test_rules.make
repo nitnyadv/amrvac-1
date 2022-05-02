@@ -43,7 +43,7 @@ endif
 	@mkdir -p $(AMRVAC_DIR)/lib/3d_$(ARCH)	# Prevent error message
 	rsync -c amrvac.h $(AMRVAC_DIR)/lib/3d_$(ARCH)/amrvac.h
 
-%.log: $(LOG_CMP) hdr  amrvac force
+%.log: hdr $(LOG_CMP)  amrvac force
 	@$(RM) $@		# Remove log to prevent pass when aborted
 # for Intel same machine
 # @mpirun -genv I_MPI_FABRICS shm  -np $(NUM_PROCS) ./amrvac -i $(filter %.par,$^) > run.log
