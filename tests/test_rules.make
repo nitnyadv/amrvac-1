@@ -62,5 +62,5 @@ makefile: $(AMRVAC_DIR)/arch/amrvac.make
 
 # To make sure the comparison utility can be build
 $(LOG_CMP): $(LOG_CMP).o
-$(LOG_CMP).o: $(LOG_CMP).f amrvac.h
+$(LOG_CMP).o: $(LOG_CMP).f 
 
