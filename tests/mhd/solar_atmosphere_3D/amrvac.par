@@ -18,8 +18,8 @@
         dtsave_custom=0.05d0
 
  &stoplist
-        time_max=10.0d0
-        it_max = 10
+        !time_max=10.0d0
+        it_max = 3
  /
 
  &methodlist
