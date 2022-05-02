@@ -1,11 +1,11 @@
-!rho0 = 1.66E-13 kg/m^3
-!R0 = 1 Rs = 695,700,000.0
-!v0 = 100 km/s = 100,000.0 m/s
-!as a result, we have:
-!t0 = 6957 s
-!B0 = 4.567E-5 T
-!P0 = 0.00166 Pa
-!T0 = 601,449.28 K    if we assume p=2nkT
+ !rho0 = 1.66E-13 kg/m^3
+ !R0 = 1 Rs = 695,700,000.0
+ !v0 = 100 km/s = 100,000.0 m/s
+ !as a result, we have:
+ !t0 = 6957 s
+ !B0 = 4.567E-5 T
+ !P0 = 0.00166 Pa
+ !T0 = 601,449.28 K    if we assume p=2nkT
 
 module mod_usr
   use mod_mhd
