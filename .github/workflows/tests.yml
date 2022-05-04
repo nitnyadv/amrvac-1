@@ -12,8 +12,26 @@ env:
   AMRVAC_DIR: ${GITHUB_WORKSPACE}
 
 jobs:
+  cache-build:
+    name: Build - With Cache
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          cd lib
+          make clean
+          make -j 2 || exit 1
+      - uses: actions/cache@v2
+        id: restore-build
+        with:
+          path: lib/*
+          key: ${{ github.sha }}
+
+
   rho:
     runs-on: ubuntu-latest
+    needs: [cache-build]
     steps:
       - uses: actions/checkout@v2
       - name: install dependencies
@@ -26,11 +44,12 @@ jobs:
         run: |
           cd src
           sh update_dependencies.sh --verbose || exit 1
-      - name: compile
-        run: |
-          cd lib
-          make clean
-          make -j 2 || exit 1
+      - uses: actions/cache@v2
+        id: restore-build
+        with:
+          path: lib/*
+          key: ${{ github.sha }}
+
       - name: run tests
         run: |
           cd tests
@@ -49,11 +68,11 @@ jobs:
         run: |
           cd src
           sh update_dependencies.sh --verbose || exit 1
-      - name: compile
-        run: |
-          cd lib
-          make clean
-          make -j 2 || exit 1
+      - uses: actions/cache@v2
+        id: restore-build
+        with:
+          path: lib/*
+          key: ${{ github.sha }}
       - name: run tests
         run: |
           cd tests
@@ -96,11 +115,11 @@ jobs:
         run: |
           cd src
           sh update_dependencies.sh --verbose || exit 1
-      - name: compile
-        run: |
-          cd lib
-          make clean
-          make -j 2 || exit 1
+      - uses: actions/cache@v2
+        id: restore-build
+        with:
+          path: lib/*
+          key: ${{ github.sha }}
       - name: run tests
         run: |
           cd tests
@@ -119,11 +138,11 @@ jobs:
         run: |
           cd src
           sh update_dependencies.sh --verbose || exit 1
-      - name: compile
-        run: |
-          cd lib
-          make clean
-          make -j 2 || exit 1
+      - uses: actions/cache@v2
+        id: restore-build
+        with:
+          path: lib/*
+          key: ${{ github.sha }}
       - name: run tests
         run: |
           cd tests
