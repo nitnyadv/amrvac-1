@@ -66,6 +66,7 @@ jobs:
           bash test_runner.sh rho
   hd:
     runs-on: ubuntu-latest
+    needs: [cache-build]
     steps:
       - uses: actions/checkout@v2
       - name: install dependencies
@@ -113,6 +114,7 @@ jobs:
           bash test_runner.sh mhd
   rd:
     runs-on: ubuntu-latest
+    needs: [cache-build]
     steps:
       - uses: actions/checkout@v2
       - name: install dependencies
@@ -136,6 +138,7 @@ jobs:
           bash test_runner.sh rd
   mg:
     runs-on: ubuntu-latest
+    needs: [cache-build]
     steps:
       - uses: actions/checkout@v2
       - name: install dependencies
