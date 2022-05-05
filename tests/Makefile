@@ -35,20 +35,23 @@ RD_DIRS := rd/schnakenberg_2d rd/test_suite_2d
 
 MF_DIRS := mf/Mackay_bipole_Cartesian_3D
 
-TEST_DIRS := $(RHO_DIRS) $(HD_DIRS) $(MHD_DIRS) $(MG_DIRS) $(RD_DIRS) $(MF_DIRS)
+TWOFL_DIRS := twofl/wave-alfven-1d-unif  twofl/khi-2d twofl/riemann-1d
+
+TEST_DIRS := $(RHO_DIRS) $(HD_DIRS) $(MHD_DIRS) $(MG_DIRS) $(RD_DIRS) $(MF_DIRS) $(TWOFL_DIRS)
 
 # Directories with altered names (useful for cleaning)
 CLEAN_TEST := $(TEST_DIRS:%=clean-%)
 
-.PHONY: all rho hd mhd mg rd mf clean $(TEST_DIRS) $(CLEAN_TEST)
+.PHONY: all rho hd mhd mg rd mf twofl clean $(TEST_DIRS) $(CLEAN_TEST)
 
-all: rho hd mhd mg rd mf
+all: rho hd mhd mg rd mf twofl
 rho: $(RHO_DIRS)
 hd: $(HD_DIRS)
 mhd: $(MHD_DIRS)
 mg: $(MG_DIRS)
 rd: $(RD_DIRS)
 mf: $(MF_DIRS)
+twofl: $(TWOFL_DIRS)
 
 $(TEST_DIRS):
 	@$(MAKE) -C $@ -f test.make

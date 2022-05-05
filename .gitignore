@@ -20,6 +20,7 @@ doc/html/*
 /tests/rd/*/makefile
 /tools/fortran/compare_logs
 /tests/*/*/mod_usr.f
+/tests/*/*/mod_usr.s
 /lib/1d_*
 /lib/2d_*
 /lib/3d_*

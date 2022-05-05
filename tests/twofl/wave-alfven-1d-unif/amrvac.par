@@ -1,0 +1,120 @@
+ &filelist
+        autoconvert   = T
+        !nwauxio       = 1
+        base_filename = 'w2f'
+        convert_type = "dat_generic_mpi"
+ /
+
+ &savelist
+        !ditsave_dat   = 100
+        !ditsave_dat   = 1000
+        !dtsave_dat     = 1.0
+        dtsave_dat     = 0.5
+ /
+
+ &stoplist
+        time_max      = 5.0
+        !time_max      = 1.0
+ /
+
+ &methodlist
+
+        time_stepper = 'threestep'
+        time_integrator = 'ssprk3'
+        !implicit
+        !time_integrator = 'IMEX_ARS3'
+        !time_integrator = 'IMEX_232'
+
+
+        !time_stepper = 'twostep'
+        !time_integrator = 'IMEX_Midpoint'
+        !time_integrator = 'IMEX_Trapezoidal'
+
+        !time_stepper = 'onestep'
+        !time_integrator = 'IMEX_Euler'
+        !time_integrator = 'IMEX_SP'
+
+        flux_scheme     = 20*FLUX_SCHEME
+        !flux_scheme     = 20*'tvdlf'
+        !flux_scheme     = 20*'hll'
+        !flux_scheme     = 20*'fd'
+        !flux_scheme     = 20*'cd'
+        limiter  = 20*LIMITER
+        !limiter  = 20*'vanleer'
+        !limiter  = 20*'cada3'
+        !limiter  = 20*'minmod'
+        !limiter  = 20*'woodward'
+        small_values_method = 'ignore'
+
+        !typesourcesplit="sf"
+        !typeboundspeed = "cmaxmean"
+ /
+
+ &boundlist
+        !save_physical_boundary = .true. 
+        internalboundary = .true.
+        typeboundary_min1  = 13*'periodic'
+        typeboundary_max1  = 13*'periodic'
+
+
+ /
+
+ &meshlist
+        refine_criterion = 3
+        refine_max_level = 1
+    	  refine_threshold = 20*0.4d0
+        domain_nx1    = DOMAIN_NX1
+        block_nx1    = 16
+        xprobmin1     = 0.5d0
+        xprobmax1     = 2.1d0
+ /
+
+ &paramlist
+        !dtdiffpar    = 1d-2
+        courantpar    = 0.8d0
+ /
+
+ &twofl_list
+        typedivbfix   =  'none'
+        twofl_eq_energy = 2
+        has_equi_pe_n0 = .true.
+        has_equi_pe_c0 = .true.
+        has_equi_rho_n0 = .true.
+        has_equi_rho_c0 = .true.
+        B0field=.true.
+        B0field_forcefree=.true.
+
+        twofl_dump_full_vars = .true.
+
+        twofl_cbounds_species=.true.
+        !twofl_gravity   =  .false.
+        SI_unit       =  .true.
+        He_abundance  =  0d0
+        H_ion_fr  = 0.33d0
+
+        ! damping
+        twofl_alpha_coll = TWOFL_ALPHA_COLL
+        !twofl_alpha_coll = 1d0
+        !twofl_alpha_coll = 1d-1
+        ! uncoupled
+        !twofl_alpha_coll = 1d-3
+        !twofl_alpha_coll = 0d0
+        ! fully coupled 
+        !twofl_alpha_coll = 1d4
+
+        twofl_coll_inc_te = .false.
+        twofl_implicit_coll_terms=TWOFL_IMPLICIT_COLL_TERMS
+        !twofl_implicit_coll_terms=.true.
+        !twofl_implicit_coll_terms=.false.
+        !dtcollpar=5d-1
+        !dtcollpar=1d0
+        !dtcollpar=0.5
+        !dtcollpar=5d3
+ /
+
+
+ &usr_list
+        nn= 5
+        ampl=1d-3
+
+/

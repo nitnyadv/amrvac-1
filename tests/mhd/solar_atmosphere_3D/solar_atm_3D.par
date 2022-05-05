@@ -72,7 +72,6 @@
  /
 
  &tc_list
-        tc_k_para = 0.21633973559351147
         tc_perpendicular=.false.
         tc_saturate=.true.
  /
