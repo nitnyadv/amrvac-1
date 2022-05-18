@@ -3,8 +3,9 @@ module mod_twofl_phys
 
 #include "amrvac.h"
 
+
+  use mod_physics  
   use mod_global_parameters, only: std_len
-  use mod_physics
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid
   use mod_thermal_emission, only: te_fluid
@@ -177,7 +178,6 @@ module mod_twofl_phys
   logical, public                         :: twofl_equi_thermal = .true.
   logical, public                         :: twofl_equi_ionrec = .false.
   logical, public                         :: twofl_equi_thermal_n = .false.
-  logical, public                         :: twofl_implicit_coll_terms = .true.
   double precision, public                :: dtcollpar = -1d0 !negative value does not impose restriction on the timestep
   !> whether dump collisional terms in a separte dat file
   logical, public, protected              :: twofl_dump_coll_terms = .false.
@@ -379,7 +379,7 @@ contains
       twofl_dump_full_vars, has_equi_rho_c0, has_equi_pe_c0, twofl_hyperdiffusivity,twofl_dump_hyperdiffusivity_coef,&
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n, twofl_radiative_cooling_n,  &
-      twofl_alpha_coll,twofl_alpha_coll_constant,twofl_implicit_coll_terms,&
+      twofl_alpha_coll,twofl_alpha_coll_constant,&
       twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,twofl_equi_thermal_n,dtcollpar,&
       twofl_dump_coll_terms,twofl_implicit_calc_mult_method,&
 #else
@@ -482,6 +482,9 @@ contains
     physics_type = "twofl_one"
 #else
     physics_type = "twofl"
+    if (twofl_cbounds_species) then
+      number_species = 2
+    endif
 #endif
     phys_energy=.true.
   !> Solve total energy equation or not
@@ -611,7 +614,8 @@ contains
       call mpistop("Unknown twofl_boris_method (none, reduced_force, simplification)")
     end select
 
-    allocate(start_indices(2))
+    allocate(start_indices(number_species))
+    allocate(stop_indices(number_species))
     start_indices(1)=1
     !allocate charges first and the same order as in mhd module
     rho_c_ = var_set_fluxvar("rho_c", "rho_c")
@@ -673,8 +677,6 @@ contains
     ! TODO so far number_species is only used to treat them differently
     ! in the solvers (different cbounds)
     if (twofl_cbounds_species) then
-      number_species = 2
-      allocate(stop_indices(2))
       stop_indices(1)=nwflux
       start_indices(2)=nwflux+1
     endif
@@ -692,7 +694,7 @@ contains
     end if
 
     ! check dtcoll par
-    if(.not. twofl_implicit_coll_terms .and. (dtcollpar .le. 0d0 .or. dtcollpar .ge. 1d0)) then
+    if(.not. use_imex_scheme .and. (dtcollpar .le. 0d0 .or. dtcollpar .ge. 1d0)) then
       if (mype .eq. 0) print*, "Explicit update of coll terms requires 0<dtcollpar<1, dtcollpar set to 0.8."
       dtcollpar = 0.8
     endif 
@@ -707,7 +709,6 @@ contains
       Tcoff_n_ = -1
     end if
 
-    stop_indices(2)=nwflux
 
 #else
   ! set here the MHD indices
@@ -719,8 +720,8 @@ contains
   Tcoff_=Tcoff_c_
   Tweight_ = Tweight_c_
   eaux_=eaux_c_ 
-
 #endif
+    stop_indices(number_species)=nwflux
 
     ! set indices of equi vars and update number_equi_vars
     number_equi_vars = 0
@@ -817,7 +818,7 @@ contains
     phys_energy_synchro      => twofl_energy_synchro
     ! implicit collisional terms update
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-    if(twofl_implicit_coll_terms .and. has_collisions()) then
+    if(use_imex_scheme .and. has_collisions()) then
       phys_implicit_update => twofl_implicit_coll_terms_update
       phys_evaluate_implicit => twofl_evaluate_implicit
       if(mype .eq. 1) then
@@ -2536,10 +2537,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       call twofl_get_csound(wRp,x,ixI^L,ixO^L,idim,csoundR)
       csoundL(ixO^S)=max(csoundL(ixO^S),csoundR(ixO^S))
       if(present(cmin)) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
         cmin(ixO^S,1)=min(0.5*(wLp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))),&
             0.5*(wRp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))))-csoundL(ixO^S)
         cmax(ixO^S,1)=max(0.5*(wLp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))),&
             0.5*(wRp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))))+csoundL(ixO^S)
+#else
+        cmin(ixO^S,1)=min(wLp(ixO^S,mom_c(idim)),wRp(ixO^S,mom_c(idim)))-csoundL(ixO^S)
+        cmax(ixO^S,1)=max(wLp(ixO^S,mom_c(idim)),wRp(ixO^S,mom_c(idim)))+csoundL(ixO^S)
+
+#endif
         if(H_correction) then
           {do ix^DB=ixOmin^DB,ixOmax^DB\}
             cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
@@ -2547,8 +2554,12 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
           {end do\}
         end if
       else
+#if !defined(ONE_FLUID) || ONE_FLUID==0
         cmax(ixO^S,1)=max(0.5*(wLp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))),&
           0.5*(wRp(ixO^S,mom_c(idim))+ wRp(ixO^S,mom_n(idim))))+csoundL(ixO^S)
+#else
+        cmax(ixO^S,1)=max(wLp(ixO^S,mom_c(idim)),wRp(ixO^S,mom_c(idim)))+csoundL(ixO^S)
+#endif
       end if
     end select
 
@@ -3452,8 +3463,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out):: res(ixI^S)
     res(ixO^S)=1d0/Rc * (gamma_1*(w(ixO^S,e_c_)&
            - twofl_kin_en_c(w,ixI^L,ixO^L)&
-           - twofl_mag_en(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_c0_,0))&
-            /(w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,0))
+           - twofl_mag_en(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_c0_,b0i))&
+            /(w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,b0i))
             
   end subroutine twofl_get_temperature_from_etot_c_with_equi
 
@@ -3464,8 +3475,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
     res(ixO^S)=1d0/Rc * (gamma_1*(w(ixO^S,e_c_)&
-           - twofl_kin_en_c(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_c0_,0))&
-            /(w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,0))
+           - twofl_kin_en_c(w,ixI^L,ixO^L)) +  block%equi_vars(ixO^S,equi_pe_c0_,b0i))&
+            /(w(ixO^S,rho_c_) +block%equi_vars(ixO^S,equi_rho_c0_,b0i))
             
   end subroutine twofl_get_temperature_from_eki_c_with_equi
 
@@ -4308,10 +4319,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
         call internal_energy_add_source_n(qdt,ixI^L,ixO^L,wCT,w,x)
 #endif
         call internal_energy_add_source_c(qdt,ixI^L,ixO^L,wCT,w,x,e_c_)
+      else 
         if(phys_solve_eaux) then
           call internal_energy_add_source_c(qdt,ixI^L,ixO^L,wCT,w,x,eaux_c_)
         endif
-      else 
 #if !defined(E_RM_W0) || E_RM_W0==1
         ! add -p0 div v source terms when equi are present
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -4357,7 +4368,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       end if
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       !it is not added in a split manner
-      if(.not. twofl_implicit_coll_terms.and. has_collisions()) then
+      if(.not. use_imex_scheme .and. has_collisions()) then
         active = .true.
         call  twofl_explicit_coll_terms_update(qdt,ixI^L,ixO^L,w,wCT,x)
       endif
@@ -7998,6 +8009,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     if(.not. SI_unit) then
       alpha(ixO^S) = alpha(ixO^S) * 1d3 ! this comes from unit_density: g/cm^3 = 1e-3 kg/m^3
     endif
+
 
   end subroutine get_alpha_coll_plasma
 
