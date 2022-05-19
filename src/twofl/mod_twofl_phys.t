@@ -380,7 +380,8 @@ contains
 #if !defined(ONE_FLUID) || ONE_FLUID==0
       has_equi_pe_n0, has_equi_rho_n0, twofl_thermal_conduction_n, twofl_radiative_cooling_n,  &
       twofl_alpha_coll,twofl_alpha_coll_constant,&
-      twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_thermal,twofl_equi_thermal_n,dtcollpar,&
+      twofl_coll_inc_te, twofl_coll_inc_ionrec,twofl_equi_ionrec,twofl_equi_thermal,&
+      twofl_equi_thermal_n,dtcollpar,&
       twofl_dump_coll_terms,twofl_implicit_calc_mult_method,&
 #else
       twofl_ambipolar, twofl_ambipolar_sts, twofl_eta_ambi,&
@@ -2343,7 +2344,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     case(2)
       !> iijima et al. 2021, LTRAC method
       ltrc=1.5d0
-      ltrp=2.5d0
+      ltrp=4.d0
       ixP^L=ixO^L^LADD1;
       ! temperature gradient at cell centers
       do idims=1,ndim
@@ -3515,6 +3516,15 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     call get_rhoc_tot(w,x,ixI^L,ixO^L,tmp)
     ! Get flux of density
     f(ixO^S,rho_c_)=w(ixO^S,mom_c(idim))*tmp(ixO^S)
+    ! pgas is time dependent only
+    if(phys_energy) then
+      pgas(ixO^S)=w(ixO^S,e_c_)
+    else
+      pgas(ixO^S)=twofl_adiab*tmp(ixO^S)**twofl_gamma
+      if(has_equi_pe_c0) then
+        pgas(ixO^S)=pgas(ixO^S)-block%equi_vars(ixO^S,equi_pe_c0_,b0i)
+      endif
+    end if
 
     if (twofl_Hall) then
       allocate(vHall(ixI^S,1:ndir))
@@ -3523,15 +3533,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     if(B0field) tmp(ixO^S)=sum(block%B0(ixO^S,:,idim)*w(ixO^S,mag(:)),dim=ndim+1)
 
-    if(phys_energy) then
-      pgas(ixO^S)=w(ixO^S,e_c_)
-    else
-      pgas(ixO^S)=twofl_adiab*w(ixO^S,rho_c_)**twofl_gamma
-    end if
-
     ptotal(ixO^S) = pgas(ixO^S) + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
-
-
 
     ! Get flux of momentum
     ! f_i[m_k]=v_i*m_k-b_k*b_i [+ptotal if i==k]
@@ -3670,7 +3672,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     if(phys_energy) then
       pgas(ixO^S) = w(ixO^S, e_n_)
     else
-      pgas(ixO^S)=twofl_adiab*w(ixO^S,rho_n_)**twofl_gamma
+      pgas(ixO^S)=twofl_adiab*tmp(ixO^S)**twofl_gamma
+      if(has_equi_pe_n0) then
+        pgas(ixO^S)=pgas(ixO^S)-block%equi_vars(ixO^S,equi_pe_n0_,b0i)
+      endif
     endif
     ! Momentum flux is v_i*m_i, +p in direction idim
     do idir = 1, ndir
@@ -4952,10 +4957,9 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       if(twofl_ambipolar) then
         !reuse axb
         call twofl_get_jxbxb(wCT,x,ixI^L,ixO^L,axb)
-        ! calcuate electric field on cell edges from cell centers
+        ! source J0 * E
         do idir=7-2*ndim,3
           !set electric field in jxbxb: E=nuA * jxbxb, where nuA=-etaA/rho^2
-          !jxbxb(ixA^S,i) = -(mhd_eta_ambi/w(ixA^S, rho_)**2) * jxbxb(ixA^S,i)
           call multiplyAmbiCoef(ixI^L,ixO^L,axb(ixI^S,idir),wCT,x)   
           w(ixO^S,e_c_)=w(ixO^S,e_c_)+axb(ixO^S,idir)*block%J0(ixO^S,idir)
         enddo
@@ -7993,17 +7997,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        tmp2(ixO^S) =  gamma_rec(ixO^S) +  gamma_ion(ixO^S)
        call calc_mult_factor(ixI^L, ixO^L, dtfactor * qdt, tmp2, tmp3) 
 
-!#if !defined(EQUI_IONREC) || EQUI_IONREC==0
-!       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
-!                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
-!#else
+      if(.not. twofl_equi_ionrec) then
+       tmp(ixO^S) = dtfactor * dt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
+                                        gamma_rec(ixO^S) * rhoc(ixO^S))/tmp3(ixO^S)
+      else
        ! equilibrium density does not evolve through ion/rec 
-       ! TODO it has to be always like this because of the linearization of the coll. term?
        tmp(ixO^S) = (-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
                                         gamma_rec(ixO^S) * w(ixO^S,rho_c_))
-!#endif
-       wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) * tmp3(ixO^S)
-       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) * tmp3(ixO^S)
+      endif
+      wout(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) * tmp3(ixO^S)
+      wout(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) * tmp3(ixO^S)
     else
       wout(ixO^S,rho_n_) = w(ixO^S,rho_n_)
       wout(ixO^S,rho_c_) = w(ixO^S,rho_c_)
@@ -8306,14 +8309,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     !update density
     if(twofl_coll_inc_ionrec) then
        allocate(gamma_ion(ixI^S), gamma_rec(ixI^S)) 
-       call get_gamma_ion_rec(ixI^L, ixO^L, w, x, gamma_rec, gamma_ion)
+       call get_gamma_ion_rec(ixI^L, ixO^L, wCT, x, gamma_rec, gamma_ion)
 
       if(.not. twofl_equi_ionrec) then
         tmp(ixO^S) = qdt *(-gamma_ion(ixO^S) * rhon(ixO^S) + &
                                         gamma_rec(ixO^S) * rhoc(ixO^S))
       else
-       tmp(ixO^S) = qdt * (-gamma_ion(ixO^S) * w(ixO^S,rho_n_) + &
-                                        gamma_rec(ixO^S) * w(ixO^S,rho_c_))
+       tmp(ixO^S) = qdt * (-gamma_ion(ixO^S) * wCT(ixO^S,rho_n_) + &
+                                        gamma_rec(ixO^S) * wCT(ixO^S,rho_c_))
       endif  
       w(ixO^S,rho_n_) = w(ixO^S,rho_n_) + tmp(ixO^S) 
       w(ixO^S,rho_c_) = w(ixO^S,rho_c_) - tmp(ixO^S) 

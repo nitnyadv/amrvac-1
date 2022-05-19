@@ -1818,7 +1818,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       end if
     case (2)
       wmean(ixO^S,1:nwflux)=0.5d0*(wLC(ixO^S,1:nwflux)+wRC(ixO^S,1:nwflux))
-      tmp1(ixO^S)=wmean(ixO^S,mom(idim))/wmean(ixO^S,rho_)
+      call mhd_get_rho(wmean,x,ixI^L,ixO^L,rho)
+      tmp1(ixO^S)=wmean(ixO^S,mom(idim))/rho(ixO^S)
       call mhd_get_csound(wmean,x,ixI^L,ixO^L,idim,csoundR)
       if(present(cmin)) then
         cmax(ixO^S,1)=max(tmp1(ixO^S)+csoundR(ixO^S),zero)
@@ -1969,14 +1970,22 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
     double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
+    double precision :: tmp(ixI^S)
 
-    ! mhd_get_rho cannot be used  because inv_rho has shape ixO^S
-    if(has_equi_rho0) then
-      inv_rho(ixO^S) = 1d0/(w(ixO^S,rho_) + block%equi_vars(ixO^S,equi_rho0_,b0i))
-    else  
-      inv_rho(ixO^S) = 1d0/w(ixO^S,rho_) 
-    endif
+    call mhd_get_rho(w,x,ixI^L,ixO^L,tmp)
+    inv_rho(ixO^S) = 1d0/tmp(ixO^S) 
 
+
+    if(mhd_energy) then
+      if(has_equi_pe0) then
+        csound(ixO^S) = w(ixO^S,e_) + block%equi_vars(ixO^S,equi_pe0_,b0i)
+      else
+        csound(ixO^S) = w(ixO^S,e_) 
+      endif
+      csound(ixO^S)=mhd_gamma*csound(ixO^S)*inv_rho
+    else
+      csound(ixO^S)=mhd_gamma*mhd_adiab*tmp(ixO^S)**gamma_1
+    end if
 
     if (mhd_boris_type == boris_reduced_force) then
       call mhd_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
@@ -1984,11 +1993,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       gamma_A2 = 1.0d0
     end if
 
-    if(mhd_energy) then
-      csound(ixO^S)=mhd_gamma*w(ixO^S,p_)*inv_rho
-    else
-      csound(ixO^S)=mhd_gamma*mhd_adiab*w(ixO^S,rho_)**gamma_1
-    end if
     ! store |B|^2 in v
     b2(ixO^S)        = mhd_mag_en_all(w,ixI^L,ixO^L) * gamma_A2
     cfast2(ixO^S)   = b2(ixO^S) * inv_rho+csound(ixO^S)
@@ -2206,22 +2210,28 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision :: tmp4(ixO^S)
 
 
+    call mhd_get_rho(w,x,ixI^L,ixO^L,tmp)
+    ! Get flux of density
+    f(ixO^S,rho_)=w(ixO^S,mom(idim))*tmp(ixO^S)
+    ! pgas is time dependent only
+    if(mhd_energy) then
+      pgas=w(ixO^S,p_)
+    else
+      pgas(ixO^S)=mhd_adiab*tmp(ixO^S)**mhd_gamma
+      if(has_equi_pe0) then
+        pgas(ixO^S)=pgas(ixO^S)-block%equi_vars(ixO^S,equi_pe0_,b0i)
+      endif
+    end if
+
     if (mhd_Hall) then
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
 #if !defined(USE_SPLIT_B0) || USE_SPLIT_B0==1
     if(B0field) tmp(ixO^S)=sum(block%B0(ixO^S,:,idim)*w(ixO^S,mag(:)),dim=ndim+1)
 #endif
-    if(mhd_energy) then
-      pgas=w(ixO^S,p_)
-    else
-      pgas=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
-    end if
 
     ptotal = pgas + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
 
-    ! Get flux of density
-    f(ixO^S,rho_)=w(ixO^S,mom(idim))*w(ixO^S,rho_)
 
     ! Get flux of tracer
     do iw=1,mhd_n_tracer
@@ -2297,10 +2307,10 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #endif
            end if
         end if
-        if(has_equi_pe0) then
-          f(ixO^S,e_)=  f(ixO^S,e_) &
-            + w(ixO^S,mom(idim)) * block%equi_vars(ixO^S,equi_pe0_,idim) * inv_gamma_1
-        end if
+      end if
+      if(has_equi_pe0) then
+        f(ixO^S,e_)=  f(ixO^S,e_) &
+          + w(ixO^S,mom(idim)) * block%equi_vars(ixO^S,equi_pe0_,idim) * inv_gamma_1
       end if
     end if
 
@@ -3138,7 +3148,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       if(.not.B0field_forcefree) b(ixO^S,:)=b(ixO^S,:)+block%B0(ixO^S,:,0)
       ! store velocity in a
       do idir=1,ndir
-        a(ixO^S,idir)=wCT(ixO^S,mom(idir))/wCT(ixO^S,rho_)
+        call mhd_get_v_idim(wCT,x,ixI^L,ixO^L,idir,a(ixI^S,idir))
       end do
       call cross_product(ixI^L,ixO^L,a,b,axb)
       axb(ixO^S,:)=axb(ixO^S,:)*qdt
@@ -3146,6 +3156,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       do idir=7-2*ndir,3
         w(ixO^S,e_)=w(ixO^S,e_)-axb(ixO^S,idir)*block%J0(ixO^S,idir)
       end do
+      if(twofl_ambipolar) then
+        !reuse axb
+        call twofl_get_jxbxb(wCT,x,ixI^L,ixO^L,axb)
+        ! source J0 * E
+        do idir=7-2*ndim,3
+          !set electric field in jxbxb: E=nuA * jxbxb, where nuA=-etaA/rho^2
+          call multiplyAmbiCoef(ixI^L,ixO^L,axb(ixI^S,idir),wCT,x)   
+          w(ixO^S,e_c_)=w(ixO^S,e_c_)+axb(ixO^S,idir)*block%J0(ixO^S,idir)
+        enddo
+      endif
     end if
 
     if (fix_small_values) call mhd_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_B0')
@@ -3486,7 +3506,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     integer, intent(in)             :: ixI^L, ixO^L
     double precision, intent(in)    :: qdt,   wCT(ixI^S,1:nw), x(ixI^S,1:ndim)
     double precision, intent(inout) :: w(ixI^S,1:nw)
-    double precision                :: divb(ixI^S)
+    double precision                :: divb(ixI^S),vel(ixI^S)
     integer                         :: idir
 
     ! We calculate now div B
@@ -3494,7 +3514,8 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     ! b = b - qdt v * div b
     do idir=1,ndir
-      w(ixO^S,mag(idir))=w(ixO^S,mag(idir))-qdt*wCT(ixO^S,mom(idir))/wCT(ixO^S,rho_)*divb(ixO^S)
+      call mhd_get_v_idim(wCT,x,ixI^L,ixO^L,idir,vel)
+      w(ixO^S,mag(idir))=w(ixO^S,mag(idir))-qdt*vel(ixO^S)*divb(ixO^S)
     end do
 
     if (fix_small_values) call mhd_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_janhunen')
