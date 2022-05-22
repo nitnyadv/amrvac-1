@@ -30,11 +30,9 @@ module mod_mhd_phys
 
   !> Whether viscosity is added
   logical, public, protected              :: mhd_viscosity = .false.
+
   !> Whether gravity is added
   logical, public, protected              :: mhd_gravity = .false.
-
-  !> whether dump full variables (when splitting is used) in a separate dat file
-  logical, public, protected              :: mhd_dump_full_vars = .false.
 
   !> Whether Hall-MHD is used
   logical, public, protected              :: mhd_Hall = .false.
@@ -104,6 +102,10 @@ module mod_mhd_phys
   !> equi vars indices in the state%equi_vars array
   integer, public :: equi_rho0_ = -1
   integer, public :: equi_pe0_ = -1
+
+  !> whether dump full variables (when splitting is used) in a separate dat file
+  logical, public, protected              :: mhd_dump_full_vars = .false.
+
 
   !> Number of tracer species
   integer, public, protected              :: mhd_n_tracer = 0
@@ -3023,7 +3025,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     gamma_A = sqrt(gamma_A)
   end function mhd_gamma_alfven
 
-
   subroutine internal_energy_add_source(qdt,ixI^L,ixO^L,wCT,w,x,ie)
     use mod_global_parameters
     use mod_geometry
@@ -3156,14 +3157,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       do idir=7-2*ndir,3
         w(ixO^S,e_)=w(ixO^S,e_)-axb(ixO^S,idir)*block%J0(ixO^S,idir)
       end do
-      if(twofl_ambipolar) then
+      if(mhd_ambipolar) then
         !reuse axb
-        call twofl_get_jxbxb(wCT,x,ixI^L,ixO^L,axb)
+        call mhd_get_jxbxb(wCT,x,ixI^L,ixO^L,axb)
         ! source J0 * E
         do idir=7-2*ndim,3
           !set electric field in jxbxb: E=nuA * jxbxb, where nuA=-etaA/rho^2
           call multiplyAmbiCoef(ixI^L,ixO^L,axb(ixI^S,idir),wCT,x)   
-          w(ixO^S,e_c_)=w(ixO^S,e_c_)+axb(ixO^S,idir)*block%J0(ixO^S,idir)
+          w(ixO^S,e_)=w(ixO^S,e_)+axb(ixO^S,idir)*block%J0(ixO^S,idir)
         enddo
       endif
     end if
