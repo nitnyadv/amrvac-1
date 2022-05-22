@@ -532,7 +532,8 @@ contains
 
   subroutine hd_check_params
     use mod_global_parameters
-    use mod_dust, only: dust_check_params
+    use mod_dust, only: dust_check_params, dust_implicit_update, dust_evaluate_implicit
+    use mod_physics
 
     if (.not. hd_energy) then
        if (hd_gamma <= 0.0d0) call mpistop ("Error: hd_gamma <= 0")
@@ -545,6 +546,11 @@ contains
     end if
 
     if (hd_dust) call dust_check_params()
+    if(use_imex_scheme) then
+        ! implicit dust update
+        phys_implicit_update => dust_implicit_update
+        phys_evaluate_implicit => dust_evaluate_implicit
+    endif  
 
   end subroutine hd_check_params
 
@@ -1324,7 +1330,7 @@ contains
     double precision :: gravity_field(ixI^S, 1:ndim)
     integer :: idust, idim
 
-    if(hd_dust) then
+    if(hd_dust .and. .not. use_imex_scheme) then
       call dust_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)
     end if
 
@@ -1371,7 +1377,7 @@ contains
 
     dtnew = bigdouble
 
-    if(hd_dust) then
+    if(hd_dust .and. .not. use_imex_scheme) then
       call dust_get_dt(w, ixI^L, ixO^L, dtnew, dx^D, x)
     end if
 
