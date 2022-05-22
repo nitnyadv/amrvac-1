@@ -823,8 +823,42 @@ contains
 
          wout(ixO^S, gas_mom(idir)) = w(ixO^S, gas_mom(idir)) + tmp2(ixO^S)
          if (gas_e_ > 0) then
+#if defined(DUST_IMPL_ENERGY) && DUST_IMPL_ENERGY==1    
+          tmp2(ixO^S) = 0d0
+#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
+          tmp3(ixO^S) = 0d0
+#endif
+          do n = 1, dust_n_species
+            tmp2(ixO^S) = tmp2(ixO^S) + alpha(ixO^S, idir,n) * &
+              (w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir,n))**2/w(ixO^S,dust_rho(n))) - &
+              w(ixO^S,dust_rho(n)) * (w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_)))
+
+#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
+            do m = 1, dust_n_species
+              if(m .ne. n) then
+                tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
+                  ( w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir, n))**2/w(ixO^S,dust_rho(n))  + w(ixO^S, dust_mom(idir, m))**2/w(ixO^S,dust_rho(m))- &
+                    (w(ixO^S,dust_rho(n)) +  w(ixO^S,dust_rho(m)))* w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_) )  
+              endif
+            enddo
+#endif
+          enddo
+#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
+        tmp3(ixO^S) = tmp3(ixO^S) * w(ixO^S,gas_rho_)
+        tmp2(ixO^S) = qdt *  tmp2(ixO^S) + (qdt**2)*tmp3(ixO^S)
+#else
+        tmp2(ixO^S) = qdt *  tmp2(ixO^S) 
+#endif
+        tmp2(ixO^S) = 0.5d0 * tmp2(ixO^S) / tmp(ixO^S)
+
+         wout(ixO^S, gas_e) = wout(ixO^S, gas_e) + tmp2(ixO^S)
+
+
+#else
            wout(ixO^S, gas_e_) = wout(ixO^S, gas_e_)+  vgas(ixO^S, idir)  &
                * tmp2(ixO^S)
+
+#endif
          end if
       end if
     end do
