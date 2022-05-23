@@ -11,12 +11,12 @@ module mod_hd_phys
 
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
-  type(tc_fluid), allocatable :: tc_fl
+  type(tc_fluid), public, allocatable :: tc_fl
   type(te_fluid), allocatable :: te_fl_hd
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
-  type(rc_fluid), allocatable :: rc_fl
+  type(rc_fluid), public, allocatable :: rc_fl
 
   !> Whether dust is added
   logical, public, protected              :: hd_dust = .false.
@@ -533,7 +533,7 @@ contains
   subroutine hd_check_params
     use mod_global_parameters
     use mod_dust, only: dust_check_params, dust_implicit_update, dust_evaluate_implicit
-    use mod_physics
+    use mod_physics, only: phys_implicit_update, phys_evaluate_implicit
 
     if (.not. hd_energy) then
        if (hd_gamma <= 0.0d0) call mpistop ("Error: hd_gamma <= 0")

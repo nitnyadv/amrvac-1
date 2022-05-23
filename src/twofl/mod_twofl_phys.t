@@ -4,7 +4,7 @@ module mod_twofl_phys
 #include "amrvac.h"
 
 
-  use mod_physics  
+  use mod_physics
   use mod_global_parameters, only: std_len
   use mod_thermal_conduction, only: tc_fluid
   use mod_radiative_cooling, only: rc_fluid

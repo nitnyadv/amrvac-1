@@ -100,6 +100,7 @@ mod_constrained_transport.o: mod_limiter.mod
 mod_constrained_transport.o: mod_physics.mod
 mod_convert.o: mod_input_output.mod
 mod_dust.o: mod_geometry.mod
+mod_dust.o: mod_ghostcells_update.mod
 mod_dust.o: mod_physics.mod
 mod_finite_difference.o: mod_finite_volume.mod
 mod_finite_difference.o: mod_limiter.mod
@@ -191,6 +192,7 @@ mod_mhd.o: mod_mhd_roe.mod
 mod_mhd_hllc.o: mod_mhd_phys.mod
 mod_mhd_hllc.o: mod_physics_hllc.mod
 mod_mhd_phys.o: mod_constrained_transport.mod
+mod_mhd_phys.o: mod_convert.mod
 mod_mhd_phys.o: mod_fix_conserve.mod
 mod_mhd_phys.o: mod_geometry.mod
 mod_mhd_phys.o: mod_gravity.mod
