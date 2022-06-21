@@ -97,7 +97,6 @@ contains
     phys_add_source      => nonlinear_add_source
     phys_to_conserved    => nonlinear_to_conserved
     phys_to_primitive    => nonlinear_to_primitive
-    phys_get_v_idim      => nonlinear_get_v
     phys_get_dt          => nonlinear_get_dt
     phys_write_info      => nonlinear_write_info
 
@@ -233,7 +232,7 @@ contains
 
   end subroutine nonlinear_add_source_geom
 
-  subroutine nonlinear_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)
+  subroutine nonlinear_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active,wCTprim)
     use mod_global_parameters
     use mod_kdv, only: kdv_add_source
 
@@ -243,6 +242,7 @@ contains
     double precision, intent(inout) :: w(ixI^S, 1:nw)
     logical, intent(in)             :: qsourcesplit
     logical, intent(inout)          :: active
+    double precision, intent(in), optional :: wCTprim(ixI^S, 1:nw)
 
     if(kdv_source_term) then
       call kdv_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)

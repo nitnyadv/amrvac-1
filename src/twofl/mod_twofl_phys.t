@@ -3,7 +3,6 @@ module mod_twofl_phys
 
 #include "amrvac.h"
 
-
   use mod_physics
   use mod_global_parameters, only: std_len
   use mod_thermal_conduction, only: tc_fluid
@@ -11,11 +10,6 @@ module mod_twofl_phys
   use mod_thermal_emission, only: te_fluid
   implicit none
   private
-
-
-
-
-
   !! E_c = E_kin + E_mag + E_int
   !! E_n = E_kin + E_int
   integer, public, parameter              :: EQ_ENERGY_TOT=2
@@ -47,7 +41,6 @@ module mod_twofl_phys
   integer, parameter, private             :: MHD_TC =1
   integer, parameter, private             :: HD_TC =2
   integer, protected                      :: use_twofl_tc_c = MHD_TC
-
 
   !> Whether radiative cooling is added
   logical, public, protected              :: twofl_radiative_cooling_c = .false.
@@ -107,18 +100,6 @@ module mod_twofl_phys
   !> GLM-MHD parameter: ratio of the diffusive and advective time scales for div b
   !> taking values within [0, 1]
   double precision, public                :: twofl_glm_alpha = 0.5d0
-
-  !> Use Boris approximation
-  character(len=20) :: twofl_boris_method = "none"
-
-  integer, parameter :: boris_none           = 0
-  integer, parameter :: boris_reduced_force  = 1
-  integer, parameter :: boris_simplification = 2
-  integer            :: twofl_boris_type       = boris_none
-
-  !> Speed of light for Boris' approximation. If negative, test changes to the
-  !> momentum equation with gamma_A = 1
-  double precision                        :: twofl_boris_c = 0.0d0
 
   !> MHD fourth order
   logical, public, protected              :: twofl_4th_order = .false.
@@ -388,7 +369,7 @@ contains
       H_ion_fr, He_ion_fr, He_abundance, He_ion_fr2,&
 #endif
       boundary_divbfix, boundary_divbfix_skip, twofl_divb_4thorder, &
-      twofl_boris_method, twofl_boris_c, clean_initial_divb,  &
+      clean_initial_divb,  &
       twofl_trac, twofl_trac_type, twofl_trac_mask,twofl_cbounds_species 
 
     do n = 1, size(files)
@@ -604,17 +585,6 @@ contains
       call mpistop('Unknown divB fix')
     end select
 
-    select case (twofl_boris_method)
-    case ("none")
-      twofl_boris_type = boris_none
-    case ("reduced_force")
-      twofl_boris_type = boris_reduced_force
-    case ("simplification")
-      twofl_boris_type = boris_simplification
-    case default
-      call mpistop("Unknown twofl_boris_method (none, reduced_force, simplification)")
-    end select
-
     allocate(start_indices(number_species))
     allocate(stop_indices(number_species))
     start_indices(1)=1
@@ -772,20 +742,6 @@ contains
       end if
     end if
 
-    select case (twofl_boris_method)
-    case ("none")
-      twofl_boris_type = boris_none
-    case ("reduced_force")
-      twofl_boris_type = boris_reduced_force
-    case ("simplification")
-      twofl_boris_type = boris_simplification
-      do idir = 1, ndir
-        phys_iw_methods(mom_c(idir))%inv_capacity => twofl_gamma2_alfven
-      end do
-    case default
-      call mpistop("Unknown twofl_boris_method (none, reduced_force, simplification)")
-    end select
-
     phys_get_dt              => twofl_get_dt
     phys_get_cmax            => twofl_get_cmax
     phys_get_a2max           => twofl_get_a2max
@@ -803,11 +759,8 @@ contains
     phys_add_source          => twofl_add_source
     phys_to_conserved        => twofl_to_conserved
     phys_to_primitive        => twofl_to_primitive
-    !phys_ei_to_e             => twofl_ei_to_e
-    !phys_e_to_ei             => twofl_e_to_ei
     phys_check_params        => twofl_check_params
     phys_check_w             => twofl_check_w
-    !phys_get_pthermal        => twofl_get_pthermal
     phys_write_info          => twofl_write_info
     phys_angmomfix           => twofl_angmomfix
     phys_handle_small_values => twofl_handle_small_values
@@ -1503,10 +1456,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
        small_e = small_pressure * inv_gamma_1
     end if
 
-    if (twofl_boris_type > 0 .and. abs(twofl_boris_c) <= 0.0d0) then
-      call mpistop("You have not specified twofl_boris_c")
-    end if
-
 #if !defined(ONE_FLUID) || ONE_FLUID==0
     ! this has to be done here as use_imex_scheme is not set in init subroutine, 
     ! but here it is
@@ -2031,51 +1980,56 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
               block%equi_vars(ixO^S,equi_pe_c0_,0)
            else
             tmp2(ixO^S) = small_pressure
-           endif  
-          else if(phys_internal_e) then
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-           if(has_equi_pe_n0) then 
-            tmp1(ixO^S) = small_e - &
-              block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1 
-           else
-            tmp1(ixO^S) = small_e
-           endif  
-            where(flag(ixO^S,e_n_))
-              w(ixO^S,e_n_)=tmp1(ixO^S)
-            end where
-#endif
-           if(has_equi_pe_c0) then 
-            tmp2(ixO^S) = small_e - &
-                block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
-           else
-            tmp2(ixO^S) = small_e
-           endif  
-            where(flag(ixO^S,e_c_))
-              w(ixO^S,e_c_)=tmp2(ixO^S)
-            end where
+           endif
           else
+            ! conserved  
 #if !defined(ONE_FLUID) || ONE_FLUID==0
-            where(flag(ixO^S,e_n_))
-              w(ixO^S,e_n_) = tmp1(ixO^S)+&
-                 twofl_kin_en_n(w,ixI^L,ixO^L)
-            end where
+            if(has_equi_pe_n0) then 
+              tmp1(ixO^S) = small_e - &
+              block%equi_vars(ixO^S,equi_pe_n0_,0)*inv_gamma_1 
+            else
+              tmp1(ixO^S) = small_e
+            endif  
 #endif
-            if(phys_total_energy) then
+            if(has_equi_pe_c0) then 
+              tmp2(ixO^S) = small_e - &
+                block%equi_vars(ixO^S,equi_pe_c0_,0)*inv_gamma_1 
+            else
+              tmp2(ixO^S) = small_e
+            endif  
+            if(phys_internal_e) then
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+              where(flag(ixO^S,e_n_))
+                w(ixO^S,e_n_)=tmp1(ixO^S)
+              end where
+#endif
               where(flag(ixO^S,e_c_))
-                w(ixO^S,e_c_) = tmp2(ixO^S)+&
-                   twofl_kin_en_c(w,ixI^L,ixO^L)+&
-                   twofl_mag_en(w,ixI^L,ixO^L)
+                w(ixO^S,e_c_)=tmp2(ixO^S)
               end where
             else
-              where(flag(ixO^S,e_c_))
-                w(ixO^S,e_c_) = tmp2(ixO^S)+&
+#if !defined(ONE_FLUID) || ONE_FLUID==0
+              where(flag(ixO^S,e_n_))
+                w(ixO^S,e_n_) = tmp1(ixO^S)+&
+                 twofl_kin_en_n(w,ixI^L,ixO^L)
+              end where
+#endif
+              if(phys_total_energy) then
+                where(flag(ixO^S,e_c_))
+                  w(ixO^S,e_c_) = tmp2(ixO^S)+&
+                   twofl_kin_en_c(w,ixI^L,ixO^L)+&
+                   twofl_mag_en(w,ixI^L,ixO^L)
+                end where
+              else
+                where(flag(ixO^S,e_c_))
+                  w(ixO^S,e_c_) = tmp2(ixO^S)+&
                    twofl_kin_en_c(w,ixI^L,ixO^L)
-              end where
-            endif
-            if(phys_solve_eaux) then
-              where(flag(ixO^S,e_c_))
-                w(ixO^S,eaux_c_)=tmp2(ixO^S)
-              end where
+                end where
+              endif
+              if(phys_solve_eaux) then
+                where(flag(ixO^S,e_c_))
+                  w(ixO^S,eaux_c_)=tmp2(ixO^S)
+                end where
+              end if
             end if
           end if
         end if
@@ -2756,7 +2710,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
       double precision, intent(out):: csound(ixI^S)
       double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-      double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
+      double precision :: inv_rho(ixO^S)
       double precision :: rhoc(ixI^S)
   
       integer :: ix1,ix2
@@ -2764,13 +2718,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   
       call get_rhoc_tot(w,x,ixI^L,ixO^L,rhoc)
       inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
-  
-      if (twofl_boris_type == boris_reduced_force) then
-        call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
-      else
-        gamma_A2(ixO^S) = 1.0d0
-      end if
-  
   
       if(phys_energy) then
         call twofl_get_pthermal_c_primitive(w,x,ixI^L,ixO^L,csound)
@@ -2780,11 +2727,11 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
       endif
   
       ! store |B|^2 in v
-      b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2(ixO^S)
+      b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L)
       cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
       AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
            * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-           * inv_rho(ixO^S) * gamma_A2(ixO^S)
+           * inv_rho(ixO^S)
   
       where(AvMinCs2(ixO^S)<zero)
          AvMinCs2(ixO^S)=zero
@@ -2794,9 +2741,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
   
       if (.not. twofl_Hall) then
          csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
-         if (twofl_boris_type == boris_simplification) then
-            csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
-         end if
       else
          ! take the Hall velocity into account:
          ! most simple estimate, high k limit:
@@ -2895,7 +2839,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-    double precision :: inv_rho(ixO^S), gamma2(ixO^S)
+    double precision :: inv_rho(ixO^S)
     double precision :: tmp(ixI^S)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
@@ -2907,22 +2851,17 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #else
     inv_rho(ixO^S)=1.d0/tmp(ixO^S)
 #endif
-    if (twofl_boris_type == boris_reduced_force) then
-      call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
-    else
-      gamma2(ixO^S) = 1.0d0
-    end if
 
     call twofl_get_csound2_c_from_conserved(w,x,ixI^L,ixO^L,csound)
 
 
     ! store |B|^2 in v
-    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2(ixO^S)
+    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L)
 
     cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho(ixO^S) * gamma2(ixO^S)
+         * inv_rho(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2932,9 +2871,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     if (.not. twofl_Hall) then
        csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
-       if (twofl_boris_type == boris_simplification) then
-          csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
-       end if
     else
        ! take the Hall velocity into account:
        ! most simple estimate, high k limit:
@@ -2954,7 +2890,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-    double precision :: inv_rho(ixO^S), gamma_A2(ixO^S)
+    double precision :: inv_rho(ixO^S)
     double precision :: rhoc(ixI^S)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
@@ -2967,20 +2903,14 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 #endif
 
-    if (twofl_boris_type == boris_reduced_force) then
-      call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
-    else
-      gamma_A2(ixO^S) = 1.0d0
-    end if
-
     call twofl_get_csound2_primitive(w,x,ixI^L,ixO^L,csound)
 
     ! store |B|^2 in v
-    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma_A2(ixO^S)
+    b2(ixO^S)        = twofl_mag_en_all(w,ixI^L,ixO^L)
     cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho(ixO^S) * gamma_A2(ixO^S)
+         * inv_rho(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -2990,9 +2920,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     if (.not. twofl_Hall) then
        csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
-       if (twofl_boris_type == boris_simplification) then
-          csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
-       end if
     else
        ! take the Hall velocity into account:
        ! most simple estimate, high k limit:
@@ -3084,7 +3011,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(in) :: w(ixI^S, nw), x(ixI^S,1:ndim)
     double precision, intent(out):: csound(ixI^S)
     double precision :: cfast2(ixI^S), AvMinCs2(ixI^S), b2(ixI^S), kmax
-    double precision :: inv_rho(ixO^S), gamma2(ixO^S)
+    double precision :: inv_rho(ixO^S)
     double precision :: rhoc(ixI^S)
 #if (!defined(ONE_FLUID) || ONE_FLUID==0) && (defined(A_TOT) && A_TOT == 1)
     double precision :: rhon(ixI^S)
@@ -3096,21 +3023,16 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #else
     inv_rho(ixO^S)=1.d0/rhoc(ixO^S)
 #endif
-    if (twofl_boris_type == boris_reduced_force) then
-      call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma2)
-    else
-      gamma2(ixO^S) = 1.0d0
-    end if
 
     call twofl_get_csound2(w,x,ixI^L,ixO^L,csound)
 
     ! store |B|^2 in v
-    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L) * gamma2(ixO^S)
+    b2(ixO^S) = twofl_mag_en_all(w,ixI^L,ixO^L)
 
     cfast2(ixO^S)   = b2(ixO^S) * inv_rho(ixO^S)+csound(ixO^S)
     AvMinCs2(ixO^S) = cfast2(ixO^S)**2-4.0d0*csound(ixO^S) &
          * twofl_mag_i_all(w,ixI^L,ixO^L,idim)**2 &
-         * inv_rho(ixO^S) * gamma2(ixO^S)
+         * inv_rho(ixO^S)
 
     where(AvMinCs2(ixO^S)<zero)
        AvMinCs2(ixO^S)=zero
@@ -3120,9 +3042,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     if (.not. twofl_Hall) then
        csound(ixO^S) = sqrt(half*(cfast2(ixO^S)+AvMinCs2(ixO^S)))
-       if (twofl_boris_type == boris_simplification) then
-          csound(ixO^S) = twofl_gamma_alfven(w, ixI^L,ixO^L) * csound(ixO^S)
-       end if
     else
        ! take the Hall velocity into account:
        ! most simple estimate, high k limit:
@@ -3537,32 +3456,20 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
     ! Get flux of momentum
     ! f_i[m_k]=v_i*m_k-b_k*b_i [+ptotal if i==k]
-    if (twofl_boris_type == boris_reduced_force) then
-      do idir=1,ndir
-        if(idim==idir) then
-          f(ixO^S,mom_c(idir)) = pgas(ixO^S)
-        else
-          f(ixO^S,mom_c(idir)) = 0.0d0
-        end if
-        f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+w(ixO^S,mom_c(idim))*wC(ixO^S,mom_c(idir))
-      end do
-    else
-      ! Normal case (no Boris approximation)
-      do idir=1,ndir
-        if(idim==idir) then
-          f(ixO^S,mom_c(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
-          if(B0field) f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+tmp(ixO^S)
-        else
-          f(ixO^S,mom_c(idir))= -w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
-        end if
-        if (B0field) then
-          f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))&
-               -w(ixO^S,mag(idir))*block%B0(ixO^S,idim,idim)&
-               -w(ixO^S,mag(idim))*block%B0(ixO^S,idir,idim)
-        end if
-        f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+w(ixO^S,mom_c(idim))*wC(ixO^S,mom_c(idir))
-      end do
-    end if
+    do idir=1,ndir
+      if(idim==idir) then
+        f(ixO^S,mom_c(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
+        if(B0field) f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+tmp(ixO^S)
+      else
+        f(ixO^S,mom_c(idir))= -w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
+      end if
+      if (B0field) then
+        f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))&
+             -w(ixO^S,mag(idir))*block%B0(ixO^S,idim,idim)&
+             -w(ixO^S,mag(idim))*block%B0(ixO^S,idir,idim)
+      end if
+      f(ixO^S,mom_c(idir))=f(ixO^S,mom_c(idir))+w(ixO^S,mom_c(idim))*wC(ixO^S,mom_c(idir))
+    end do
 
 
 
@@ -4152,7 +4059,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 #endif
 
   !> w[iws]=w[iws]+qdt*S[iws,wCT] where S is the source based on wCT within ixO
-  subroutine twofl_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)
+  subroutine twofl_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active,wCTprim)
     use mod_global_parameters
     use mod_radiative_cooling, only: radiative_cooling_add_source
     use mod_viscosity, only: viscosity_add_source
@@ -4164,6 +4071,7 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     double precision, intent(inout) :: w(ixI^S,1:nw)
     logical, intent(in)             :: qsourcesplit
     logical, intent(inout)            :: active
+    double precision, intent(in), optional :: wCTprim(ixI^S,1:nw)
 
     if (.not. qsourcesplit) then
       ! Source for solving internal energy
@@ -4333,12 +4241,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
            w,x,twofl_eq_energy .eq. EQ_ENERGY_KI .or. phys_total_energy,qsourcesplit,active)
     end if
 
-    if (twofl_boris_type == boris_reduced_force) then
-      call boris_add_source(qdt,ixI^L,ixO^L,wCT,&
-           w,x,qsourcesplit,active)
-    end if
-
-
   end subroutine twofl_add_source
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
@@ -4396,36 +4298,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     w(ixO^S,ind)=w(ixO^S,ind)+qdt*p(ixO^S)*divv(ixO^S)
   end subroutine add_geom_PdivV
 
-
-
-  subroutine boris_add_source(qdt,ixI^L,ixO^L,wCT,w,x,&
-       qsourcesplit,active)
-    use mod_global_parameters
-
-    integer, intent(in)             :: ixI^L, ixO^L
-    double precision, intent(in)    :: qdt, x(ixI^S,1:ndim)
-    double precision, intent(in)    :: wCT(ixI^S,1:nw)
-    double precision, intent(inout) :: w(ixI^S,1:nw)
-    logical, intent(in) :: qsourcesplit
-    logical, intent(inout) :: active
-
-    double precision :: JxB(ixI^S,3)
-    double precision :: gamma_A2(ixO^S)
-    integer          :: idir
-
-    ! Boris source term is always unsplit
-    if (qsourcesplit) return
-
-    call get_lorentz(ixI^L,ixO^L,w,JxB)
-    call twofl_gamma2_alfven(ixI^L, ixO^L, wCT, gamma_A2)
-
-    do idir = 1, ndir
-      w(ixO^S,mom_c(idir)) = w(ixO^S,mom_c(idir)) + &
-           qdt * gamma_A2(ixO^S) * JxB(ixO^S, idir)
-    end do
-
-  end subroutine boris_add_source
-
   !> Compute the Lorentz force (JxB)
   subroutine get_lorentz(ixI^L,ixO^L,w,JxB)
     use mod_global_parameters
@@ -4467,55 +4339,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
 
 
   end subroutine  add_source_lorentz_work
-
-
-  !> Compute 1/(1+v_A^2/c^2) for Boris' approximation, where v_A is the Alfven
-  !> velocity
-  subroutine twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A2)
-    use mod_global_parameters
-    integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S, nw)
-    double precision, intent(out) :: gamma_A2(ixO^S)
-    double precision              :: rhoc(ixI^S) 
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-    double precision              :: rhon(ixI^S)
-#endif
-    
-    ! cannot use get_rhoc_tot as x is not parameter here!
-    if(has_equi_rho_c0) then
-      rhoc(ixO^S) = w(ixO^S,rho_c_) + block%equi_vars(ixO^S,equi_rho_c0_,b0i)
-    else  
-      rhoc(ixO^S) = w(ixO^S,rho_c_) 
-    endif
-
-#if !defined(ONE_FLUID) || ONE_FLUID==0
-    if(has_equi_rho_n0) then
-      rhon(ixO^S) = w(ixO^S,rho_n_) + block%equi_vars(ixO^S,equi_rho_n0_,b0i)
-    else  
-      rhon(ixO^S) = w(ixO^S,rho_n_) 
-    endif
-    rhoc(ixO^S) = rhon(ixO^S) + rhoc(ixO^S)
-#endif
-    if (twofl_boris_c < 0.0d0) then
-      ! Good for testing the non-conservative momentum treatment
-      gamma_A2(ixO^S) = 1.0d0
-    else
-      ! Compute the inverse of 1 + B^2/(rho * c^2)
-      gamma_A2(ixO^S) = 1.0d0 / (1.0d0 + twofl_mag_en_all(w, ixI^L, ixO^L) / (rhoc(ixO^S) * twofl_boris_c**2))
-    end if
-  end subroutine twofl_gamma2_alfven
-
-  !> Compute 1/sqrt(1+v_A^2/c^2) for Boris simplification, where v_A is the
-  !> Alfven velocity
-  function twofl_gamma_alfven(w, ixI^L, ixO^L) result(gamma_A)
-    use mod_global_parameters
-    integer, intent(in)           :: ixI^L, ixO^L
-    double precision, intent(in)  :: w(ixI^S, nw)
-    double precision              :: gamma_A(ixO^S)
-
-    call twofl_gamma2_alfven(ixI^L, ixO^L, w, gamma_A)
-    gamma_A(ixO^S) = sqrt(gamma_A(ixO^S))
-  end function twofl_gamma_alfven
 
 #if !defined(ONE_FLUID) || ONE_FLUID==0
   !> Calculate v_n vector
@@ -4780,8 +4603,6 @@ function convert_vars_splitting(ixI^L,ixO^L, w, x, nwc) result(wnew)
     v(ixO^S) = w(ixO^S, mom_c(idim)) / rhoc(ixO^S)
 
   end subroutine twofl_get_v_c_idim
-
-
 
   subroutine internal_energy_add_source_c(qdt,ixI^L,ixO^L,wCT,w,x,ie)
     use mod_global_parameters

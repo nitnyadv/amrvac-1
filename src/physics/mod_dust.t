@@ -141,7 +141,7 @@ contains
 
   subroutine dust_check_params()
     use mod_usr_methods, only: usr_get_3d_dragforce,usr_dust_get_dt
-    use mod_global_parameters, only : mype, SI_unit
+    use mod_global_parameters, only : mype, SI_unit, use_imex_scheme
 
     if (dust_method == 'sticking') then
        if (SI_unit) call mpistop("Dust error: sticking assumes cgs units")
@@ -171,6 +171,11 @@ contains
        if (.not. associated(usr_get_3d_dragforce) .or. .not. associated(usr_dust_get_dt)) &
             call mpistop("Dust error:usr_get_3d_dragforce and usr_dust_get_dt not defined")
     end if
+
+    if(.not. use_imex_scheme .and. ((dust_dtpar .ge. 1d0).or.(dust_dtpar.le.0))) then
+      if(mype .eq. 0) print*, "EXPLICIT source for dust requires 0<dt_dustpar < 1, set to 0.8"
+      dust_dtpar = 0.8
+    endif
 
   end subroutine dust_check_params
 
@@ -963,6 +968,8 @@ contains
     double precision, dimension(ixI^S)           :: vt2, deltav, tstop, vdust
     double precision, dimension(ixI^S, 1:dust_n_species) :: alpha_T
     integer                                    :: n, idir
+
+    if(dust_dtpar .le. 0) return
 
     call phys_get_pthermal(w, x, ixI^L, ixO^L, ptherm)
     do idir = 1, ndir

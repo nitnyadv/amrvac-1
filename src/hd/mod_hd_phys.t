@@ -11,12 +11,12 @@ module mod_hd_phys
 
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
-  type(tc_fluid), public, allocatable :: tc_fl
+  type(tc_fluid), allocatable, public :: tc_fl
   type(te_fluid), allocatable :: te_fl_hd
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
-  type(rc_fluid), public, allocatable :: rc_fl
+  type(rc_fluid), allocatable, public :: rc_fl
 
   !> Whether dust is added
   logical, public, protected              :: hd_dust = .false.
@@ -257,7 +257,6 @@ contains
     phys_get_tcutoff         => hd_get_tcutoff
     phys_get_cbounds         => hd_get_cbounds
     phys_get_flux            => hd_get_flux
-    phys_get_v_idim          => hd_get_v
     phys_add_source_geom     => hd_add_source_geom
     phys_add_source          => hd_add_source
     phys_to_conserved        => hd_to_conserved
@@ -1312,7 +1311,7 @@ contains
   end subroutine hd_add_source_geom
 
   ! w[iw]= w[iw]+qdt*S[wCT, qtC, x] where S is the source based on wCT within ixO
-  subroutine hd_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active)
+  subroutine hd_add_source(qdt,ixI^L,ixO^L,wCT,w,x,qsourcesplit,active,wCTprim)
     use mod_global_parameters
     use mod_radiative_cooling, only: radiative_cooling_add_source
     use mod_dust, only: dust_add_source, dust_mom, dust_rho, dust_n_species
@@ -1326,6 +1325,7 @@ contains
     double precision, intent(inout) :: w(ixI^S, 1:nw)
     logical, intent(in)             :: qsourcesplit
     logical, intent(inout)          :: active
+    double precision, intent(in),optional :: wCTprim(ixI^S, 1:nw)
 
     double precision :: gravity_field(ixI^S, 1:ndim)
     integer :: idust, idim
@@ -1377,7 +1377,7 @@ contains
 
     dtnew = bigdouble
 
-    if(hd_dust .and. .not. use_imex_scheme) then
+    if(hd_dust) then
       call dust_get_dt(w, ixI^L, ixO^L, dtnew, dx^D, x)
     end if
 
