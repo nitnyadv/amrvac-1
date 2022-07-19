@@ -877,7 +877,8 @@ module mod_thermal_emission
       else if (resolution_spectrum=='instrument') then
         if (mype==0) print *, 'Unit of wavelength: Angstrom (0.1 nm) '
         if (mype==0) print *, 'Unit of length: arcsec (~725 km)'
-        if (mype==0) write(*,'(a,f8.1,a)') ' Location of slit: ',location_slit,' arcsec'
+        if (mype==0) print *, 'Direction of the slit: parallel to xI2 vector'
+        if (mype==0) write(*,'(a,f8.1,a)') ' Location of slit: xI1 = ',location_slit,' arcsec'
         if (mype==0) write(*,'(a,f8.1,a)') ' Width of slit: ',wslit,' arcsec'
         call get_spectrum_inst_resol(qunit,datatype,fl)
       else
@@ -1240,22 +1241,22 @@ module mod_thermal_emission
       end select
 
 
-      if (LOS_theta==0 .and. LOS_phi==90 .and. direction_slit==2) then
+      if (LOS_phi==0 .and. LOS_theta==90 .and. direction_slit==2) then
       ! LOS->x slit->y
         dir_loc=3
-      else if (LOS_theta==0 .and. LOS_phi==90 .and. direction_slit==3) then
+      else if (LOS_phi==0 .and. LOS_theta==90 .and. direction_slit==3) then
       ! LOS->x slit->z
         dir_loc=2
-      else if (LOS_theta==90 .and. LOS_phi==90 .and. direction_slit==1) then
+      else if (LOS_phi==90 .and. LOS_theta==90 .and. direction_slit==1) then
       ! LOS->y slit->x
         dir_loc=3
-      else if (LOS_theta==90 .and. LOS_phi==90 .and. direction_slit==3) then
+      else if (LOS_phi==90 .and. LOS_theta==90 .and. direction_slit==3) then
       ! LOS->y slit->z
         dir_loc=1
-      else if (LOS_phi==0 .and. direction_slit==1) then
+      else if (LOS_theta==0 .and. direction_slit==1) then
       ! LOS->z slit->x
         dir_loc=2
-      else if (LOS_phi==0 .and. direction_slit==2) then
+      else if (LOS_theta==0 .and. direction_slit==2) then
       ! LOS->z slit->y
         dir_loc=1
       else
@@ -1329,9 +1330,9 @@ module mod_thermal_emission
 
       call get_line_info(spectrum_wl,ion,mass,logTe,lineCent,spaceRsl,wlRsl,sigma_PSF,wslit)      
 
-      if (LOS_theta==0 .and. LOS_phi==90) then
+      if (LOS_phi==0 .and. LOS_theta==90) then
         direction_LOS=1
-      else if (LOS_theta==90 .and. LOS_phi==90) then
+      else if (LOS_phi==90 .and. LOS_theta==90) then
         direction_LOS=2
       else
         direction_LOS=3
@@ -1446,28 +1447,26 @@ module mod_thermal_emission
 
       datatype='image_euv'
 
-      if (image_euv) then
-        if (resolution_euv=='data') then
-          if (SI_unit) then
-            if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d6,' Mm'
-          else
-            if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d8,' Mm'
-          endif
-          if (LOS_theta==0 .and. LOS_phi==90) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else if (LOS_theta==90 .and. LOS_phi==90) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else if (LOS_phi==0) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else
-            call MPISTOP('ERROR: Wrong LOS for synthesizing emission!')
-          endif
-        else if (resolution_euv=='instrument') then
-          if (mype==0) print *, 'Unit of length: arcsec (~725 km)'
-          call get_image_inst_resol(qunit,datatype,fl)
+      if (resolution_euv=='data') then
+        if (SI_unit) then
+          if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d6,' Mm'
         else
-          call MPISTOP('ERROR: Wrong resolution type')
+          if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d8,' Mm'
         endif
+        if (LOS_phi==0 .and. LOS_theta==90) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else if (LOS_phi==90 .and. LOS_theta==90) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else if (LOS_theta==0) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else
+          call MPISTOP('ERROR: Wrong LOS for synthesizing emission!')
+        endif
+      else if (resolution_euv=='instrument') then
+        if (mype==0) print *, 'Unit of length: arcsec (~725 km)'
+        call get_image_inst_resol(qunit,datatype,fl)
+      else
+        call MPISTOP('ERROR: Wrong resolution type')
       endif
 
       if (mype==0) print *, '###################################################'
@@ -1489,28 +1488,26 @@ module mod_thermal_emission
 
       datatype='image_sxr'
 
-      if (image_sxr) then
-        if (resolution_sxr=='data') then
-          if (SI_unit) then
-            if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d3,' km'
-          else
-            if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d5,' km'
-          endif
-          if (LOS_theta==0 .and. LOS_phi==90) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else if (LOS_theta==90 .and. LOS_phi==90) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else if (LOS_phi==0) then
-            call get_image_data_resol(qunit,datatype,fl)
-          else
-            call MPISTOP('ERROR: Wrong LOS for synthesizing emission!')
-          endif
-        else if (resolution_sxr=='instrument') then
-          if (mype==0) print *, 'Unit of length: arcsec (~725 km)'
-          call get_image_inst_resol(qunit,datatype,fl)
+      if (resolution_sxr=='data') then
+        if (SI_unit) then
+          if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d3,' km'
         else
-          call MPISTOP('ERROR: Wrong resolution type')
+          if (mype==0) write(*,'(a,f8.1,a)') ' Unit of length: ',unit_length/1.d5,' km'
         endif
+        if (LOS_phi==0 .and. LOS_theta==90) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else if (LOS_phi==90 .and. LOS_theta==90) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else if (LOS_theta==0) then
+          call get_image_data_resol(qunit,datatype,fl)
+        else
+          call MPISTOP('ERROR: Wrong LOS for synthesizing emission!')
+        endif
+      else if (resolution_sxr=='instrument') then
+        if (mype==0) print *, 'Unit of length: arcsec (~725 km)'
+        call get_image_inst_resol(qunit,datatype,fl)
+      else
+        call MPISTOP('ERROR: Wrong resolution type')
       endif
 
       if (mype==0) print *, '###################################################'
@@ -1880,7 +1877,7 @@ module mod_thermal_emission
       numX3=domain_nx3*2**(refine_max_level-1)
 
       ! parameters for creating table
-      if (LOS_theta==0 .and. LOS_phi==90) then
+      if (LOS_phi==0 .and. LOS_theta==90) then
         nXIF1=domain_nx2*2**(refine_max_level-1)
         nXIF2=domain_nx3*2**(refine_max_level-1)
         xIFmin1=xprobmin2
@@ -1897,7 +1894,7 @@ module mod_thermal_emission
         nstrb2=nstretchedblocks_baselevel(3)
         qs1=qstretch_baselevel(2)
         qs2=qstretch_baselevel(3)
-      else if (LOS_theta==90 .and. LOS_phi==90) then
+      else if (LOS_phi==90 .and. LOS_theta==90) then
         nXIF1=domain_nx3*2**(refine_max_level-1)
         nXIF2=domain_nx1*2**(refine_max_level-1)
         xIFmin1=xprobmin3
@@ -2127,9 +2124,9 @@ module mod_thermal_emission
       integer :: ixP^L,ixP^D
       integer :: direction_LOS
 
-      if (LOS_theta==0 .and. LOS_phi==90) then
+      if (LOS_phi==0 .and. LOS_theta==90) then
         direction_LOS=1
-      else if (LOS_theta==90 .and. LOS_phi==90) then
+      else if (LOS_phi==90 .and. LOS_theta==90) then
         direction_LOS=2
       else
         direction_LOS=3
@@ -2303,9 +2300,9 @@ module mod_thermal_emission
       integer :: ixP^L,ixP^D
       integer :: direction_LOS
 
-      if (LOS_theta==0 .and. LOS_phi==90) then
+      if (LOS_phi==0 .and. LOS_theta==90) then
         direction_LOS=1
-      else if (LOS_theta==90 .and. LOS_phi==90) then
+      else if (LOS_phi==90 .and. LOS_theta==90) then
         direction_LOS=2
       else
         direction_LOS=3
@@ -2454,13 +2451,14 @@ module mod_thermal_emission
       integer :: nPiece,nP1,nP2,nC1,nC2,nWC
       integer :: piece_nmax1,piece_nmax2,ix1,ix2,j,ipc,ixc1,ixc2
       double precision, allocatable :: xC(:,:,:,:),wC(:,:,:,:),dxC(:,:,:,:)
+      character(len=std_len) :: resolution_type
 
       ! how many cells in each grid
       if (datatype=='image_euv' .and. resolution_euv=='data') then
-        if (LOS_theta==0 .and. LOS_phi==90) then
+        if (LOS_phi==0 .and. LOS_theta==90) then
           piece_nmax1=block_nx2
           piece_nmax2=block_nx3
-        else if (LOS_theta==90 .and. LOS_phi==90) then
+        else if (LOS_phi==90 .and. LOS_theta==90) then
           piece_nmax1=block_nx3
           piece_nmax2=block_nx1
         else
@@ -2468,10 +2466,10 @@ module mod_thermal_emission
           piece_nmax2=block_nx2
         endif
       else if (datatype=='image_sxr' .and. resolution_sxr=='data') then
-        if (LOS_theta==0 .and. LOS_phi==90) then
+        if (LOS_phi==0 .and. LOS_theta==90) then
           piece_nmax1=block_nx2
           piece_nmax2=block_nx3
-        else if (LOS_theta==90 .and. LOS_phi==90) then
+        else if (LOS_phi==90 .and. LOS_theta==90) then
           piece_nmax1=block_nx3
           piece_nmax2=block_nx1
         else
@@ -2510,32 +2508,168 @@ module mod_thermal_emission
       nPiece=nP1*nP2
       nWC=nWO
 
-      ! put data into grids
-      allocate(xC(nPiece,nC1,nC2,2))
-      allocate(dxC(nPiece,nC1,nC2,2))
-      allocate(wC(nPiece,nC1,nC2,nWO))
-      do ipc=1,nPiece
-        do ixc1=1,nC1
-          do ixc2=1,nC2
-            ix1=mod(ipc-1,nP1)*nC1+ixc1
-            ix2=floor(1.0*(ipc-1)/nP1)*nC2+ixc2
-            xC(ipc,ixc1,ixc2,1)=xO1(ix1)
-            xC(ipc,ixc1,ixc2,2)=xO2(ix2)
-            dxC(ipc,ixc1,ixc2,1)=dxO1(ix1)
-            dxC(ipc,ixc1,ixc2,2)=dxO2(ix2)
-            do j=1,nWC
-              wC(ipc,ixc1,ixc2,j)=wO(ix1,ix2,j)
+      select case(convert_type)
+        case('EIvtuCCmpi','ESvtuCCmpi','SIvtuCCmpi')
+          ! put data into grids
+          allocate(xC(nPiece,nC1,nC2,2))
+          allocate(dxC(nPiece,nC1,nC2,2))
+          allocate(wC(nPiece,nC1,nC2,nWO))
+          do ipc=1,nPiece
+            do ixc1=1,nC1
+              do ixc2=1,nC2
+                ix1=mod(ipc-1,nP1)*nC1+ixc1
+                ix2=floor(1.0*(ipc-1)/nP1)*nC2+ixc2
+                xC(ipc,ixc1,ixc2,1)=xO1(ix1)
+                xC(ipc,ixc1,ixc2,2)=xO2(ix2)
+                dxC(ipc,ixc1,ixc2,1)=dxO1(ix1)
+                dxC(ipc,ixc1,ixc2,2)=dxO2(ix2)
+                do j=1,nWC
+                  wC(ipc,ixc1,ixc2,j)=wO(ix1,ix2,j)
+                enddo
+              enddo
             enddo
           enddo
-        enddo
-      enddo
+          ! write data into vtu file
+          call write_image_vtuCC(qunit,xC,wC,dxC,nPiece,nC1,nC2,nWC,datatype)
+          deallocate(xC,dxC,wC)
+        case('EIvtiCCmpi','ESvtiCCmpi','SIvtiCCmpi')
+          if (convert_type=='EIvtiCCmpi') resolution_type=resolution_euv
+          if (convert_type=='ESvtiCCmpi') resolution_type=resolution_spectrum
+          if (convert_type=='SIvtiCCmpi') resolution_type=resolution_sxr
+          if (sum(stretch_type(:))>0 .and. resolution_type=='data') then
+            call mpistop("Error in synthesize emission: vti is not supported for data resolution")
+          else
+            call write_image_vtiCC(qunit,xO1,xO2,dxO1,dxO2,wO,nXO1,nXO2,nWO,nC1,nC2)
+          endif
+        case default
+          call mpistop("Error in synthesize emission: Unknown convert_type")
+      end select
 
-      ! write data into vtu file
-      call write_image(qunit,xC,wC,dxC,nPiece,nC1,nC2,nWC,datatype)
-      deallocate(xC,wC)
     end subroutine output_data
+  }
 
-    subroutine write_image(qunit,xC,wC,dxC,nPiece,nC1,nC2,nWC,datatype)
+    subroutine write_image_vtiCC(qunit,xO1,xO2,dxO1,dxO2,wO,nXO1,nXO2,nWO,nC1,nC2)
+      ! write image data to vti
+      use mod_global_parameters
+
+      integer, intent(in) :: qunit,nXO1,nXO2,nWO,nC1,nC2
+      double precision, intent(in) :: xO1(nXO1),xO2(nxO2)
+      double precision, intent(in) :: dxO1(nxO1),dxO2(nxO2)
+      double precision, intent(in) :: wO(nXO1,nXO2,nWO)
+
+      double precision :: origin(1:3), spacing(1:3)
+      integer :: wholeExtent(1:6),extent(1:6)
+      integer :: nP1,nP2,iP1,iP2,iw
+      integer :: ixC1,ixC2,ixCmin1,ixCmax1,ixCmin2,ixCmax2
+
+      integer :: filenr
+      logical :: fileopen
+      character (70) :: subname,wname,vname,nameL,nameS
+      character (len=std_len) :: filename
+      integer :: mass
+      double precision :: logTe
+      character (30) :: ion
+      double precision :: line_center
+      double precision :: spatial_rsl,spectral_rsl,sigma_PSF,wslit
+
+
+      origin(1)=xO1(1)-0.5d0*dxO1(1)
+      origin(2)=xO2(1)-0.5d0*dxO2(1)
+      origin(3)=zero
+      spacing(1)=dxO1(1)
+      spacing(2)=dxO2(1)
+      spacing(3)=zero
+      wholeExtent=zero
+      wholeExtent(2)=nXO1
+      wholeExtent(4)=nXO2
+      nP1=nXO1/nC1
+      nP2=nXO2/nC2
+
+      ! get information of emission line
+      if (convert_type=='EIvtiCCmpi') then
+        call get_line_info(wavelength,ion,mass,logTe,line_center,spatial_rsl,spectral_rsl,sigma_PSF,wslit)
+      else if (convert_type=='ESvtiCCmpi') then
+        call get_line_info(spectrum_wl,ion,mass,logTe,line_center,spatial_rsl,spectral_rsl,sigma_PSF,wslit)
+      endif
+
+      if (mype==0) then
+        inquire(qunit,opened=fileopen)
+        if(.not.fileopen)then
+          ! generate filename 
+          filenr=snapshotini
+          if (autoconvert) filenr=snapshotnext
+          if (convert_type=='EIvtiCCmpi') then
+            write(filename,'(a,i4.4,a)') trim(filename_euv),filenr,".vti"
+          else if (convert_type=='SIvtiCCmpi') then
+            write(filename,'(a,i4.4,a)') trim(filename_sxr),filenr,".vti"
+          else if (convert_type=='ESvtiCCmpi') then
+            write(filename,'(a,i4.4,a)') trim(filename_spectrum),filenr,".vti"
+          endif
+          open(qunit,file=filename,status='unknown',form='formatted')
+        endif
+
+        ! generate xml header
+        write(qunit,'(a)')'<?xml version="1.0"?>'
+        write(qunit,'(a)',advance='no') '<VTKFile type="ImageData"'
+        write(qunit,'(a)')' version="0.1" byte_order="LittleEndian">'
+        write(qunit,'(a,3(1pe14.6),a,6(i10),a,3(1pe14.6),a)')'  <ImageData Origin="',&
+              origin,'" WholeExtent="',wholeExtent,'" Spacing="',spacing,'">'
+        ! file info        
+        write(qunit,'(a)')'<FieldData>'
+        write(qunit,'(2a)')'<DataArray type="Float32" Name="TIME" ',&
+                           'NumberOfTuples="1" format="ascii">'
+        write(qunit,*) real(global_time*time_convert_factor)
+        write(qunit,'(a)')'</DataArray>'
+        if (convert_type=='EIvtiCCmpi' .or. convert_type=='ESvtiCCmpi') then
+          write(qunit,'(2a)')'<DataArray type="Float32" Name="logT" ',&
+                             'NumberOfTuples="1" format="ascii">'
+          write(qunit,*) real(logTe)
+          write(qunit,'(a)')'</DataArray>'
+        endif
+        write(qunit,'(a)')'</FieldData>'
+        ! pixel/cell data
+        do iP1=1,nP1
+          do iP2=1,nP2
+            extent=zero
+            extent(1)=(iP1-1)*nC1
+            extent(2)=iP1*nC1
+            extent(3)=(iP2-1)*nC2
+            extent(4)=iP2*nC2
+            ixCmin1=extent(1)+1
+            ixCmax1=extent(2)
+            ixCmin2=extent(3)+1
+            ixCmax2=extent(4)
+            write(qunit,'(a,6(i10),a)') &
+                  '<Piece Extent="',extent,'">'
+            write(qunit,'(a)')'<CellData>'
+            do iw=1,nWO
+              ! variable name
+              if (convert_type=='EIvtiCCmpi') then
+                if (iw==1) write(vname,'(a,i4)') "AIA ",wavelength
+                if (iw==2) vname='Doppler velocity'
+              else if (convert_type=='SIvtiCCmpi') then
+                write(vname,'(a,i2,a,i2,a)') "SXR ",emin_sxr,"-",emax_sxr," keV"
+              else if (convert_type=='ESvtiCCmpi') then
+                write(vname,'(a,i4)') "spectra ",spectrum_wl
+              endif
+              write(qunit,'(a,a,a)')&
+                '<DataArray type="Float64" Name="',TRIM(vname),'" format="ascii">'
+              write(qunit,'(200(1pe14.6))') ((wO(ixC1,ixC2,iw),ixC1=ixCmin1,ixCmax1),ixC2=ixCmin2,ixCmax2)
+              write(qunit,'(a)')'</DataArray>'
+            enddo
+            write(qunit,'(a)')'</CellData>'
+            write(qunit,'(a)')'</Piece>'
+          enddo
+        enddo
+        ! end
+        write(qunit,'(a)')'</ImageData>'
+        write(qunit,'(a)')'</VTKFile>'
+        close(qunit)
+      endif
+
+    end subroutine write_image_vtiCC
+
+    subroutine write_image_vtuCC(qunit,xC,wC,dxC,nPiece,nC1,nC2,nWC,datatype)
       ! write image data to vtu
       use mod_global_parameters
 
@@ -2637,17 +2771,17 @@ module mod_thermal_emission
           do ix2=1,nP2
             do ix1=1,nP1 
               if (datatype=='image_euv' .and. resolution_euv=='data') then
-                if (LOS_theta==0 .and. LOS_phi==90) then
+                if (LOS_phi==0 .and. LOS_theta==90) then
                   write(qunit,'(3(1pe14.6))') 0.d0,xP(ixP,ix1,ix2,1),xP(ixP,ix1,ix2,2)
-                else if (LOS_theta==90 .and. LOS_phi==90) then
+                else if (LOS_phi==90 .and. LOS_theta==90) then
                   write(qunit,'(3(1pe14.6))') xP(ixP,ix1,ix2,2),0.d0,xP(ixP,ix1,ix2,1)
                 else
                   write(qunit,'(3(1pe14.6))') xP(ixP,ix1,ix2,1),xP(ixP,ix1,ix2,2),0.d0
                 endif
               else if (datatype=='image_sxr' .and. resolution_sxr=='data') then
-                if (LOS_theta==0 .and. LOS_phi==90) then
+                if (LOS_phi==0 .and. LOS_theta==90) then
                   write(qunit,'(3(1pe14.6))') 0.d0,xP(ixP,ix1,ix2,1),xP(ixP,ix1,ix2,2)
-                else if (LOS_theta==90 .and. LOS_phi==90) then
+                else if (LOS_phi==90 .and. LOS_theta==90) then
                   write(qunit,'(3(1pe14.6))') xP(ixP,ix1,ix2,2),0.d0,xP(ixP,ix1,ix2,1)
                 else
                   write(qunit,'(3(1pe14.6))') xP(ixP,ix1,ix2,1),xP(ixP,ix1,ix2,2),0.d0
@@ -2690,7 +2824,7 @@ module mod_thermal_emission
         write(qunit,'(a)')'</VTKFile>'
         close(qunit)
       endif
-    end subroutine write_image
+    end subroutine write_image_vtuCC
 
     subroutine dot_product_loc(vec_in1,vec_in2,res)
       double precision, intent(in) :: vec_in1(1:3),vec_in2(1:3)
@@ -2720,22 +2854,22 @@ module mod_thermal_emission
       double precision :: vec_z(1:3),vec_temp1(1:3),vec_temp2(1:3)
 
       ! vectors for image coordinate
-      vec_LOS(1)=-cos(dpi*LOS_theta/180.d0)*sin(dpi*LOS_phi/180.d0)
-      vec_LOS(2)=-sin(dpi*LOS_theta/180.d0)*sin(dpi*LOS_phi/180.d0)
-      vec_LOS(3)=-cos(dpi*LOS_phi/180.d0)
+      vec_LOS(1)=-cos(dpi*LOS_phi/180.d0)*sin(dpi*LOS_theta/180.d0)
+      vec_LOS(2)=-sin(dpi*LOS_phi/180.d0)*sin(dpi*LOS_theta/180.d0)
+      vec_LOS(3)=-cos(dpi*LOS_theta/180.d0)
       do j=1,3
         if (abs(vec_LOS(j))<=smalldouble) vec_LOS(j)=zero
       enddo
       vec_z(:)=zero
       vec_z(3)=1.d0
-      if (LOS_phi==zero) then
+      if (LOS_theta==zero) then
         vec_xI1=zero
         vec_xI2=zero
         vec_xI1(1)=1.d0
         vec_xI2(2)=1.d0
       else
-        call cross_product_loc(vec_z,vec_LOS,vec_xI1)
-        call cross_product_loc(vec_LOS,vec_xI1,vec_xI2)
+        call cross_product_loc(vec_LOS,vec_z,vec_xI1)
+        call cross_product_loc(vec_xI1,vec_LOS,vec_xI2)
       endif
       vec_temp1=vec_xI1/sqrt(vec_xI1(1)**2+vec_xI1(2)**2+vec_xI1(3)**2)
       vec_temp2=vec_xI2/sqrt(vec_xI2(1)**2+vec_xI2(2)**2+vec_xI2(3)**2)
@@ -2748,6 +2882,10 @@ module mod_thermal_emission
         if (abs(vec_xI2(j))<smalldouble) vec_xI2(j)=zero
       enddo
 
+      if (mype==0) write(*,'(a,f5.2,f6.2,f6.2,a)') ' LOS vector: [',vec_LOS(1),vec_LOS(2),vec_LOS(3),']'
+      if (mype==0) write(*,'(a,f5.2,f6.2,f6.2,a)') ' xI1 vector: [',vec_xI1(1),vec_xI1(2),vec_xI1(3),']'
+      if (mype==0) write(*,'(a,f5.2,f6.2,f6.2,a)') ' xI2 vector: [',vec_xI2(1),vec_xI2(2),vec_xI2(3),']'
+
     end subroutine init_vectors
-  }
+
 end module mod_thermal_emission

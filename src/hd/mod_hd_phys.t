@@ -12,7 +12,7 @@ module mod_hd_phys
   !> Whether thermal conduction is added
   logical, public, protected              :: hd_thermal_conduction = .false.
   type(tc_fluid), allocatable, public :: tc_fl
-  type(te_fluid), allocatable :: te_fl_hd
+  type(te_fluid), allocatable, public :: te_fl_hd
 
   !> Whether radiative cooling is added
   logical, public, protected              :: hd_radiative_cooling = .false.
@@ -338,14 +338,12 @@ contains
       rc_fl%e_ = e_
       rc_fl%Tcoff_ = Tcoff_
     end if
+    allocate(te_fl_hd)
+    te_fl_hd%get_rho=> hd_get_rho
+    te_fl_hd%get_pthermal=> hd_get_pthermal
+    te_fl_hd%Rfactor = 1d0
 {^IFTHREED
-    if (image_euv .or. spectrum_euv .or. image_sxr) then
-      allocate(te_fl_hd)
-      te_fl_hd%get_rho=> hd_get_rho
-      te_fl_hd%get_pthermal=> hd_get_pthermal
-      te_fl_hd%Rfactor = 1d0
-      phys_te_images => hd_te_images 
-    endif
+    phys_te_images => hd_te_images 
 }
     ! Initialize viscosity module
     if (hd_viscosity) call viscosity_init(phys_wider_stencil,phys_req_diagonal)
@@ -380,10 +378,16 @@ contains
   subroutine hd_te_images()
     use mod_global_parameters
     use mod_thermal_emission
-    if (image_euv) call get_EUV_image(unitconvert,te_fl_hd)
-    if (spectrum_euv) call get_EUV_spectrum(unitconvert,te_fl_hd)
-    if (image_sxr) call get_SXR_image(unitconvert,te_fl_hd)
-
+    select case(convert_type)
+      case('EIvtiCCmpi','EIvtuCCmpi')
+        call get_EUV_image(unitconvert,te_fl_hd)
+      case('ESvtiCCmpi','ESvtuCCmpi')
+        call get_EUV_spectrum(unitconvert,te_fl_hd)
+      case('SIvtiCCmpi','SIvtuCCmpi')
+        call get_SXR_image(unitconvert,te_fl_hd)
+      case default
+        call mpistop("Error in synthesize emission: Unknown convert_type")
+      end select
   end subroutine hd_te_images
 }
 !!start th cond
@@ -860,7 +864,7 @@ contains
     double precision, intent(in)    :: x(ixI^S, 1:ndim)
     double precision, intent(inout) :: cmax(ixI^S,1:number_species)
     double precision, intent(inout), optional :: cmin(ixI^S,1:number_species)
-    double precision, intent(in)    :: Hspeed(ixI^S)
+    double precision, intent(in)    :: Hspeed(ixI^S,1:number_species)
 
     double precision :: wmean(ixI^S,nw)
     double precision, dimension(ixI^S) :: umean, dmean, csoundL, csoundR, tmp1,tmp2,tmp3
@@ -894,8 +898,8 @@ contains
         cmax(ixO^S,1)=umean(ixO^S)+dmean(ixO^S)
         if(H_correction) then
           {do ix^DB=ixOmin^DB,ixOmax^DB\}
-            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
-            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D,1))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D,1))
           {end do\}
         end if
       else
@@ -918,8 +922,8 @@ contains
         cmin(ixO^S,1)=min(tmp1(ixO^S)-csoundR(ixO^S),zero)
         if(H_correction) then
           {do ix^DB=ixOmin^DB,ixOmax^DB\}
-            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
-            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D,1))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D,1))
           {end do\}
         end if
       else
@@ -944,8 +948,8 @@ contains
         cmax(ixO^S,1)=max(wLp(ixO^S,mom(idim)),wRp(ixO^S,mom(idim)))+csoundL(ixO^S)
         if(H_correction) then
           {do ix^DB=ixOmin^DB,ixOmax^DB\}
-            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D))
-            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D))
+            cmin(ix^D,1)=sign(one,cmin(ix^D,1))*max(abs(cmin(ix^D,1)),Hspeed(ix^D,1))
+            cmax(ix^D,1)=sign(one,cmax(ix^D,1))*max(abs(cmax(ix^D,1)),Hspeed(ix^D,1))
           {end do\}
         end if
       else
@@ -1486,11 +1490,11 @@ contains
            call small_values_average(ixI^L, ixO^L, w, x, flag, rho_)
            if(hd_energy) then
              ! do averaging of pressure
-             w(ixO^S,p_)=(hd_gamma-1.d0)*(w(ixO^S,e_) &
-              -0.5d0*sum(w(ixO^S, mom(:))**2, dim=ndim+1)/w(ixO^S,rho_))
+             w(ixI^S,p_)=(hd_gamma-1.d0)*(w(ixI^S,e_) &
+              -0.5d0*sum(w(ixI^S, mom(:))**2, dim=ndim+1)/w(ixI^S,rho_))
              call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
-             w(ixO^S,e_)=w(ixO^S,p_)/(hd_gamma-1.d0) &
-               +0.5d0*sum(w(ixO^S, mom(:))**2, dim=ndim+1)/w(ixO^S,rho_)
+             w(ixI^S,e_)=w(ixI^S,p_)/(hd_gamma-1.d0) &
+               +0.5d0*sum(w(ixI^S, mom(:))**2, dim=ndim+1)/w(ixI^S,rho_)
            end if
            if(hd_dust)then
               do n=1,dust_n_species

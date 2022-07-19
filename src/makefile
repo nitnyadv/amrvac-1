@@ -37,6 +37,7 @@ mod_multigrid_coupling.o: m_octree_mg_$(NDIM)d.mod
 
 amr_neighbors.o: mod_geometry.mod
 amr_solution_node.o: mod_geometry.mod
+amr_solution_node.o: mod_mhd_phys.mod
 amr_solution_node.o: mod_physics.mod
 amrgrid.o: mod_advance.mod
 amrgrid.o: mod_amr_fct.mod
@@ -81,6 +82,11 @@ mod_advance.o: mod_source.mod
 mod_advance.o: mod_tvd.mod
 mod_amr_fct.o: mod_physics.mod
 mod_amrvac.o: mod_geometry.mod
+mod_ard.o: mod_amrvac.mod
+mod_ard.o: mod_ard_phys.mod
+mod_ard_phys.o: mod_multigrid_coupling.mod
+mod_ard_phys.o: mod_particles.mod
+mod_ard_phys.o: mod_physics.mod
 mod_bc_data.o: mod_lookup_table.mod
 mod_bremsstrahlung.o: mod_physics.mod
 mod_calculate_xw.o: mod_geometry.mod
@@ -332,6 +338,7 @@ raytracing.o: mod_raytracing.mod
 refine.o: mod_amr_fct.mod
 refine.o: mod_physics.mod
 set_B0.o: mod_geometry.mod
+set_B0.o: mod_mhd_phys.mod
 setdt.o: mod_physics.mod
 setdt.o: mod_supertimestepping.mod
 setdt.o: mod_trac.mod
