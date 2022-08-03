@@ -50,8 +50,11 @@ module mod_mhd_phys
   !> Whether magnetofriction is added
   logical, public, protected              :: mhd_magnetofriction = .false.
 
-  !> Whether GLM-MHD is used
+  !> Whether GLM-MHD is used to control div B
   logical, public, protected              :: mhd_glm = .false.
+
+  !> Whether extended GLM-MHD is used with additional sources
+  logical, public, protected              :: mhd_glm_extended = .true.
 
   !> Whether TRAC method is used
   logical, public, protected              :: mhd_trac = .false.
@@ -90,7 +93,7 @@ module mod_mhd_phys
   logical, public, protected              :: mhd_boris_simplification = .false.
 
   !> Reduced speed of light for semirelativistic MHD
-  double precision                        :: mhd_reduced_c = const_c
+  double precision, public, protected     :: mhd_reduced_c = const_c
 
   !> MHD fourth order
   logical, public, protected              :: mhd_4th_order = .false.
@@ -304,7 +307,7 @@ contains
     integer                      :: n
 
     namelist /mhd_list/ mhd_energy, mhd_n_tracer, mhd_gamma, mhd_adiab,&
-      mhd_eta, mhd_eta_hyper, mhd_etah, mhd_eta_ambi, mhd_glm_alpha, mhd_magnetofriction,&
+      mhd_eta, mhd_eta_hyper, mhd_etah, mhd_eta_ambi, mhd_glm_alpha, mhd_glm_extended, mhd_magnetofriction,&
       mhd_thermal_conduction, mhd_radiative_cooling, mhd_Hall, mhd_ambipolar, mhd_ambipolar_sts, mhd_gravity,&
       mhd_viscosity, mhd_4th_order, typedivbfix, source_split_divb, divbdiff,&
       typedivbdiff, type_ct, compactres, divbwave, He_abundance, &
@@ -1888,24 +1891,69 @@ contains
     double precision, intent(in)    :: x(ixI^S,1:ndim)
     character(len=*), intent(in)    :: subname
 
+    double precision :: pressure(ixI^S), inv_rho(ixI^S), b2(ixI^S), tmp(ixI^S), gamma2(ixI^S)
+    double precision :: b(ixI^S,1:ndir), v(ixI^S,1:ndir), Ba(ixI^S,1:ndir)
     integer :: idir, jdir, kdir, ix^D
     logical :: flag(ixI^S,1:nw)
-    double precision :: b(ixO^S,1:ndir), inv_rho(ixO^S), b2(ixO^S), tmp(ixO^S), gamma2(ixO^S)
-    double precision :: Ba(ixO^S,1:ndir)
 
     if(small_values_method == "ignore") return
 
-    call mhd_check_w_semirelati(primitive, ixI^L, ixO^L, w, flag)
+    !call mhd_check_w_semirelati(primitive, ixI^L, ixO^L, w, flag)
+
+    flag=.false.
+    where(w(ixO^S,rho_) < small_density) flag(ixO^S,rho_) = .true.
+
+    if(mhd_energy) then
+      if(primitive) then
+        where(w(ixO^S,p_) < small_pressure) flag(ixO^S,e_) = .true.
+      else
+        if(B0field) then
+          Ba(ixI^S,1:ndir)=w(ixI^S,mag(1:ndir))+block%B0(ixI^S,1:ndir,b0i)
+        else
+          Ba(ixI^S,1:ndir)=w(ixI^S,mag(1:ndir))
+        end if
+        inv_rho(ixI^S) = 1d0/w(ixI^S,rho_)
+        b2(ixI^S)=sum(Ba(ixI^S,:)**2,dim=ndim+1)
+        tmp(ixI^S)=sqrt(b2(ixI^S))
+        where(tmp(ixI^S)>smalldouble)
+          tmp(ixI^S)=1.d0/tmp(ixI^S)
+        else where
+          tmp(ixI^S)=0.d0
+        end where
+        do idir=1,ndir
+          b(ixI^S,idir)=Ba(ixI^S,idir)*tmp(ixI^S)
+        end do
+        tmp(ixI^S)=sum(b(ixI^S,:)*w(ixI^S,mom(:)),dim=ndim+1)
+        ! Va^2/c^2
+        b2(ixI^S)=b2(ixI^S)*inv_rho(ixI^S)*inv_squared_c
+        ! equation (15)
+        gamma2(ixI^S)=1.d0/(1.d0+b2(ixI^S))
+        ! Convert momentum to velocity
+        do idir = 1, ndir
+           v(ixI^S,idir) = gamma2*(w(ixI^S, mom(idir))+b2*b(ixI^S,idir)*tmp(ixI^S))*inv_rho(ixI^S)
+        end do
+        ! E=Bxv
+        b=0.d0
+        do idir=1,ndir; do jdir=1,ndir; do kdir=1,ndir
+          if(lvc(idir,jdir,kdir)==1)then
+            b(ixI^S,idir)=b(ixI^S,idir)+Ba(ixI^S,jdir)*v(ixI^S,kdir)
+          else if(lvc(idir,jdir,kdir)==-1)then
+            b(ixI^S,idir)=b(ixI^S,idir)-Ba(ixI^S,jdir)*v(ixI^S,kdir)
+          end if
+        end do; end do; end do
+        ! Calculate pressure p = (gamma-1) e-eK-eB-eE
+        pressure(ixI^S)=gamma_1*(w(ixI^S,e_)&
+                   -half*(sum(v(ixI^S,:)**2,dim=ndim+1)*w(ixI^S,rho_)&
+                   +sum(w(ixI^S,mag(:))**2,dim=ndim+1)&
+                   +sum(b(ixI^S,:)**2,dim=ndim+1)*inv_squared_c))
+        where(pressure(ixI^S) < small_pressure) flag(ixO^S,p_) = .true.
+      end if
+    end if
 
     if(any(flag)) then
       select case (small_values_method)
       case ("replace")
         where(flag(ixO^S,rho_)) w(ixO^S,rho_) = small_density
-        do idir = 1, ndir
-          if(small_values_fix_iw(mom(idir))) then
-            where(flag(ixO^S,rho_)) w(ixO^S, mom(idir)) = 0.0d0
-          end if
-        end do
 
         if(mhd_energy) then
           if(primitive) then
@@ -1913,78 +1961,28 @@ contains
           else
             {do ix^DB=ixOmin^DB,ixOmax^DB\}
               if(flag(ix^D,e_)) then
-                if(B0field) then
-                  Ba(ix^D,:)=w(ix^D,mag(:))+block%B0(ix^D,:,b0i)
-                else
-                  Ba(ix^D,:)=w(ix^D,mag(:))
-                end if
-                ! E=Bxv
-                b(ix^D,:)=0.d0
-                do idir=1,ndir; do jdir=1,ndir; do kdir=1,ndir
-                  if(lvc(idir,jdir,kdir)==1)then
-                    b(ix^D,idir)=b(ix^D,idir)+Ba(ix^D,jdir)*w(ix^D,mom(kdir))
-                  else if(lvc(idir,jdir,kdir)==-1)then
-                    b(ix^D,idir)=b(ix^D,idir)-Ba(ix^D,jdir)*w(ix^D,mom(kdir))
-                  end if
-                end do; end do; end do
-                ! equation (9)
-                w(ix^D,e_)=small_e+half*(sum(w(ix^D,mom(:))**2)*w(ix^D,rho_)&
-                           +sum(w(ix^D,mag(:))**2)&
-                           +sum(b(ix^D,:)**2)*inv_squared_c)
+                w(ix^D,e_)=small_pressure*inv_gamma_1+half*(sum(v(ix^D,:)**2)*w(ix^D,rho_)&
+                           +sum(w(ix^D,mag(:))**2)+sum(b(ix^D,:)**2)*inv_squared_c)
               end if
             {end do\}
           end if
         end if
       case ("average")
-        call small_values_average(ixI^L, ixO^L, w, x, flag)
-      case default
-        if(.not.primitive) then
-          !convert w to primitive
-          if(B0field) then
-            Ba(ixO^S,:)=w(ixO^S,mag(:))+block%B0(ixO^S,:,b0i)
+        ! do averaging of density
+        call small_values_average(ixI^L, ixO^L, w, x, flag, rho_)
+        if(mhd_energy) then
+          if(primitive) then
+            call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
           else
-            Ba(ixO^S,:)=w(ixO^S,mag(:))
-          end if
-          inv_rho(ixO^S) = 1d0/w(ixO^S,rho_)
-
-          b2(ixO^S)=sum(Ba(ixO^S,:)**2,dim=ndim+1)
-          tmp(ixO^S)=sqrt(b2(ixO^S))
-          where(tmp(ixO^S)>smalldouble)
-            tmp(ixO^S)=1.d0/tmp(ixO^S)
-          else where
-            tmp(ixO^S)=0.d0
-          end where
-          do idir=1,ndir
-            b(ixO^S,idir)=Ba(ixO^S,idir)*tmp(ixO^S)
-          end do
-          tmp(ixO^S)=sum(b(ixO^S,:)*w(ixO^S,mom(:)),dim=ndim+1)
-
-          ! Va^2/c^2
-          b2(ixO^S)=b2(ixO^S)*inv_rho(ixO^S)*inv_squared_c
-          ! equation (15)
-          gamma2(ixO^S)=1.d0/(1.d0+b2(ixO^S))
-          ! Convert momentum to velocity
-          do idir = 1, ndir
-             w(ixO^S, mom(idir)) = gamma2*(w(ixO^S, mom(idir))+b2*b(ixO^S,idir)*tmp)*inv_rho
-          end do
-
-          if(mhd_energy) then
-            ! E=Bxv
-            b=0.d0
-            do idir=1,ndir; do jdir=1,ndir; do kdir=1,ndir
-              if(lvc(idir,jdir,kdir)==1)then
-                b(ixO^S,idir)=b(ixO^S,idir)+Ba(ixO^S,jdir)*w(ixO^S,mom(kdir))
-              else if(lvc(idir,jdir,kdir)==-1)then
-                b(ixO^S,idir)=b(ixO^S,idir)-Ba(ixO^S,jdir)*w(ixO^S,mom(kdir))
-              end if
-            end do; end do; end do
-            ! Calculate pressure = (gamma-1) * (e-eK-eB-eE)
-            w(ixO^S,p_)=gamma_1*(w(ixO^S,e_)&
-                       -half*(sum(w(ixO^S,mom(:))**2,dim=ndim+1)*w(ixO^S,rho_)&
-                       +sum(w(ixO^S,mag(:))**2,dim=ndim+1)&
-                       +sum(b(ixO^S,:)**2,dim=ndim+1)*inv_squared_c))
+            w(ixI^S,e_)=pressure(ixI^S)
+            call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
+            w(ixI^S,e_)=w(ixI^S,p_)*inv_gamma_1&
+                       +half*(sum(v(ixI^S,:)**2,dim=ndim+1)*w(ixI^S,rho_)&
+                       +sum(w(ixI^S,mag(:))**2,dim=ndim+1)&
+                       +sum(b(ixI^S,:)**2,dim=ndim+1)*inv_squared_c)
           end if
         end if
+      case default
         call small_values_error(w, x, ixI^L, ixO^L, flag, subname)
       end select
     end if
@@ -2059,7 +2057,10 @@ contains
         end if
       case ("average")
         if(primitive)then
-          call small_values_average(ixI^L, ixO^L, w, x, flag)
+          call small_values_average(ixI^L, ixO^L, w, x, flag, rho_)
+          if(mhd_energy) then
+            call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
+          end if
         else
           ! do averaging of density
           call small_values_average(ixI^L, ixO^L, w, x, flag, rho_)
@@ -2151,7 +2152,19 @@ contains
           end where
         end if
       case ("average")
-        call small_values_average(ixI^L, ixO^L, w, x, flag)
+        ! do averaging of density
+        call small_values_average(ixI^L, ixO^L, w, x, flag, rho_)
+        if(mhd_energy) then
+          if(primitive) then
+            call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
+          else
+            ! do averaging of pressure
+            w(ixI^S,p_)=gamma_1*(w(ixI^S,e_)-mhd_kin_en(w,ixI^L,ixI^L))
+            call small_values_average(ixI^L, ixO^L, w, x, flag, p_)
+            ! convert back
+            w(ixI^S,p_)=inv_gamma_1*w(ixI^S,p_)+mhd_kin_en(w,ixI^L,ixI^L)
+          end if
+        end if
       case default
         if(.not.primitive) then
           !convert w to primitive
@@ -3211,7 +3224,7 @@ contains
     double precision, intent(in) :: x(ixI^S,1:ndim)
     double precision,intent(out) :: f(ixI^S,nwflux)
 
-    double precision             :: pgas(ixO^S), ptotal(ixO^S)
+    double precision             :: ptotal(ixO^S)
     double precision             :: tmp(ixI^S)
     double precision             :: vHall(ixI^S,1:ndir)
     integer                      :: idirmin, iw, idir, jdir, kdir
@@ -3220,18 +3233,16 @@ contains
 
     ! Get flux of density
     f(ixO^S,rho_)=w(ixO^S,mom(idim))*w(ixO^S,rho_)
-    ! pgas is time dependent only
+
     if(mhd_energy) then
-      pgas=w(ixO^S,p_)
+      ptotal=w(ixO^S,p_)+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
     else
-      pgas(ixO^S)=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
+      ptotal=mhd_adiab*w(ixO^S,rho_)**mhd_gamma+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
     end if
 
     if (mhd_Hall) then
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
-
-    ptotal = pgas + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
 
     ! Get flux of tracer
     do iw=1,mhd_n_tracer
@@ -3242,11 +3253,12 @@ contains
     ! f_i[m_k]=v_i*m_k-b_k*b_i [+ptotal if i==k]
     do idir=1,ndir
       if(idim==idir) then
-        f(ixO^S,mom(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
+        f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))+ptotal(ixO^S)-&
+                            w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
       else
-        f(ixO^S,mom(idir))=-w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
+        f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))-&
+                            w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
       end if
-      f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+w(ixO^S,mom(idim))*wC(ixO^S,mom(idir))
     end do
 
     ! Get flux of energy
@@ -3374,15 +3386,15 @@ contains
     ! f_i[m_k]=v_i*m_k-b_k*b_i [+ptotal if i==k]
     do idir=1,ndir
       if(idim==idir) then
-        f(ixO^S,mom(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
+        f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))+ptotal(ixO^S)-&
+                            w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
       else
-        f(ixO^S,mom(idir))=-w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
+        f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))-&
+                            w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
       end if
-      f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+w(ixO^S,mom(idim))*wC(ixO^S,mom(idir))
     end do
 
     ! Get flux of energy
-    ! f_i[e]=v_i*e+v_i*ptotal-b_i*(b_k*v_k)
     if(mhd_energy) then
       f(ixO^S,e_)=w(ixO^S,mom(idim))*(wC(ixO^S,e_)+pgas(ixO^S))
     end if
@@ -3459,7 +3471,7 @@ contains
     double precision, intent(in) :: x(ixI^S,1:ndim)
     double precision,intent(out) :: f(ixI^S,nwflux)
 
-    double precision             :: pgas(ixO^S), ptotal(ixO^S)
+    double precision             :: pgas(ixO^S), ptotal(ixO^S), B(ixO^S,1:ndir)
     double precision             :: tmp(ixI^S)
     double precision             :: vHall(ixI^S,1:ndir)
     integer                      :: idirmin, iw, idir, jdir, kdir
@@ -3485,7 +3497,12 @@ contains
       call mhd_getv_Hall(w,x,ixI^L,ixO^L,vHall)
     end if
 
-    if(B0field) tmp(ixO^S)=sum(block%B0(ixO^S,:,idim)*w(ixO^S,mag(:)),dim=ndim+1)
+    if(B0field) then
+      B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))+block%B0(ixO^S,1:ndir,idim)
+      pgas=pgas+sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,idim),dim=ndim+1)
+    else
+      B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))
+    end if
 
     ptotal = pgas + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
 
@@ -3496,20 +3513,29 @@ contains
 
     ! Get flux of momentum
     ! f_i[m_k]=v_i*m_k-b_k*b_i [+ptotal if i==k]
-    do idir=1,ndir
-      if(idim==idir) then
-        f(ixO^S,mom(idir))=ptotal(ixO^S)-w(ixO^S,mag(idim))*w(ixO^S,mag(idir))
-        if(B0field) f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+tmp(ixO^S)
-      else
-        f(ixO^S,mom(idir))= -w(ixO^S,mag(idir))*w(ixO^S,mag(idim))
-      end if
-      if (B0field) then
-        f(ixO^S,mom(idir))=f(ixO^S,mom(idir))&
-             -w(ixO^S,mag(idir))*block%B0(ixO^S,idim,idim)&
-             -w(ixO^S,mag(idim))*block%B0(ixO^S,idir,idim)
-      end if
-      f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+w(ixO^S,mom(idim))*wC(ixO^S,mom(idir))
-    end do
+    if(B0field) then
+      do idir=1,ndir
+        if(idim==idir) then
+          f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))+ptotal(ixO^S)-&
+                              w(ixO^S,mag(idir))*B(ixO^S,idim)-&
+                       block%B0(ixO^S,idir,idim)*w(ixO^S,mag(idim))
+        else
+          f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))-&
+                              w(ixO^S,mag(idir))*B(ixO^S,idim)-&
+                       block%B0(ixO^S,idir,idim)*w(ixO^S,mag(idim))
+        end if
+      end do
+    else
+      do idir=1,ndir
+        if(idim==idir) then
+          f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))+ptotal(ixO^S)-&
+                              w(ixO^S,mag(idir))*B(ixO^S,idim)
+        else
+          f(ixO^S,mom(idir))=wC(ixO^S,mom(idir))*w(ixO^S,mom(idim))-&
+                              w(ixO^S,mag(idir))*B(ixO^S,idim)
+        end if
+      end do
+    end if
 
     ! Get flux of energy
     ! f_i[e]=v_i*e+v_i*ptotal-b_i*(b_k*v_k)
@@ -3521,26 +3547,15 @@ contains
          endif
       else
         f(ixO^S,e_)=w(ixO^S,mom(idim))*(wC(ixO^S,e_)+ptotal(ixO^S))&
-           -w(ixO^S,mag(idim))*sum(w(ixO^S,mag(:))*w(ixO^S,mom(:)),dim=ndim+1)
+           -B(ixO^S,idim)*sum(w(ixO^S,mag(:))*w(ixO^S,mom(:)),dim=ndim+1)
         if(mhd_solve_eaux) f(ixO^S,eaux_)=w(ixO^S,mom(idim))*wC(ixO^S,eaux_)
-
-        if (B0field) then
-           f(ixO^S,e_) = f(ixO^S,e_) &
-              + w(ixO^S,mom(idim)) * tmp(ixO^S) &
-              - sum(w(ixO^S,mom(:))*w(ixO^S,mag(:)),dim=ndim+1) * block%B0(ixO^S,idim,idim)
-        end if
 
         if (mhd_Hall) then
         ! f_i[e]= f_i[e] + vHall_i*(b_k*b_k) - b_i*(vHall_k*b_k)
            if (mhd_etah>zero) then
               f(ixO^S,e_) = f(ixO^S,e_) + vHall(ixO^S,idim) * &
-                 sum(w(ixO^S, mag(:))**2,dim=ndim+1) &
-                 - w(ixO^S,mag(idim)) * sum(vHall(ixO^S,:)*w(ixO^S,mag(:)),dim=ndim+1)
-              if (B0field) then
-                 f(ixO^S,e_) = f(ixO^S,e_) &
-                    + vHall(ixO^S,idim) * tmp(ixO^S) &
-                    - sum(vHall(ixO^S,:)*w(ixO^S,mag(:)),dim=ndim+1) * block%B0(ixO^S,idim,idim)
-              end if
+                 sum(w(ixO^S, mag(:))*B(ixO^S,:),dim=ndim+1) &
+                 - B(ixO^S,idim) * sum(vHall(ixO^S,:)*w(ixO^S,mag(:)),dim=ndim+1)
            end if
         end if
       end if
@@ -3561,26 +3576,14 @@ contains
            f(ixO^S,mag(idir))=zero
         end if
       else
-        f(ixO^S,mag(idir))=w(ixO^S,mom(idim))*w(ixO^S,mag(idir))-w(ixO^S,mag(idim))*w(ixO^S,mom(idir))
-
-        if (B0field) then
-          f(ixO^S,mag(idir))=f(ixO^S,mag(idir))&
-                +w(ixO^S,mom(idim))*block%B0(ixO^S,idir,idim)&
-                -w(ixO^S,mom(idir))*block%B0(ixO^S,idim,idim)
-        end if
+        f(ixO^S,mag(idir))=w(ixO^S,mom(idim))*B(ixO^S,idir)-B(ixO^S,idim)*w(ixO^S,mom(idir))
 
         if (mhd_Hall) then
           ! f_i[b_k] = f_i[b_k] + vHall_i*b_k - vHall_k*b_i
           if (mhd_etah>zero) then
-            if (B0field) then
-              f(ixO^S,mag(idir)) = f(ixO^S,mag(idir)) &
-                   - vHall(ixO^S,idir)*(w(ixO^S,mag(idim))+block%B0(ixO^S,idim,idim)) &
-                   + vHall(ixO^S,idim)*(w(ixO^S,mag(idir))+block%B0(ixO^S,idir,idim))
-            else
-              f(ixO^S,mag(idir)) = f(ixO^S,mag(idir)) &
-                   - vHall(ixO^S,idir)*w(ixO^S,mag(idim)) &
-                   + vHall(ixO^S,idim)*w(ixO^S,mag(idir))
-            end if
+            f(ixO^S,mag(idir)) = f(ixO^S,mag(idir)) &
+                 - vHall(ixO^S,idir)*B(ixO^S,idim) &
+                 + vHall(ixO^S,idim)*B(ixO^S,idir)
           end if
         end if
 
@@ -3692,15 +3695,29 @@ contains
              sum(E(ixO^S,:)**2,dim=ndim+1)*inv_squared_c)
 
     ! Get flux of momentum
-    do idir=1,ndir
-      f(ixO^S,mom(idir))=-w(ixO^S,mag(idir))*B(ixO^S,idim)-E(ixO^S,idir)*E(ixO^S,idim)*inv_squared_c
-      if(B0field) then
-        f(ixO^S,mom(idir))=f(ixO^S,mom(idir))&
-             -block%B0(ixO^S,idir,idim)*w(ixO^S,mag(idim))
-      end if
-      f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+w(ixO^S,mom(idim))*w(ixO^S,mom(idir))*w(ixO^S,rho_)
-      if(idim==idir) f(ixO^S,mom(idir))=f(ixO^S,mom(idir))+pgas
-    end do
+    if(B0field) then
+      do idir=1,ndir
+        if(idim==idir) then
+          f(ixO^S,mom(idir))=w(ixO^S,rho_)*w(ixO^S,mom(idir))*w(ixO^S,mom(idim))+pgas&
+           -w(ixO^S,mag(idir))*B(ixO^S,idim)-E(ixO^S,idir)*E(ixO^S,idim)*inv_squared_c&
+           -block%B0(ixO^S,idir,idim)*w(ixO^S,mag(idim))
+        else
+          f(ixO^S,mom(idir))=w(ixO^S,rho_)*w(ixO^S,mom(idir))*w(ixO^S,mom(idim))&
+           -w(ixO^S,mag(idir))*B(ixO^S,idim)-E(ixO^S,idir)*E(ixO^S,idim)*inv_squared_c&
+           -block%B0(ixO^S,idir,idim)*w(ixO^S,mag(idim))
+        end if
+      end do
+    else
+      do idir=1,ndir
+        if(idim==idir) then
+          f(ixO^S,mom(idir))=w(ixO^S,rho_)*w(ixO^S,mom(idir))*w(ixO^S,mom(idim))+pgas&
+           -w(ixO^S,mag(idir))*B(ixO^S,idim)-E(ixO^S,idir)*E(ixO^S,idim)*inv_squared_c
+        else
+          f(ixO^S,mom(idir))=w(ixO^S,rho_)*w(ixO^S,mom(idir))*w(ixO^S,mom(idim))&
+           -w(ixO^S,mag(idir))*B(ixO^S,idim)-E(ixO^S,idir)*E(ixO^S,idim)*inv_squared_c
+        end if
+      end do
+    end if
 
     ! Get flux of energy
     if(mhd_energy) then
@@ -4817,7 +4834,7 @@ contains
   subroutine add_source_glm(qdt,ixI^L,ixO^L,wCT,w,x)
     ! Add divB related sources to w within ixO
     ! corresponding to Dedner JCP 2002, 175, 645 _equation 24_
-    ! giving the EGLM-MHD scheme
+    ! giving the EGLM-MHD scheme or GLM-MHD scheme
     use mod_global_parameters
     use mod_geometry
 
@@ -4828,8 +4845,6 @@ contains
     integer          :: idim,idir
     double precision :: gradPsi(ixI^S)
 
-    ! We calculate now div B
-    call get_divb(wCT,ixI^L,ixO^L,divb, mhd_divb_4thorder)
 
     ! dPsi/dt =  - Ch^2/Cp^2 Psi
     if (mhd_glm_alpha < zero) then
@@ -4844,24 +4859,29 @@ contains
       end if
     end if
 
-    ! gradient of Psi
-    do idim=1,ndim
-       select case(typegrad)
-       case("central")
-          call gradient(wCT(ixI^S,psi_),ixI^L,ixO^L,idim,gradPsi)
-       case("limited")
-          call gradientS(wCT(ixI^S,psi_),ixI^L,ixO^L,idim,gradPsi)
-       end select
-       if (total_energy) then
-       ! e  = e  -qdt (b . grad(Psi))
-         w(ixO^S,e_) = w(ixO^S,e_)-qdt*wCT(ixO^S,mag(idim))*gradPsi(ixO^S)
-       end if
-    end do
+    if(mhd_glm_extended) then
+      ! gradient of Psi
+      if(total_energy) then
+        do idim=1,ndim
+          select case(typegrad)
+          case("central")
+            call gradient(wCT(ixI^S,psi_),ixI^L,ixO^L,idim,gradPsi)
+          case("limited")
+            call gradientS(wCT(ixI^S,psi_),ixI^L,ixO^L,idim,gradPsi)
+          end select
+          ! e  = e  -qdt (b . grad(Psi))
+          w(ixO^S,e_) = w(ixO^S,e_)-qdt*wCT(ixO^S,mag(idim))*gradPsi(ixO^S)
+        end do
+      end if
 
-    ! m = m - qdt b div b
-    do idir=1,ndir
-      w(ixO^S,mom(idir))=w(ixO^S,mom(idir))-qdt*mhd_mag_i_all(w,ixI^L,ixO^L,idir)*divb(ixO^S)
-    end do
+      ! We calculate now div B
+      call get_divb(wCT,ixI^L,ixO^L,divb, mhd_divb_4thorder)
+
+      ! m = m - qdt b div b
+      do idir=1,ndir
+        w(ixO^S,mom(idir))=w(ixO^S,mom(idir))-qdt*mhd_mag_i_all(w,ixI^L,ixO^L,idir)*divb(ixO^S)
+      end do
+    end if
 
     if (fix_small_values) call mhd_handle_small_values(.false.,w,x,ixI^L,ixO^L,'add_source_glm')
 
