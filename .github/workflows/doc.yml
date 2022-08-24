@@ -1,32 +1,15 @@
-name: Documentation
+name: Doxygen GitHub Pages Deploy Action
 
-# Controls when the action will run. Triggers the workflow on push or pull request
-# events but only for the master branch
 on:
   push:
-    branches: [ amrvac3.0 ]
+    branches:
+      - amrvac3.0
 
 jobs:
-  build-documentation:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    
-    # Build the HTML documentation
-    - name: Doxygen Action
-      uses: mattnotmitt/doxygen-action@v1.1.0
-      with:
-          doxyfile-path: ./doc/Doxyfile
-          working-directory: .
-    
-    # Deploy the HTML documentation to GitHub Pages
-    - name: GH Pages Deployment
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./doc/html/
-        enable_jekyll: false
-        allow_empty_commit: false
-        force_orphan: true
-        publish_branch: gh-pages
+      - uses: DenverCoder1/doxygen-github-pages-action@v1.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          config_file: doc/Doxyfile
