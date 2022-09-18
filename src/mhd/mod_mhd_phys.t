@@ -229,6 +229,9 @@ module mod_mhd_phys
   !> Whether unsplit semirelativistic MHD is solved
   logical :: unsplit_semirelativistic=.false.
 
+  !> Whether gravity work is included in energy equation
+  logical :: gravity_energy
+
   !> gamma minus one and its inverse
   double precision :: gamma_1, inv_gamma_1
 
@@ -269,6 +272,7 @@ module mod_mhd_phys
   end interface
 
   procedure(mask_subroutine), pointer  :: usr_mask_ambipolar => null()
+  procedure(sub_get_pthermal), pointer  :: usr_Rfactor => null()
   procedure(sub_convert), pointer      :: mhd_to_primitive  => null()
   procedure(sub_convert), pointer      :: mhd_to_conserved  => null()
   procedure(sub_small_values), pointer :: mhd_handle_small_values => null()
@@ -277,10 +281,12 @@ module mod_mhd_phys
   procedure(fun_kin_en), pointer       :: mhd_kin_en        => null()
   ! Public methods
   public :: usr_mask_ambipolar
+  public :: usr_Rfactor
   public :: mhd_phys_init
   public :: mhd_kin_en
   public :: mhd_get_pthermal
   public :: mhd_get_v
+  public :: mhd_get_rho
   public :: mhd_get_v_idim
   public :: mhd_to_conserved
   public :: mhd_to_primitive
@@ -444,6 +450,15 @@ contains
       total_energy=.false.
     end if
     phys_total_energy=total_energy
+    if(mhd_energy) then
+      if(mhd_internal_e) then
+        gravity_energy=.false.
+      else
+        gravity_energy=.true.
+      end if
+    else
+      gravity_energy=.false.
+    end if
 
     {^IFONED
     if(mhd_trac .and. mhd_trac_type .gt. 2) then
@@ -803,6 +818,9 @@ contains
       rc_fl%e_ = e_
       rc_fl%eaux_ = eaux_
       rc_fl%Tcoff_ = Tcoff_
+      if(associated(usr_Rfactor)) then
+        rc_fl%get_var_Rfactor => usr_Rfactor
+      endif
       if(has_equi_pe0 .and. has_equi_rho0 .and. mhd_equi_thermal) then
         rc_fl%has_equi = .true.
         rc_fl%get_rho_equi => mhd_get_rho_equi
@@ -814,7 +832,10 @@ contains
     allocate(te_fl_mhd)
     te_fl_mhd%get_rho=> mhd_get_rho
     te_fl_mhd%get_pthermal=> mhd_get_pthermal
-    te_fl_mhd%Rfactor = 1d0
+    te_fl_mhd%Rfactor = RR
+    if(associated(usr_Rfactor)) then
+      te_fl_mhd%get_var_Rfactor => usr_Rfactor
+    endif
 {^IFTHREED
     phys_te_images => mhd_te_images
 }
@@ -1198,6 +1219,7 @@ contains
     unit_mass=unit_density*unit_length**3
 
   end subroutine mhd_physical_units
+
 
   subroutine mhd_check_w_semirelati(primitive,ixI^L,ixO^L,w,flag)
     use mod_global_parameters
@@ -4229,7 +4251,7 @@ contains
 
     if(mhd_gravity) then
       call gravity_add_source(qdt,ixI^L,ixO^L,wCT,&
-           w,x,total_energy,qsourcesplit,active)
+           w,x,gravity_energy,qsourcesplit,active)
     end if
 
   end subroutine mhd_add_source
