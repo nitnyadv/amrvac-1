@@ -3124,25 +3124,26 @@ contains
     
     integer :: ix1,ix2
 
-!    print*, " SIZE w ", size(w)
-    print*, " SHAPE w ", shape(w)
-!    print*, " SIZE3 w ", size(w,3)
-!    print*, " RHO INDEX ", rho_
-    print*, " RHO INDEX ", rho_, ixOmin1, ixOmin2
-    !print*, " wixomin,rho  ", w(ixOmin1, ixOmin2,rho_)
+!!    print*, " SIZE w ", size(w)
+!    print*, " SHAPE w ", shape(w)
+!!    print*, " SIZE3 w ", size(w,3)
+!!    print*, " RHO INDEX ", rho_
+!    print*, " RHO INDEX ", rho_, ixOmin1, ixOmin2
+!    !print*, " wixomin,rho  ", w(ixOmin1, ixOmin2,rho_)
+!!
+!!    do ix1=ixOmin1,ixOmax1
+!!    do ix2=ixOmin2,ixOmax2
+!!      if(w(ix1,ix2,rho_) == 0) print*, "DENISTY 0 at ", ix1,ix2
+!!    enddo
+!!    enddo
 !
-!    do ix1=ixOmin1,ixOmax1
-!    do ix2=ixOmin2,ixOmax2
-!      if(w(ix1,ix2,rho_) == 0) print*, "DENISTY 0 at ", ix1,ix2
-!    enddo
-!    enddo
-
-    where(w(ixO^S,rho_) .ne. 0)
-      res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
-    elsewhere
-      res(ixO^S) = small_temperature
-    endwhere
+!    where(w(ixO^S,rho_) .ne. 0)
+!      res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
+!    elsewhere
+!      res(ixO^S) = small_temperature
+!    endwhere
     
+    res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
 
   end subroutine mhd_get_temperature_from_eint
 
