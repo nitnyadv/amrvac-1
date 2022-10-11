@@ -291,6 +291,8 @@ module mod_mhd_phys
   public :: mhd_to_conserved
   public :: mhd_to_primitive
   public :: mhd_get_csound2
+  public :: mhd_e_to_ei
+  public :: mhd_ei_to_e
   public :: mhd_face_to_center
   public :: get_divb
   public :: get_current
@@ -902,7 +904,7 @@ contains
   end subroutine mhd_phys_init
 
 {^IFTHREED
-  subroutine mhd_te_images()
+  subroutine mhd_te_images
     use mod_global_parameters
     use mod_thermal_emission
 
@@ -1219,7 +1221,6 @@ contains
     unit_mass=unit_density*unit_length**3
 
   end subroutine mhd_physical_units
-
 
   subroutine mhd_check_w_semirelati(primitive,ixI^L,ixO^L,w,flag)
     use mod_global_parameters
@@ -3120,7 +3121,29 @@ contains
     double precision, intent(in) :: w(ixI^S, 1:nw)
     double precision, intent(in) :: x(ixI^S, 1:ndim)
     double precision, intent(out):: res(ixI^S)
-    res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
+    
+    integer :: ix1,ix2
+
+!    print*, " SIZE w ", size(w)
+    print*, " SHAPE w ", shape(w)
+!    print*, " SIZE3 w ", size(w,3)
+!    print*, " RHO INDEX ", rho_
+    print*, " RHO INDEX ", rho_, ixOmin1, ixOmin2
+    !print*, " wixomin,rho  ", w(ixOmin1, ixOmin2,rho_)
+!
+!    do ix1=ixOmin1,ixOmax1
+!    do ix2=ixOmin2,ixOmax2
+!      if(w(ix1,ix2,rho_) == 0) print*, "DENISTY 0 at ", ix1,ix2
+!    enddo
+!    enddo
+
+    where(w(ixO^S,rho_) .ne. 0)
+      res(ixO^S) = gamma_1 * w(ixO^S, e_) /w(ixO^S,rho_)
+    elsewhere
+      res(ixO^S) = small_temperature
+    endwhere
+    
+
   end subroutine mhd_get_temperature_from_eint
 
   !> Calculate temperature=p/rho when in e_ the total energy is stored
@@ -3257,9 +3280,9 @@ contains
     f(ixO^S,rho_)=w(ixO^S,mom(idim))*w(ixO^S,rho_)
 
     if(mhd_energy) then
-      ptotal=w(ixO^S,p_)+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
+      ptotal(ixO^S)=w(ixO^S,p_)+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
     else
-      ptotal=mhd_adiab*w(ixO^S,rho_)**mhd_gamma+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
+      ptotal(ixO^S)=mhd_adiab*w(ixO^S,rho_)**mhd_gamma+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
     end if
 
     if (mhd_Hall) then
@@ -3392,12 +3415,12 @@ contains
     f(ixO^S,rho_)=w(ixO^S,mom(idim))*w(ixO^S,rho_)
     ! pgas is time dependent only
     if(mhd_energy) then
-      pgas=w(ixO^S,p_)
+      pgas(ixO^S)=w(ixO^S,p_)
     else
       pgas(ixO^S)=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
     end if
 
-    ptotal = pgas + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+    ptotal(ixO^S)=pgas(ixO^S)+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
 
     ! Get flux of tracer
     do iw=1,mhd_n_tracer
@@ -3507,7 +3530,7 @@ contains
     f(ixO^S,rho_)=w(ixO^S,mom(idim))*tmp(ixO^S)
     ! pgas is time dependent only
     if(mhd_energy) then
-      pgas=w(ixO^S,p_)
+      pgas(ixO^S)=w(ixO^S,p_)
     else
       pgas(ixO^S)=mhd_adiab*tmp(ixO^S)**mhd_gamma
       if(has_equi_pe0) then
@@ -3521,12 +3544,12 @@ contains
 
     if(B0field) then
       B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))+block%B0(ixO^S,1:ndir,idim)
-      pgas=pgas+sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,idim),dim=ndim+1)
+      pgas(ixO^S)=pgas(ixO^S)+sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,idim),dim=ndim+1)
     else
       B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))
     end if
 
-    ptotal = pgas + 0.5d0*sum(w(ixO^S, mag(:))**2, dim=ndim+1)
+    ptotal(ixO^S)=pgas(ixO^S)+0.5d0*sum(w(ixO^S,mag(:))**2,dim=ndim+1)
 
     ! Get flux of tracer
     do iw=1,mhd_n_tracer
@@ -3685,9 +3708,9 @@ contains
 
     ! gas thermal pressure
     if(mhd_energy) then
-      pgas=w(ixO^S,p_)
+      pgas(ixO^S)=w(ixO^S,p_)
     else
-      pgas=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
+      pgas(ixO^S)=mhd_adiab*w(ixO^S,rho_)**mhd_gamma
     end if
 
     ! Get flux of density
@@ -3700,7 +3723,7 @@ contains
     ! E=-uxB=Bxu
     if(B0field) then
       B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))+block%B0(ixO^S,1:ndir,idim)
-      pgas=pgas+sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,idim),dim=ndim+1)
+      pgas(ixO^S)=pgas(ixO^S)+sum(w(ixO^S,mag(:))*block%B0(ixO^S,:,idim),dim=ndim+1)
     else
       B(ixO^S,1:ndir)=w(ixO^S,mag(1:ndir))
     end if
@@ -3713,7 +3736,7 @@ contains
       end if
     end do; end do; end do
 
-    pgas=pgas+half*(sum(w(ixO^S, mag(:))**2, dim=ndim+1)+&
+    pgas(ixO^S)=pgas(ixO^S)+half*(sum(w(ixO^S,mag(:))**2,dim=ndim+1)+&
              sum(E(ixO^S,:)**2,dim=ndim+1)*inv_squared_c)
 
     ! Get flux of momentum
@@ -3746,13 +3769,13 @@ contains
       SA=0.d0
       do jdir=1,ndir; do kdir=1,ndir
         if(lvc(idim,jdir,kdir)==1)then
-          SA=SA+E(ixO^S,jdir)*w(ixO^S,mag(kdir))
+          SA(ixO^S)=SA(ixO^S)+E(ixO^S,jdir)*w(ixO^S,mag(kdir))
         else if(lvc(idim,jdir,kdir)==-1) then
-          SA=SA-E(ixO^S,jdir)*w(ixO^S,mag(kdir))
+          SA(ixO^S)=SA(ixO^S)-E(ixO^S,jdir)*w(ixO^S,mag(kdir))
         end if
       end do; end do
       f(ixO^S,e_)=w(ixO^S,mom(idim))*(half*w(ixO^S,rho_)*sum(w(ixO^S,mom(:))**2,dim=ndim+1)+&
-                  mhd_gamma*pgas*inv_gamma_1)+SA
+                  mhd_gamma*pgas*inv_gamma_1)+SA(ixO^S)
     end if
 
     ! compute flux of magnetic field
@@ -4325,7 +4348,7 @@ contains
       rho(ixO^S) = w(ixO^S,rho_) 
     endif
     ! Compute the inverse of 1 + B^2/(rho * c^2)
-    gamma_A2 = 1.0d0/(1.0d0+mhd_mag_en_all(w, ixI^L, ixO^L)/rho(ixO^S)*inv_squared_c)
+    gamma_A2(ixO^S) = 1.0d0/(1.0d0+mhd_mag_en_all(w, ixI^L, ixO^L)/rho(ixO^S)*inv_squared_c)
   end subroutine mhd_gamma2_alfven
 
   !> Compute 1/sqrt(1+v_A^2/c^2) for semirelativisitic MHD, where v_A is the
@@ -4529,10 +4552,10 @@ contains
     double precision, intent(in), optional :: wCTprim(ixI^S,1:nw)
 
     double precision :: B(ixI^S,3), J(ixI^S,3), JxB(ixI^S,3)
-    integer :: idir, idirmin, idims
+    integer :: idir, idirmin, idims, ix^D
     double precision :: current(ixI^S,7-2*ndir:3)
     double precision :: bu(ixO^S,1:ndir), tmp(ixO^S), b2(ixO^S)
-    double precision :: gravity_field(ixI^S,1:ndir)
+    double precision :: gravity_field(ixI^S,1:ndir), Vaoc
 
     B=0.0d0
     do idir = 1, ndir
@@ -4592,10 +4615,14 @@ contains
         bu(ixO^S,idir)=wCT(ixO^S,mag(idir))*tmp(ixO^S)
       end do
 
-      ! Va^2/c^2
-      b2(ixO^S)=b2(ixO^S)/w(ixO^S,rho_)*inv_squared_c
-      ! Va^2/c^2 / (1+Va^2/c^2)
-      b2(ixO^S)=b2(ixO^S)/(1.d0+b2(ixO^S))
+      !b2(ixO^S)=b2(ixO^S)/w(ixO^S,rho_)*inv_squared_c
+      !b2(ixO^S)=b2(ixO^S)/(1.d0+b2(ixO^S))
+      {do ix^DB=ixOmin^DB,ixOmax^DB\}
+         ! Va^2/c^2
+         Vaoc=b2(ix^D)/w(ix^D,rho_)*inv_squared_c
+         ! Va^2/c^2 / (1+Va^2/c^2)
+         b2(ix^D)=Vaoc/(1.d0+Vaoc)
+      {end do\}
       ! bu . F
       tmp(ixO^S)=sum(bu(ixO^S,1:ndir)*B(ixO^S,1:ndir),dim=ndim+1)
       ! Rempel 2017 ApJ 834, 10 equation (54)
@@ -4712,7 +4739,7 @@ contains
 
        ! Add sources related to eta*laplB-grad(eta) x J to B and e
        w(ixO^S,mag(idir))=w(ixO^S,mag(idir))+qdt*tmp(ixO^S)
-       if (mhd_energy) then
+       if(total_energy) then
           w(ixO^S,e_)=w(ixO^S,e_)+qdt*tmp(ixO^S)*Bf(ixO^S,idir)
        end if
     end do ! idir
@@ -4758,18 +4785,19 @@ contains
     ! Determine exact value of idirmin while doing the loop.
     call get_current(wCT,ixI^L,ixA^L,idirmin,current)
 
-    if (mhd_eta>zero)then
-       eta(ixA^S)=mhd_eta
+    tmpvec=zero
+    if(mhd_eta>zero)then
+      do idir=idirmin,3
+        tmpvec(ixA^S,idir)=current(ixA^S,idir)*mhd_eta
+      end do
     else
-       call usr_special_resistivity(wCT,ixI^L,ixA^L,idirmin,x,current,eta)
+      call usr_special_resistivity(wCT,ixI^L,ixA^L,idirmin,x,current,eta)
+      do idir=idirmin,3
+        tmpvec(ixA^S,idir)=current(ixA^S,idir)*eta(ixA^S)
+      end do
     end if
 
     ! dB/dt= -curl(J*eta), thus B_i=B_i-eps_ijk d_j Jeta_k
-    tmpvec(ixA^S,1:ndir)=zero
-    do idir=idirmin,3
-       tmpvec(ixA^S,idir)=current(ixA^S,idir)*eta(ixA^S)
-    end do
-    curlj=0.d0
     call curlvector(tmpvec,ixI^L,ixO^L,curlj,idirmin1,1,3)
     if(stagger_grid) then
       if(ndim==2.and.ndir==3) then
@@ -4781,11 +4809,20 @@ contains
     end if
 
     if(mhd_energy) then
-      ! de/dt= +div(B x Jeta) = eta J^2 - B dot curl(eta J)
-      ! de1/dt= eta J^2 - B1 dot curl(eta J)
-      tmp(ixO^S)=eta(ixO^S)*sum(current(ixO^S,:)**2,dim=ndim+1)
-      w(ixO^S,e_)=w(ixO^S,e_)+qdt*(tmp(ixO^S)-&
-        sum(wCT(ixO^S,mag(1:ndir))*curlj(ixO^S,1:ndir),dim=ndim+1))
+      if(mhd_eta>zero)then
+        tmp(ixO^S)=qdt*mhd_eta*sum(current(ixO^S,:)**2,dim=ndim+1)
+      else
+        tmp(ixO^S)=qdt*eta(ixO^S)*sum(current(ixO^S,:)**2,dim=ndim+1)
+      end if
+      if(total_energy) then
+        ! de/dt= +div(B x Jeta) = eta J^2 - B dot curl(eta J)
+        ! de1/dt= eta J^2 - B1 dot curl(eta J)
+        w(ixO^S,e_)=w(ixO^S,e_)+tmp(ixO^S)-&
+        qdt*sum(wCT(ixO^S,mag(1:ndir))*curlj(ixO^S,1:ndir),dim=ndim+1)
+      else
+        ! add eta*J**2 source term in the internal energy equation
+        w(ixO^S,e_)=w(ixO^S,e_)+tmp(ixO^S)
+      end if
       if(mhd_solve_eaux) then
         ! add eta*J**2 source term in the internal energy equation
         w(ixO^S,eaux_)=w(ixO^S,eaux_)+tmp(ixO^S)
@@ -4836,7 +4873,7 @@ contains
       w(ixO^S,mag(idir)) = w(ixO^S,mag(idir))-tmpvec2(ixO^S,idir)*qdt
     end do
 
-    if (mhd_energy) then
+    if(total_energy) then
       ! de/dt= +div(B x Ehyper)
       ixA^L=ixO^L^LADD1;
       tmpvec2(ixA^S,1:ndir)=zero
@@ -5054,7 +5091,6 @@ contains
     double precision, intent(inout) :: divb(ixI^S)
     logical, intent(in), optional   :: fourthorder
 
-    double precision                   :: bvec(ixI^S,1:ndir)
     double precision                   :: divb_corner(ixI^S), sign
     double precision                   :: aux_vol(ixI^S)
     integer                            :: ixC^L, idir, ic^D, ix^L
@@ -5068,12 +5104,11 @@ contains
       end do
       divb(ixO^S)=divb(ixO^S)/block%dvolume(ixO^S)
     else
-      bvec(ixI^S,:)=w(ixI^S,mag(:))
       select case(typediv)
       case("central")
-        call divvector(bvec,ixI^L,ixO^L,divb,fourthorder)
+        call divvector(w(ixI^S,mag(1:ndir)),ixI^L,ixO^L,divb,fourthorder)
       case("limited")
-        call divvectorS(bvec,ixI^L,ixO^L,divb)
+        call divvectorS(w(ixI^S,mag(1:ndir)),ixI^L,ixO^L,divb)
       end select
     end if
 
@@ -5124,13 +5159,11 @@ contains
     integer :: idir, idirmin0
 
     ! For ndir=2 only 3rd component of J can exist, ndir=1 is impossible for MHD
-    double precision :: current(ixI^S,7-2*ndir:3),bvec(ixI^S,1:ndir)
+    double precision :: current(ixI^S,7-2*ndir:3)
 
     idirmin0 = 7-2*ndir
 
-    bvec(ixI^S,1:ndir)=w(ixI^S,mag(1:ndir))
-
-    call curlvector(bvec,ixI^L,ixO^L,current,idirmin,idirmin0,ndir)
+    call curlvector(w(ixI^S,mag(1:ndir)),ixI^L,ixO^L,current,idirmin,idirmin0,ndir)
 
     if(B0field) current(ixO^S,idirmin0:3)=current(ixO^S,idirmin0:3)+&
         block%J0(ixO^S,idirmin0:3)
@@ -6279,16 +6312,12 @@ contains
     ! Calculate contribution to FEM of each edge,
     ! that is, estimate value of line integral of
     ! electric field in the positive idir direction.
-    ixCmax^D=ixOmax^D;
-    ixCmin^D=ixOmin^D-1;
 
     ! if there is resistivity, get eta J
     if(mhd_eta/=zero) call get_resistive_electric_field(ixI^L,ixO^L,sCT,s,E_resi)
 
     ! if there is ambipolar diffusion, get E_ambi
     if(mhd_ambipolar_exp) call get_ambipolar_electric_field(ixI^L,ixO^L,sCT%w,x,E_ambi)
-
-    fE=zero
 
     do idim1=1,ndim 
       iwdim1 = mag(idim1)
@@ -6297,6 +6326,8 @@ contains
         do idir=7-2*ndim,3! Direction of line integral
           ! Allow only even permutations
           if (lvc(idim1,idim2,idir)==1) then
+            ixCmax^D=ixOmax^D;
+            ixCmin^D=ixOmin^D+kr(idir,^D)-1;
             ! Assemble indices
             jxC^L=ixC^L+kr(idim1,^D);
             hxC^L=ixC^L+kr(idim2,^D);
@@ -6328,31 +6359,29 @@ contains
     circ(ixI^S,1:ndim)=zero
 
     ! Calculate circulation on each face
-
     do idim1=1,ndim ! Coordinate perpendicular to face 
+      ixCmax^D=ixOmax^D;
+      ixCmin^D=ixOmin^D-kr(idim1,^D);
       do idim2=1,ndim
         do idir=7-2*ndim,3 ! Direction of line integral
           ! Assemble indices
-          hxC^L=ixC^L-kr(idim2,^D);
-          ! Add line integrals in direction idir
-          circ(ixC^S,idim1)=circ(ixC^S,idim1)&
-                           +lvc(idim1,idim2,idir)&
-                           *(fE(ixC^S,idir)&
-                            -fE(hxC^S,idir))
+          if(lvc(idim1,idim2,idir)/=0.d0) then
+            hxC^L=ixC^L-kr(idim2,^D);
+            ! Add line integrals in direction idir
+            circ(ixC^S,idim1)=circ(ixC^S,idim1)&
+                             +lvc(idim1,idim2,idir)&
+                             *(fE(ixC^S,idir)&
+                              -fE(hxC^S,idir))
+          end if
         end do
       end do
-    end do
-
-    ! Divide by the area of the face to get dB/dt
-    do idim1=1,ndim
-      ixCmax^D=ixOmax^D;
-      ixCmin^D=ixOmin^D-kr(idim1,^D);
+      ! Divide by the area of the face to get dB/dt
       where(s%surfaceC(ixC^S,idim1) > 1.0d-9*s%dvolume(ixC^S))
         circ(ixC^S,idim1)=circ(ixC^S,idim1)/s%surfaceC(ixC^S,idim1)
       elsewhere
         circ(ixC^S,idim1)=zero
       end where
-      ! Time update
+      ! Time update cell-face magnetic field component
       bfaces(ixC^S,idim1)=bfaces(ixC^S,idim1)-circ(ixC^S,idim1)
     end do
 
@@ -6414,7 +6443,6 @@ contains
     ! Calculate contribution to FEM of each edge,
     ! that is, estimate value of line integral of
     ! electric field in the positive idir direction.
-    fE=zero
     ! evaluate electric field along cell edges according to equation (41)
     do idim1=1,ndim 
       iwdim1 = mag(idim1)
@@ -6510,17 +6538,17 @@ contains
       do idim2=1,ndim
         do idir=7-2*ndim,3 ! Direction of line integral
           ! Assemble indices
-          hxC^L=ixC^L-kr(idim2,^D);
-          ! Add line integrals in direction idir
-          circ(ixC^S,idim1)=circ(ixC^S,idim1)&
-                           +lvc(idim1,idim2,idir)&
-                           *(fE(ixC^S,idir)&
-                            -fE(hxC^S,idir))
+          if(lvc(idim1,idim2,idir)/=0.d0) then
+            hxC^L=ixC^L-kr(idim2,^D);
+            ! Add line integrals in direction idir
+            circ(ixC^S,idim1)=circ(ixC^S,idim1)&
+                             +lvc(idim1,idim2,idir)&
+                             *(fE(ixC^S,idir)&
+                              -fE(hxC^S,idir))
+          end if
         end do
       end do
       ! Divide by the area of the face to get dB/dt
-      ixCmax^D=ixOmax^D;
-      ixCmin^D=ixOmin^D-kr(idim1,^D);
       where(s%surfaceC(ixC^S,idim1) > 1.0d-9*s%dvolume(ixC^S))
         circ(ixC^S,idim1)=circ(ixC^S,idim1)/s%surfaceC(ixC^S,idim1)
       elsewhere
@@ -6577,8 +6605,6 @@ contains
 
     ! if there is ambipolar diffusion, get E_ambi
     if(mhd_ambipolar_exp) call get_ambipolar_electric_field(ixI^L,ixO^L,sCT%w,x,E_ambi)
-
-    fE=zero
 
     do idir=7-2*ndim,3
       ! Indices
@@ -6664,33 +6690,29 @@ contains
     circ(ixI^S,1:ndim)=zero
 
     ! Calculate circulation on each face: interal(fE dot dl)
-
     do idim1=1,ndim ! Coordinate perpendicular to face 
       ixCmax^D=ixOmax^D;
       ixCmin^D=ixOmin^D-kr(idim1,^D);
       do idim2=1,ndim
         do idir=7-2*ndim,3 ! Direction of line integral
           ! Assemble indices
-          hxC^L=ixC^L-kr(idim2,^D);
-          ! Add line integrals in direction idir
-          circ(ixC^S,idim1)=circ(ixC^S,idim1)&
-                           +lvc(idim1,idim2,idir)&
-                           *(fE(ixC^S,idir)&
-                            -fE(hxC^S,idir))
+          if(lvc(idim1,idim2,idir)/=0.d0) then
+            hxC^L=ixC^L-kr(idim2,^D);
+            ! Add line integrals in direction idir
+            circ(ixC^S,idim1)=circ(ixC^S,idim1)&
+                             +lvc(idim1,idim2,idir)&
+                             *(fE(ixC^S,idir)&
+                              -fE(hxC^S,idir))
+          end if
         end do
       end do
-    end do
-
-    ! Divide by the area of the face to get dB/dt
-    do idim1=1,ndim
-      ixCmax^D=ixOmax^D;
-      ixCmin^D=ixOmin^D-kr(idim1,^D);
+      ! Divide by the area of the face to get dB/dt
       where(s%surfaceC(ixC^S,idim1) > 1.0d-9*s%dvolume(ixC^S))
         circ(ixC^S,idim1)=circ(ixC^S,idim1)/s%surfaceC(ixC^S,idim1)
       elsewhere
         circ(ixC^S,idim1)=zero
       end where
-      ! Time update
+      ! Time update cell-face magnetic field component
       bfaces(ixC^S,idim1)=bfaces(ixC^S,idim1)-circ(ixC^S,idim1)
     end do
 

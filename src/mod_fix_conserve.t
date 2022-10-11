@@ -450,11 +450,11 @@ module mod_fix_conserve
      do iigrid=1,igridstail; igrid=igrids(iigrid);
        {do iside=1,2
          if (associated(pflux(iside,^D,igrid)%flux)) then
-           deallocate(pflux(iside,^D,igrid)%flux)
+           if(size(pflux(iside,^D,igrid)%flux)>0) deallocate(pflux(iside,^D,igrid)%flux)
            nullify(pflux(iside,^D,igrid)%flux)
          end if
          if (associated(pflux(iside,^D,igrid)%edge)) then
-           deallocate(pflux(iside,^D,igrid)%edge)
+           if(size(pflux(iside,^D,igrid)%edge)>0) deallocate(pflux(iside,^D,igrid)%edge)
            nullify(pflux(iside,^D,igrid)%edge)
          end if
        end do\}
