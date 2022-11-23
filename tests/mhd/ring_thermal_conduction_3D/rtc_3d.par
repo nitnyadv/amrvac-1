@@ -53,7 +53,6 @@
   mhd_thermal_conduction =T
   Busr=1.d-5
   typedivbfix='none'
-  !use_new_mhd_tc = .true.
  /
 
  &tc_list
@@ -61,11 +60,3 @@
   tc_saturate     =.false.
   tc_k_para =0.01d0
  /
-
- &sts_list
-        sts_method=1
-        sourcetype_sts=2
- /
-
-  
-

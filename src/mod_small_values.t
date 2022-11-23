@@ -78,12 +78,8 @@ contains
           ! verify in cube with border width small_values_daverage the presence of
           ! cells where all went ok
           do i = 1, max(small_values_daverage, 1)
-            !TODO replaced 
-            !{kxOmin^D= max(ix^D-i, ixImin^D);
-            !kxOmax^D= min(ix^D+i, ixImax^D);\}
-            !TODO by 
-            {kxOmin^D= max(ix^D-i, ixOmin^D);
-            kxOmax^D= min(ix^D+i, ixOmax^D);\}
+            {kxOmin^D= max(ix^D-i, ixImin^D);
+            kxOmax^D= min(ix^D+i, ixImax^D);\}
             ! in case cells are fine within smaller cube than 
             ! the userset small_values_daverage: use that smaller cube
             if(any(w_flag(kxO^S,iw) .eqv. .false.)) exit

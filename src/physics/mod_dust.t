@@ -63,6 +63,16 @@ module mod_dust
   !> Determines the dust temperature, can be 'constant', 'ism', or 'stellar'
   character(len=std_len) :: dust_temperature_type = 'constant'
 
+  !> whether second order terms (relevant only when dust_n_species >=2) are included
+  !> there are the terms  n2, ni2, d2 in Eqs 6,7,8 in amrvac 3.0 paper
+  logical :: dust_implicit_second_order = .true.  
+  !> whether the update of the (kinetic) energy is done in implicit manner
+  !> the collisional term in this implementation includes the frictional heating
+  !> otherwise only the work done by the collisonal terms is included in an explicit manner
+  !> In many cases, FH will 
+  logical :: dust_backreaction_fh = .false.  
+
+
   ! Public methods
   public :: dust_init
   public :: dust_get_dt
@@ -129,7 +139,8 @@ contains
 
     namelist /dust_list/ dust_n_species, dust_min_rho, dust_method, &
          dust_K_lineardrag, dust_small_to_zero, dust_source_split, dust_temperature, &
-         dust_temperature_type, dust_backreaction, dust_dtpar, gas_vtherm_factor, dust_stellar_luminosity
+         dust_temperature_type, dust_backreaction, dust_dtpar, gas_vtherm_factor, dust_stellar_luminosity,&
+         dust_implicit_second_order, dust_backreaction_fh 
 
     do n = 1, size(files)
       open(unitpar, file=trim(files(n)), status="old")
@@ -595,29 +606,37 @@ contains
     double precision, intent(inout) :: w(ixI^S, 1:nw)
     double precision, intent(in)    :: x(ixI^S,1:ndim)
 
-    double precision :: ptherm(ixI^S), vgas(ixI^S, 1:ndir)
-    double precision :: fdrag(ixI^S, 1:ndir, 1:dust_n_species)
+    double precision :: tmp(ixI^S), vgas(ixI^S, 1:ndir)
+    double precision :: alpha(ixI^S, 1:ndir, 1:dust_n_species)
     integer          :: n, idir
 
-    call phys_get_pthermal(w, x, ixI^L, ixO^L, ptherm)
     do idir=1,ndir
       vgas(ixO^S,idir)=w(ixO^S,gas_mom(idir))/w(ixO^S,gas_rho_)
     end do
-
-    call get_3d_dragforce(ixI^L, ixO^L, w, x, fdrag, ptherm, vgas)
+    call get_alpha_dust(ixI^L, ixO^L, w, vgas,x, alpha)
     w(ixO^S, gas_e_)=0d0
     do idir = 1, ndir
 
       w(ixO^S, gas_mom(idir))=0d0
       do n = 1, dust_n_species
+        ! contribution for gas momentum
+        tmp(ixO^S) = alpha(ixO^S, idir,n) * (  &
+            w(ixO^S,dust_rho(n)) * w(ixO^S, gas_mom(idir)) - &
+            w(ixO^S,gas_rho_) * w(ixO^S, dust_mom(idir, n)))
+        w(ixO^S, dust_mom(idir, n)) = -tmp(ixO^S)
         if (dust_backreaction) then
-           w(ixO^S, gas_mom(idir)) = w(ixO^S, gas_mom(idir)) + fdrag(ixO^S, idir, n)
-           if (gas_e_ > 0) then
-             w(ixO^S, gas_e_) = w(ixO^S, gas_e_) + vgas(ixO^S, idir)  &
-                 * fdrag(ixO^S, idir, n)
-           end if
+          w(ixO^S, gas_mom(idir)) = w(ixO^S, gas_mom(idir)) + tmp(ixO^S)
+          if (gas_e_ > 0) then
+            if(dust_backreaction_fh) then
+              w(ixO^S, gas_e_) = w(ixO^S, gas_e_) + alpha(ixO^S, idir,n) * &
+                (w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir,n))**2/w(ixO^S,dust_rho(n))) - &
+                w(ixO^S,dust_rho(n)) * (w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_)))
+            else  
+              w(ixO^S, gas_e_) = w(ixO^S, gas_e_) + vgas(ixO^S, idir)  &
+                 * tmp(ixO^S)
+            end if
+          end if
         end if
-        w(ixO^S, dust_mom(idir, n)) = -fdrag(ixO^S, idir, n)
       end do
     end do
   end subroutine dust_terms
@@ -634,9 +653,8 @@ contains
     double precision, intent(in) :: dtfactor
 
     integer :: iigrid, igrid
-    !print*, "IMPL call ", it
 
-    call getbc(global_time,0.d0,psa,1,nw)
+    !call getbc(global_time,0.d0,psa,1,nw)
     !$OMP PARALLEL DO PRIVATE(igrid)
     do iigrid=1,igridstail; igrid=igrids(iigrid);
        ^D&dxlevel(^D)=rnode(rpdx^D_,igrid);
@@ -659,76 +677,10 @@ contains
     integer                            :: n, m, idir
     double precision :: alpha(ixI^S, 1:ndir, 1:dust_n_species)
     double precision :: tmp(ixI^S),tmp2(ixI^S)
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
     double precision :: tmp3(ixI^S)
-#endif
     double precision    :: vgas(ixI^S, 1:ndir)
 
 
-! ! 1 specie
-! roots = Solve[
-!   u1 == t1 +   beta * dt (-j1 u1 - j1g ug ) &&
-! 
-!      ug == tg +   beta * dt (+j1 u1 + j1g ug )
-!      , {u1, ug}   ]
-! 
-! !!RES
-! DENOM= 1 + beta*dt*(j1 - j1g)
-! Dust 1
-! -beta*dt*(j1*t1 + j1g*tg)/DENOM
-! gas
-! beta*dt*(j1*t1 + j1g*tg)/DENOM
-! !!!!!!!
-! 
-! 
-! DENOM= 1 + beta*dt*alpha_1(rho_gas + rho_dust_1)
-! Num_dust1=
-! -beta*dt*alpha_1(rho_gas*t1 - rho_dust_1*tg)
-! Num_gas=
-! beta*dt*alpha_1(rho_gas*t1 - rho_dust_1*tg)
-! 
-! 
-! 
-! ! 2 species
-! roots = Solve[
-!   u1 == t1 +   beta * dt (-j1 u1 - j1g ug ) &&
-!   u2 == t2 +   beta * dt (-j2 u2 - j2g ug ) &&
-! 
-!      ug == tg +   beta * dt (j1 u1 + j1g ug + j2 u2 + j2g ug )
-!      , {u1, u2, ug}   ]
-! 
-! !!RES
-! DENOM= 1 + beta dt (j1 - j1g + j2 - j2g) + (beta dt)**2 (-(j1g*j2) + j1*(j2 - j2g))
-! Dust 1
-! [-beta dt (j1*t1 + j1g*tg) - (beta dt)**2 (j1*(j2 - j2g)*t1 + j1g*j2*(t2 + tg))]/DENOM
-! 
-! Dust 2
-! [-beta dt (j2*t2 + j2g*tg) - (beta dt)**2 (j2*(j1 - j1g)*t2 + j2g*j1*(t1 + tg))]/DENOM
-! Gas
-! [beta dt (j1*t1 + j2*t2 + (j1g + j2g)*tg) + (beta dt)**2 (j1*j2*(t1 + t2) + j1g*j2*tg + j1*j2g*tg)]/DENOM
-! 
-! ! j1g, j2g < 0
-! ! j1, j2 > 0
-! ! j1g = - alpha rho_dust_1
-! ! j1 =  alpha rho_gas
-! ! j2g = - alpha rho_dust_2
-! ! j2 =  alpha rho_gas
-! 
-! DENOM= 1 + beta dt (alpha_1  (rho_gas + rho_dust_1) + alpha_2 (rho_gas + rho_dust_2))
-!  + (beta dt)**2 alpha_1 alpha_2  * rho_gas * (rho_dust_1 +rho_gas + rho_dust_2)
-! NUM_dust1=
-!  [ -beta dt alpha_1 (rho_gas*t1 - rho_dust_1*tg) 
-!   - (beta dt)**2 alpha_1 alpha_2 rho_gas ((rho_gas + rho_dust_2)*t1 - rho_dust_1 * (t2 + tg))] 
-! NUM_dust2=
-!  [ -beta dt alpha_2 (rho_gas*t2 - rho_dust_2*tg) 
-!   - (beta dt)**2 alpha_1 alpha_2 rho_gas ((rho_gas + rho_dust_1)*t2 - rho_dust_2 * (t1 + tg))] 
-! 
-! NUM_gas=
-!   [ beta dt (rho_gas(alpha_1*t1 + alpha2*t2) - (rho_dust_1 alpha_1 + rho_dust_2 alpha_2)*tg) + 
-!   (beta dt)**2 alpha_1 alpha_2 rho_gas (rho_gas (t1 + t2) -  (rho_dust_1 + rho_dust_2)*tg]
-
-
-    !-------------------------------------------------------------------
     do idir = 1, ndir
       vgas(ixO^S,idir)=w(ixO^S,gas_mom(idir))/w(ixO^S,gas_rho_)
     end do
@@ -736,137 +688,118 @@ contains
     wout(ixO^S,1:nw) = w(ixO^S,1:nw)
 
     do idir = 1, ndir
-      ! calc DENOM
-! DENOM= 1 + beta dt (alpha_1  (rho_gas + rho_dust_1) + alpha_2 (rho_gas + rho_dust_2))
-!  + (beta dt)**2 alpha_1 alpha_2  * rho_gas * (rho_dust_1 +rho_gas + rho_dust_2)
+      ! d1 from Eq 6
       tmp2(ixO^S) = 0d0
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-      tmp3(ixO^S) = 0d0
-#endif
       do n = 1, dust_n_species
         tmp2(ixO^S) = tmp2(ixO^S) +  alpha(ixO^S, idir,n) * &
           (w(ixO^S,gas_rho_) + w(ixO^S,dust_rho(n))) 
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-        do m = 1, dust_n_species
-          if(m .ne. n) then
-            tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
-               (w(ixO^S,gas_rho_) + w(ixO^S,dust_rho(n))+w(ixO^S,dust_rho(m)))
-          endif
-        enddo
-#endif
+
       enddo
-  
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-      tmp3(ixO^S) = tmp3(ixO^S) * w(ixO^S,gas_rho_)
-      tmp(ixO^S) = 1d0 + tmp2(ixO^S) * qdt + tmp3(ixO^S) * (qdt**2) 
-#else
+      ! store D in tmp
       tmp(ixO^S) = 1d0 + tmp2(ixO^S) * qdt 
-#endif
-
-! NUM_dust1=
-!  [ -beta dt alpha_1 (rho_gas*t1 - rho_dust_1*tg) 
-!   - (beta dt)**2 alpha_1 alpha_2 rho_gas ((rho_gas + rho_dust_2)*t1 - rho_dust_1 * (t2 + tg))] 
-! NUM_dust2=
-!  [ -beta dt alpha_2 (rho_gas*t2 - rho_dust_2*tg) 
-!   - (beta dt)**2 alpha_1 alpha_2 rho_gas ((rho_gas + rho_dust_1)*t2 - rho_dust_2 * (t1 + tg))] 
-      do n = 1, dust_n_species
-
-        tmp2(ixO^S) = alpha(ixO^S, idir,n) * (w(ixO^S,gas_rho_) * w(ixO^S, dust_mom(idir, n)) - &
-            w(ixO^S,dust_rho(n)) * w(ixO^S, gas_mom(idir)))
-
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-        tmp3(ixO^S) = 0d0
-        do m = 1, dust_n_species
-          if(m .ne. n) then
-            tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
-            ( (w(ixO^S,gas_rho_) + w(ixO^S,dust_rho(m))) * w(ixO^S, dust_mom(idir, n)) - &
-              w(ixO^S,dust_rho(n)) * (w(ixO^S, dust_mom(idir, n)) +  w(ixO^S, gas_mom(idir))))  
-          endif
+      if(dust_implicit_second_order) then
+        ! d2 from Eq 6
+        tmp2(ixO^S) = 0d0
+        do n = 1, dust_n_species
+          do m = n+1, dust_n_species
+            tmp2(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
+                 (w(ixO^S,gas_rho_) + w(ixO^S,dust_rho(n))+w(ixO^S,dust_rho(m)))
+          enddo
         enddo
-        tmp3(ixO^S) = tmp3(ixO^S) * w(ixO^S,gas_rho_)
-        tmp2(ixO^S) = - qdt * tmp2(ixO^S) - tmp3(ixO^S) * (qdt**2) 
-#else
-        tmp2(ixO^S) = - qdt * tmp2(ixO^S) 
-#endif
+        ! multiplied at the end by rho_gas 
+        tmp(ixO^S) = tmp(ixO^S) + w(ixO^S,gas_rho_)*tmp2(ixO^S) * (qdt**2)
+      endif
+
+
+
+      do n = 1, dust_n_species
+        ! ni1 from eq 7
+        tmp2(ixO^S) = alpha(ixO^S, idir,n) * (  &
+            w(ixO^S,dust_rho(n)) * w(ixO^S, gas_mom(idir)) - &
+            w(ixO^S,gas_rho_) * w(ixO^S, dust_mom(idir, n))) * qdt
+
+        if(dust_implicit_second_order) then 
+          ! ni2 from eq 7 
+          tmp3(ixO^S) = 0d0
+          do m = n+1, dust_n_species
+              tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) * &
+              ( w(ixO^S,dust_rho(n)) * (w(ixO^S, dust_mom(idir, n)) +  w(ixO^S, gas_mom(idir))) - &
+                (w(ixO^S,gas_rho_) + w(ixO^S,dust_rho(m))) * w(ixO^S, dust_mom(idir, n)) )  
+          enddo
+          ! tmp3 multiplied at the end by rho_gas 
+          tmp2(ixO^S) = tmp2(ixO^S) + tmp3(ixO^S) * w(ixO^S,gas_rho_)* (qdt**2) 
+        endif
         tmp2(ixO^S) = tmp2(ixO^S)/tmp(ixO^S)
         wout(ixO^S, dust_mom(idir,n)) = w(ixO^S, dust_mom(idir,n)) + tmp2(ixO^S)
       enddo
 
-
-
-! NUM_gas=
-!   [ beta dt (rho_gas(alpha_1*t1 + alpha2*t2) - (rho_dust_1 alpha_1 + rho_dust_2 alpha_2)*tg) + 
-!   (beta dt)**2 alpha_1 alpha_2 rho_gas (rho_gas (t1 + t2) -  (rho_dust_1 + rho_dust_2)*tg]
-
       if (dust_backreaction) then
         tmp2(ixO^S) = 0d0
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-        tmp3(ixO^S) = 0d0
-#endif
+        !n1 from eq 8 
         do n = 1, dust_n_species
           tmp2(ixO^S) = tmp2(ixO^S) + alpha(ixO^S, idir,n) * &
               (w(ixO^S,gas_rho_) * w(ixO^S, dust_mom(idir,n)) - &
               w(ixO^S,dust_rho(n)) * w(ixO^S, gas_mom(idir)))
 
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-          do m = 1, dust_n_species
-              if(m .ne. n) then
-                tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
-                  ( w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir, n)) + w(ixO^S, dust_mom(idir, m)))- &
-                    (w(ixO^S,dust_rho(n)) +  w(ixO^S,dust_rho(m)))* w(ixO^S, gas_mom(idir)))  
-              endif
-          enddo
-#endif
         enddo
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-        tmp3(ixO^S) = tmp3(ixO^S) * w(ixO^S,gas_rho_)
-        tmp2(ixO^S) = qdt *  tmp2(ixO^S) + (qdt**2)*tmp3(ixO^S)
-#else
         tmp2(ixO^S) = qdt *  tmp2(ixO^S) 
-#endif
-        tmp2(ixO^S) = tmp2(ixO^S) / tmp(ixO^S)
-
-         wout(ixO^S, gas_mom(idir)) = w(ixO^S, gas_mom(idir)) + tmp2(ixO^S)
-         if (gas_e_ > 0) then
-#if defined(DUST_IMPL_ENERGY) && DUST_IMPL_ENERGY==1    
-          tmp2(ixO^S) = 0d0
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
+        if(dust_implicit_second_order) then 
+          !n2 from eq 8 
           tmp3(ixO^S) = 0d0
-#endif
           do n = 1, dust_n_species
-            tmp2(ixO^S) = tmp2(ixO^S) + alpha(ixO^S, idir,n) * &
-              (w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir,n))**2/w(ixO^S,dust_rho(n))) - &
-              w(ixO^S,dust_rho(n)) * (w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_)))
-
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-            do m = 1, dust_n_species
-              if(m .ne. n) then
-                tmp3(ixO^S) = tmp3(ixO^S) +  alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) *&
-                  ( w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir, n))**2/w(ixO^S,dust_rho(n))  + w(ixO^S, dust_mom(idir, m))**2/w(ixO^S,dust_rho(m))- &
-                    (w(ixO^S,dust_rho(n)) +  w(ixO^S,dust_rho(m)))* w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_) )  
-              endif
+            do m = n+1, dust_n_species
+               tmp3(ixO^S) = tmp3(ixO^S) + alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) * &
+                    (w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir, n)) + w(ixO^S, dust_mom(idir, m))) - &
+                    (w(ixO^S,dust_rho(n)) + w(ixO^S,dust_rho(m)))* w(ixO^S, gas_mom(idir)))  
             enddo
-#endif
           enddo
-#if defined(DUST_IMPL_SECOND_ORDER) && DUST_IMPL_SECOND_ORDER==1
-        tmp3(ixO^S) = tmp3(ixO^S) * w(ixO^S,gas_rho_)
-        tmp2(ixO^S) = qdt *  tmp2(ixO^S) + (qdt**2)*tmp3(ixO^S)
-#else
-        tmp2(ixO^S) = qdt *  tmp2(ixO^S) 
-#endif
-        tmp2(ixO^S) = 0.5d0 * tmp2(ixO^S) / tmp(ixO^S)
+          ! tmp3 multiplied at the end by rho_gas 
+          tmp2(ixO^S) = tmp2(ixO^S) + (qdt**2)*tmp3(ixO^S)* w(ixO^S,gas_rho_)
+        endif
+        ! store in tmp2 contribution to momentum
+        ! so that it is used when dust_backreaction_fh = .false.
+        tmp2(ixO^S) = tmp2(ixO^S) / tmp(ixO^S)
+        wout(ixO^S, gas_mom(idir)) = w(ixO^S, gas_mom(idir)) + tmp2(ixO^S)
 
-         wout(ixO^S, gas_e) = wout(ixO^S, gas_e) + tmp2(ixO^S)
-
-
-#else
-           wout(ixO^S, gas_e_) = wout(ixO^S, gas_e_)+  vgas(ixO^S, idir)  &
-               * tmp2(ixO^S)
-
-#endif
+        ! kinetic energy update
+         if (gas_e_ > 0) then
+          if(dust_backreaction_fh) then 
+            ! add work done by coll terms + FrictionalHeating
+            tmp2(ixO^S) = 0d0
+            do n = 1, dust_n_species
+              ! 2*dust kinetic energy: dust rho can be 0
+              where(w(ixO^S,dust_rho(n)) > 0d0)
+                tmp3(ixO^S)= w(ixO^S, dust_mom(idir,n))**2/w(ixO^S,dust_rho(n))
+              elsewhere
+                tmp3(ixO^S) = 0d0
+              endwhere
+              tmp2(ixO^S) = tmp2(ixO^S) + alpha(ixO^S, idir,n) * &
+                (w(ixO^S,gas_rho_) * tmp3(ixO^S) - &
+                w(ixO^S,dust_rho(n)) * (w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_)))
+  
+            enddo
+            tmp2(ixO^S) = qdt *  tmp2(ixO^S) 
+            if(dust_implicit_second_order) then
+              tmp3(ixO^S) = 0d0
+              do n = 1, dust_n_species
+                do m = n+1, dust_n_species
+                    tmp3(ixO^S) = tmp3(ixO^S) + alpha(ixO^S, idir,n) * alpha(ixO^S, idir,m) * &
+                      (w(ixO^S,gas_rho_) * (w(ixO^S, dust_mom(idir, n))**2/w(ixO^S,dust_rho(n)) + w(ixO^S, dust_mom(idir,m))**2/w(ixO^S,dust_rho(m))) - &
+                      (w(ixO^S,dust_rho(n)) + w(ixO^S,dust_rho(m)))* w(ixO^S, gas_mom(idir))**2/w(ixO^S,gas_rho_))  
+                enddo
+              enddo
+              ! tmp3 multiplied at the end by rho_gas 
+              tmp2(ixO^S) = tmp2(ixO^S) + (qdt**2)*tmp3(ixO^S)* w(ixO^S,gas_rho_)
+            endif
+            wout(ixO^S, gas_e_) = wout(ixO^S, gas_e_) + 0.5d0 * tmp2(ixO^S) / tmp(ixO^S)
+          else
+            ! dust_backreaction_fh = .false.
+            ! add only work done by coll term by multiplyting the contribution in mom eq. by velocity
+            wout(ixO^S, gas_e_) = wout(ixO^S, gas_e_) + vgas(ixO^S, idir) * tmp2(ixO^S)
+          endif
          end if
       end if
-    end do
+    end do !1..ndir
         
 
   end subroutine dust_advance_implicit_grid

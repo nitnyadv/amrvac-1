@@ -1,6 +1,6 @@
 !=====================================================
-! Project : Advection test: a VAC log
-!
+! Project : Advection test: a VAC logo
+!     with added particle sampling  
 !=====================================================
 
  &filelist
@@ -13,8 +13,8 @@
  &savelist
         itsave(1,1)=0
         itsave(1,2)=0
-        ditsave_log=10
-        dtsave_dat=0.01d0
+        ditsave_log=100
+        dtsave_dat=0.005d0
  /
 
  &stoplist
@@ -22,9 +22,9 @@
  /
 
  &methodlist
-        time_stepper=  'fivestep'
-        flux_scheme =    20*'fd'
-        limiter= 20*'mp5'
+        time_stepper=  'threestep'
+        flux_scheme =  20*'tvdlf'
+        limiter= 20*'koren'
  /
 
  &boundlist
@@ -35,7 +35,7 @@
  /
 
  &meshlist
-        refine_max_level=3
+        refine_max_level=4
         refine_threshold=20*0.1d0
         block_nx1=10
         block_nx2=10
@@ -49,7 +49,6 @@
 
  &paramlist
        courantpar=0.8d0
-       typecourant='minimum'
  /
 
  &rho_list
@@ -60,7 +59,8 @@
  &particles_list
         physics_type_particles='sample'
         num_particles=3
-        dtsave_particles = 0.01d0
-        write_ensemble = t
-        write_individual = f
+        nusrpayload=1
+        dtsave_particles = 0.005d0
+        write_ensemble = .true.
+        write_individual = .false.
  /

@@ -4,7 +4,8 @@ module mod_usr
 
   implicit none
 
-  integer :: i_sol,i_err
+  integer :: i_sol,i_err ! indices for extra variables
+  integer :: isol   ! index for extra payload in gridvars for particles
 
 contains
 
@@ -18,10 +19,14 @@ contains
     ! Particle stuff
     usr_create_particles => generate_particles
     usr_particle_position => move_particle
+    particles_define_additional_gridvars => define_additional_gridvars_usr
+    particles_fill_additional_gridvars => fill_additional_gridvars_usr
+    usr_update_payload => update_payload_usr
 
     call set_coordinate_system("Cartesian_2D")
     call rho_activate()
 
+    ! extra variables to store solution and error (for I/O purposes)
     i_sol = var_set_extravar("solution", "solution")
     i_err = var_set_extravar("error", "error")
   end subroutine usr_init
@@ -218,11 +223,11 @@ contains
 
     v_move = 0.25d0
     rad = 0.0398d0
-    xc = (xprobmax1 - xprobmin1)*.75d0
+    xc = (xprobmax1 - xprobmin1)*.75d0-rad
     yc = (xprobmax2 - xprobmin2)/2.d0
     freq = v_move/rad
 
-    ! particle 1 doesnt move;
+    ! particle 1 does not move;
     ! particle 2 moves on a straight line with vy=v_move
     ! particle 3 moves in a circle with vtang=v_move
     if (n .eq. 2) x(2) = x(2) + v_move*(tnew-told)
@@ -235,5 +240,48 @@ contains
 
   end subroutine move_particle
 
-end module mod_usr
+  ! Custom particle gridvars definition
+  subroutine define_additional_gridvars_usr(ngridvars)
+    use mod_global_parameters
+    integer, intent(inout) :: ngridvars
+ 
+    ! extra variable as payload: add the actual solution
+    isol = ngridvars+1
+    ngridvars = ngridvars+1
 
+  end subroutine define_additional_gridvars_usr
+
+  ! Custom particle gridvars filler
+  subroutine fill_additional_gridvars_usr
+    use mod_global_parameters
+    use mod_usr_methods, only: usr_particle_fields
+
+    !integer :: igrid, iigrid
+    !double precision :: rhoprofile(ixG^T)
+
+    !do iigrid=1,igridstail; igrid=igrids(iigrid);
+    !  call set_density_profile(ixG^LL,ixG^LL,global_time,ps(igrid)%x(ixG^T,1:ndim),rhoprofile)
+    !  gridvars(igrid)%w(ixG^T,isol) = rhoprofile(ixG^T)
+    !end do
+
+  end subroutine fill_additional_gridvars_usr
+
+  subroutine update_payload_usr(igrid,w,wold,xgrid,xpart,upart,qpart,mpart,payload,npayload,particle_time)
+    use mod_global_parameters
+    integer, intent(in)           :: igrid,npayload
+    double precision, intent(in)  :: w(ixG^T,1:nw),wold(ixG^T,1:nw)
+    double precision, intent(in)  :: xgrid(ixG^T,1:ndim),xpart(1:ndir),upart(1:ndir),qpart,mpart,particle_time
+    double precision, intent(out) :: payload(npayload)
+ 
+    double precision :: rhoprofile(ixG^T)
+
+    ! put the solution at particle_time for comparison
+    if (npayload > 0) then
+      call set_density_profile(ixG^LL,ixG^LL,particle_time,xgrid,rhoprofile)
+      gridvars(igrid)%w(ixG^T,isol) = rhoprofile(ixG^T)
+      call interpolate_var(igrid,ixG^LL,ixG^LL,gridvars(igrid)%w(ixG^T,isol),xgrid,xpart,payload(1))
+    end if
+
+  end subroutine update_payload_usr
+
+end module mod_usr
