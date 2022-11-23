@@ -66,10 +66,8 @@ module mod_dust
   !> whether second order terms (relevant only when dust_n_species >=2) are included
   !> there are the terms  n2, ni2, d2 in Eqs 6,7,8 in amrvac 3.0 paper
   logical :: dust_implicit_second_order = .true.  
-  !> whether the update of the (kinetic) energy is done in implicit manner
-  !> the collisional term in this implementation includes the frictional heating
-  !> otherwise only the work done by the collisonal terms is included in an explicit manner
-  !> In many cases, FH will 
+
+  !> whether fh is added for gas energy:  is only added in the impliict implementation, the explicit one was left as before
   logical :: dust_backreaction_fh = .false.  
 
 
@@ -644,7 +642,7 @@ contains
     !> Implicit solve of psb=psa+dtfactor*dt*F_im(psb)
   subroutine dust_implicit_update(dtfactor,qdt,qtC,psb,psa)
     use mod_global_parameters
-    use mod_ghostcells_update
+    !use mod_ghostcells_update
 
     type(state), target :: psa(max_blocks)
     type(state), target :: psb(max_blocks)
@@ -685,6 +683,7 @@ contains
       vgas(ixO^S,idir)=w(ixO^S,gas_mom(idir))/w(ixO^S,gas_rho_)
     end do
     call get_alpha_dust(ixI^L, ixO^L, w, vgas, x, alpha)
+    !TODO this is still neeed?
     wout(ixO^S,1:nw) = w(ixO^S,1:nw)
 
     do idir = 1, ndir

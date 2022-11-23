@@ -112,7 +112,6 @@ mod_constrained_transport.o: mod_limiter.mod
 mod_constrained_transport.o: mod_physics.mod
 mod_convert.o: mod_input_output.mod
 mod_dust.o: mod_geometry.mod
-mod_dust.o: mod_ghostcells_update.mod
 mod_dust.o: mod_physics.mod
 mod_finite_difference.o: mod_finite_volume.mod
 mod_finite_difference.o: mod_limiter.mod
