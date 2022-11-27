@@ -68,7 +68,7 @@ important changes as following:
 TEST MOVIES
 \htmlonly
 <video width="320" height="240" controls>
-  <source src="/figmovdir/videos-demo/alfven-lr.mp4" type="video/mp4">
+  <source src="alfven-lr.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 \endhtmlonly
