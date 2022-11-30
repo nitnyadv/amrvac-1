@@ -20,13 +20,13 @@ jobs:
         python -m pip install --upgrade pip
         sudo apt-get install doxygen
         sudo apt-get install graphviz
+        sudo apt-get -y install ghostscript texlive-latex-base texlive-binaries
 
     - name: Generate documentation
       run: |
         cd doc
         doxygen Doxyfile
         cp figmovdir/videos-demo/*.mp4 html/
-
 
     - name: Deploy website
       uses: peaceiris/actions-gh-pages@v3

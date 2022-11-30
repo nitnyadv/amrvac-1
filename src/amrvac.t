@@ -107,7 +107,10 @@ program amrvac
           ! e.g. calculate MF velocity from magnetic field
           call phys_special_advance(global_time,ps)
         end if
-
+        
+        if(associated(usr_before_convert)) then
+          call usr_before_convert()
+        endif
         call generate_plotfile
         call comm_finalize
         stop
